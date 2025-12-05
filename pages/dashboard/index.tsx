@@ -90,10 +90,10 @@ export default function Dashboard() {
           {/* Hero Section */}
           <motion.div
             variants={item}
-            className="relative overflow-hidden rounded-[2.5rem] bg-gradient-to-br from-[#4facfe] to-[#00f2fe] p-10 sm:p-14 shadow-2xl shadow-blue-500/20"
+            className="relative overflow-hidden rounded-[2.5rem] bg-gradient-to-br from-[#1e3a8a] via-[#3b82f6] to-[#9333ea] p-10 sm:p-14 shadow-2xl shadow-indigo-500/20"
           >
             {/* Glass Background Elements */}
-            <div className="absolute top-0 right-0 -mt-20 -mr-20 w-96 h-96 bg-white/20 rounded-full blur-3xl" />
+            <div className="absolute top-0 right-0 -mt-20 -mr-20 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl" />
             <div className="absolute bottom-0 left-0 -mb-20 -ml-20 w-80 h-80 bg-blue-600/20 rounded-full blur-3xl" />
 
             <div className="relative z-10 flex flex-col lg:flex-row items-center justify-between gap-12">
@@ -103,7 +103,7 @@ export default function Dashboard() {
                   {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
                 </div>
 
-                <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white tracking-tight leading-tight">
+                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white tracking-tight leading-tight">
                   {getGreeting()}, <br />
                   <span className="text-transparent bg-clip-text bg-gradient-to-r from-white to-blue-100">
                     {firstName}!

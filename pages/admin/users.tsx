@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 import { AppLayout } from '../../components/layout';
 import { Card, Button } from '../../components/ui';
+import { UsersIllustration } from '../../components/illustrations/UsersIllustration';
 
 interface User {
   id: string;
@@ -368,32 +369,42 @@ export default function AdminUsersPage() {
     <AppLayout title="User Management">
       <div className="p-4 sm:p-6 max-w-7xl mx-auto">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 font-heading">User Management</h1>
-            <p className="text-gray-500 mt-1">Manage organization users and permissions</p>
+        {/* Header Section */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center mb-8 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+          <div className="md:col-span-2 space-y-4">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 font-heading">User Management</h1>
+              <p className="text-gray-500 mt-2 text-lg">
+                Manage organization users, roles, and access permissions efficiently.
+              </p>
+            </div>
+            <div className="flex items-center gap-3 pt-2">
+              <Button
+                variant="secondary"
+                onClick={() => { }}
+                className="flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                Export
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => setShowAddModal(true)}
+                className="flex items-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                </svg>
+                Add User
+              </Button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="secondary"
-              onClick={() => {}}
-              className="flex items-center gap-2"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-              </svg>
-              Export
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-2"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-              </svg>
-              Add User
-            </Button>
+          <div className="hidden md:flex md:col-span-1 justify-center items-center">
+            <div className="w-full max-w-[280px]">
+              <UsersIllustration />
+            </div>
           </div>
         </div>
 
@@ -482,10 +493,10 @@ export default function AdminUsersPage() {
               {selectedUsers.length} user{selectedUsers.length > 1 ? 's' : ''} selected
             </span>
             <div className="flex-1" />
-            <Button variant="secondary" onClick={() => {}} className="text-sm">
+            <Button variant="secondary" onClick={() => { }} className="text-sm">
               Deactivate
             </Button>
-            <Button variant="secondary" onClick={() => {}} className="text-sm">
+            <Button variant="secondary" onClick={() => { }} className="text-sm">
               Change Role
             </Button>
             <button
