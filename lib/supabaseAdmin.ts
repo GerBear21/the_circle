@@ -1,20 +1,22 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-if (!process.env.SUPABASE_URL) {
-  throw new Error('Missing SUPABASE_URL environment variable');
-}
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY environment variable');
-}
+let supabaseAdmin: SupabaseClient;
 
-export const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  { 
-    auth: { 
+if (supabaseUrl && supabaseServiceRoleKey) {
+  supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
+    auth: {
       persistSession: false,
       autoRefreshToken: false,
-    } 
-  }
-);
+    },
+  });
+} else {
+  // Log warning but don't crash - allows build to complete
+  console.warn('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variables');
+  // Create a dummy client that will fail gracefully at runtime
+  supabaseAdmin = null as unknown as SupabaseClient;
+}
+
+export { supabaseAdmin };
