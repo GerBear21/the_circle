@@ -2,16 +2,35 @@ import NextAuth, { NextAuthOptions } from "next-auth";
 import AzureADProvider from "next-auth/providers/azure-ad";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
+// Validate required environment variables at startup
+const requiredEnvVars = {
+  AZURE_CLIENT_ID: process.env.AZURE_CLIENT_ID,
+  AZURE_CLIENT_SECRET: process.env.AZURE_CLIENT_SECRET,
+  NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET,
+  NEXTAUTH_URL: process.env.NEXTAUTH_URL,
+};
+
+const missingVars = Object.entries(requiredEnvVars)
+  .filter(([_, value]) => !value)
+  .map(([key]) => key);
+
+if (missingVars.length > 0) {
+  console.error(`Missing required environment variables: ${missingVars.join(", ")}`);
+}
+
 export const authOptions: NextAuthOptions = {
   providers: [
     AzureADProvider({
-      clientId: process.env.AZURE_CLIENT_ID!,
-      clientSecret: process.env.AZURE_CLIENT_SECRET!,
+      clientId: process.env.AZURE_CLIENT_ID || "",
+      clientSecret: process.env.AZURE_CLIENT_SECRET || "",
       tenantId: process.env.AZURE_TENANT || "common",
     }),
   ],
-  secret: process.env.NEXTAUTH_SECRET,
-  debug: process.env.NODE_ENV === "development",
+  secret: process.env.NEXTAUTH_SECRET || "fallback-secret-for-build-only",
+  debug: true, // Enable debug mode to see errors in logs
+  pages: {
+    error: "/auth/error", // Custom error page
+  },
   callbacks: {
     async signIn({ user, account, profile }) {
       try {
