@@ -45,7 +45,7 @@ const navItems: NavItem[] = [
     ),
   },
   {
-    href: '/settings',
+    href: '/system/settings',
     label: 'Settings',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -69,8 +69,8 @@ export default function BottomNav() {
               key={item.href}
               href={item.href}
               className={`flex flex-col items-center justify-center min-w-[64px] min-h-[44px] px-2 py-1 rounded-lg transition-colors ${isActive
-                  ? 'text-brand-500'
-                  : 'text-gray-500 hover:text-gray-700'
+                ? 'text-brand-500'
+                : 'text-gray-500 hover:text-gray-700'
                 }`}
             >
               {item.icon}
