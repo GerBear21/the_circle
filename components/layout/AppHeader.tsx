@@ -4,6 +4,14 @@ import { useSession, signOut } from 'next-auth/react';
 import Link from 'next/link';
 import { useState, useRef, useEffect } from 'react';
 
+interface AppHeaderProps {
+  title?: string;
+  showBack?: boolean;
+  onBack?: () => void;
+  onMenuClick?: () => void;
+  showMenuButton?: boolean;
+}
+
 export default function AppHeader({
   title = 'The Circle',
   showBack,
