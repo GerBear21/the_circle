@@ -22,16 +22,16 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
   const modalContent = (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       {/* Backdrop */}
-      <div 
-        className="fixed inset-0 bg-black/50 transition-opacity"
+      <div
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
         onClick={onClose}
         aria-hidden="true"
       />
-      
+
       {/* Modal */}
       <div className="flex min-h-full items-end sm:items-center justify-center p-4">
-        <div 
-          className={`relative w-full ${sizes[size]} bg-white rounded-2xl shadow-xl transform transition-all`}
+        <div
+          className={`relative w-full ${sizes[size]} bg-white rounded-2xl shadow-2xl transform transition-all border border-gray-100 ring-1 ring-black/5`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -49,7 +49,7 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
               </button>
             </div>
           )}
-          
+
           {/* Content */}
           <div className="p-4">
             {children}
@@ -60,6 +60,6 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
   );
 
   if (typeof window === 'undefined') return null;
-  
+
   return createPortal(modalContent, document.body);
 }

@@ -11,6 +11,8 @@ import { twMerge } from 'tailwind-merge';
 
 const Lottie = dynamic(() => import('lottie-react'), { ssr: false });
 import animationData from '../../Office illustration.json';
+import { supabase } from '@/lib/supabaseClient';
+import { useState } from 'react';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -34,6 +36,23 @@ const item = {
 export default function Dashboard() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const [signatureUrl, setSignatureUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (session?.user) {
+      const userId = (session.user as any).id;
+      if (userId && supabase) {
+        const { data } = supabase.storage.from('signatures').getPublicUrl(`${userId}.png`);
+
+        // Simple head check
+        fetch(data.publicUrl, { method: 'HEAD' })
+          .then(res => {
+            if (res.ok) setSignatureUrl(data.publicUrl);
+          })
+          .catch(() => { });
+      }
+    }
+  }, [session]);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -324,6 +343,34 @@ export default function Dashboard() {
                     </svg>
                   </button>
                 </div>
+              </motion.div>
+
+              {/* Signature Card */}
+              <motion.div variants={item} className="bg-white/60 backdrop-blur-xl rounded-[2rem] p-6 border border-white/50 shadow-lg">
+                <h3 className="font-bold text-gray-900 mb-4">Digital Signature</h3>
+                {signatureUrl ? (
+                  <div className="bg-white rounded-xl border border-gray-100 p-4 flex items-center justify-center">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={signatureUrl} alt="Your Signature" className="max-h-16 opacity-80" />
+                  </div>
+                ) : (
+                  <div className="bg-amber-50 rounded-xl p-4 border border-amber-100">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-amber-100 rounded-lg text-amber-600">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">Missing Signature</p>
+                        <p className="text-xs text-gray-600 mt-1 mb-3">Please set up your digital signature for approvals.</p>
+                        <Link href="/profile/settings" className="text-xs font-bold text-amber-700 hover:text-amber-800 bg-amber-100 px-3 py-1.5 rounded-lg transition-colors inline-block">
+                          Setup Now &rarr;
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </motion.div>
             </div>
           </div>

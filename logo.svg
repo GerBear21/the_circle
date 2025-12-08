@@ -1,0 +1,23 @@
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="brandGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2D9CDB" />
+      <stop offset="100%" stop-color="#A78BFA" />
+    </linearGradient>
+  </defs>
+  <path d="M 100 25
+           C 145 25, 180 60, 180 100
+           C 180 145, 145 180, 100 180
+           C 55 180, 20 145, 20 100
+           C 20 60, 52 28, 95 25
+           L 100 25
+           L 98 40
+           C 60 42, 35 65, 35 100
+           C 35 138, 65 167, 100 167
+           C 138 167, 167 138, 167 100
+           C 167 65, 140 38, 100 38
+           Z" 
+        fill="url(#brandGradient)"
+        style="filter: drop-shadow(0px 4px 6px rgba(45, 156, 219, 0.2));"
+  />
+</svg>

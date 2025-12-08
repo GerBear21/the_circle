@@ -530,7 +530,12 @@ function WorkflowCard({
   const [showMenu, setShowMenu] = useState(false);
 
   return (
-    <Card className="relative group hover:shadow-lg transition-shadow">
+    <Card className="relative group hover:shadow-lg transition-shadow border-t-4 border-t-primary-500">
+      <div className="absolute top-0 right-0 p-2 opacity-10">
+        <svg className="w-16 h-16 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+        </svg>
+      </div>
       {/* Status Badge */}
       <div className="flex items-center justify-between mb-3">
         <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${statusInfo.bg} ${statusInfo.text}`}>
@@ -616,6 +621,7 @@ function WorkflowCard({
             {workflow.category}
           </span>
           <span className="text-xs text-gray-400">v{workflow.version}</span>
+          <span className="ml-auto text-[10px] font-bold tracking-wider text-primary-400 uppercase">Workflow</span>
         </div>
 
         {/* Steps Preview */}
@@ -680,7 +686,7 @@ function WorkflowListItem({
   const categoryColor = categoryColors[workflow.category] || categoryColors.General;
 
   return (
-    <Card className="hover:shadow-md transition-shadow">
+    <Card className="hover:shadow-md transition-shadow border-l-4 border-l-primary-500">
       <div className="flex items-center gap-4">
         {/* Icon */}
         <div className="w-12 h-12 rounded-xl bg-brand-100 flex items-center justify-center flex-shrink-0">
@@ -697,6 +703,7 @@ function WorkflowListItem({
               {workflow.category}
             </span>
             <span className="text-xs text-gray-400">v{workflow.version}</span>
+            <span className="text-xs font-semibold text-primary-600 bg-primary-50 px-2 py-0.5 rounded border border-primary-100">WORKFLOW</span>
           </div>
           <p className="text-sm text-gray-500 truncate">{workflow.description}</p>
           <div className="flex items-center gap-4 mt-2">
@@ -792,7 +799,7 @@ function WorkflowDetailModal({ workflow, onClose }: { workflow: Workflow; onClos
             <div className="relative">
               {/* Connection Line */}
               <div className="absolute left-6 top-8 bottom-8 w-0.5 bg-gray-200" />
-              
+
               <div className="space-y-4">
                 {workflow.steps.map((step, idx) => {
                   const stepConfig = stepTypeConfig[step.type];
@@ -804,7 +811,7 @@ function WorkflowDetailModal({ workflow, onClose }: { workflow: Workflow; onClos
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={stepConfig.icon} />
                         </svg>
                       </div>
-                      
+
                       {/* Step Content */}
                       <div className="flex-1 bg-gray-50 rounded-xl p-4">
                         <div className="flex items-center gap-2 mb-1">
@@ -897,7 +904,7 @@ function CreateWorkflowModal({
 
   const handleCreate = () => {
     if (!name.trim()) return;
-    
+
     const newWorkflow: Workflow = {
       id: `wf-${Date.now()}`,
       name: name.trim(),

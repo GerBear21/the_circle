@@ -2,17 +2,107 @@ import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import { useEffect } from 'react';
 import { AppLayout } from '../../components/layout';
-import { Card, Button } from '../../components/ui';
+
+import { Card, Button, Input } from '../../components/ui';
+import dynamic from 'next/dynamic';
+import { supabase } from '../../lib/supabaseClient';
+import { useState } from 'react';
+
+const SignaturePad = dynamic(() => import('../../components/SignaturePad'), {
+  ssr: false,
+  loading: () => <div className="h-40 bg-gray-50 animate-pulse rounded-xl" />
+});
 
 export default function SettingsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const [signatureUrl, setSignatureUrl] = useState<string | undefined>(undefined);
+
+  // Profile State
+  const [profileData, setProfileData] = useState({
+    job_title: '',
+    department: '',
+    phone: '',
+    bio: ''
+  });
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
       router.push('/');
     }
   }, [status, router]);
+
+  useEffect(() => {
+    if (session?.user) {
+      const userId = (session.user as any).id;
+      if (userId && supabase) {
+        // Fetch signature
+        const { data } = supabase.storage.from('signatures').getPublicUrl(`${userId}.png`);
+        checkSignature(data.publicUrl);
+
+        // Fetch profile data
+        fetchProfile(userId);
+      }
+    }
+  }, [session]);
+
+  const fetchProfile = async (userId: string) => {
+    setInitialLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('app_users')
+        .select('job_title, department, phone, bio')
+        .eq('id', userId)
+        .single();
+
+      if (data) {
+        setProfileData({
+          job_title: data.job_title || '',
+          department: data.department || '',
+          phone: data.phone || '',
+          bio: data.bio || ''
+        });
+      }
+    } catch (err) {
+      console.error("Error fetching profile", err);
+    } finally {
+      setInitialLoading(false);
+    }
+  };
+
+  const updateProfile = async () => {
+    if (!session?.user) return;
+    const userId = (session.user as any).id;
+    setSaving(true);
+
+    try {
+      const { error } = await supabase
+        .from('app_users')
+        .update(profileData)
+        .eq('id', userId);
+
+      if (error) throw error;
+      alert('Profile updated successfully!');
+    } catch (err) {
+      console.error("Error updating profile", err);
+      alert('Failed to update profile. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const checkSignature = async (url: string) => {
+    try {
+      const res = await fetch(url, { method: 'HEAD' });
+      if (res.ok) {
+        setSignatureUrl(url);
+      }
+    } catch (e) {
+      // ignore
+    }
+  };
 
   if (status === 'loading') {
     return (
@@ -46,6 +136,21 @@ export default function SettingsPage() {
               </p>
             </div>
           </div>
+        </Card>
+
+        {/* Signature Section */}
+        <Card>
+          <div className="mb-4">
+            <h3 className="font-semibold text-gray-900">Digital Signature</h3>
+            <p className="text-sm text-gray-500">
+              Draw your signature, upload an image, or sign from your mobile device.
+              This will be used for approval workflows.
+            </p>
+          </div>
+          <SignaturePad
+            initialUrl={signatureUrl}
+            onSave={(url) => setSignatureUrl(url)}
+          />
         </Card>
 
         {/* Preferences */}

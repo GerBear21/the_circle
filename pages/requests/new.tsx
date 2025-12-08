@@ -15,14 +15,7 @@ const requestTypes = [
     color: 'primary',
     href: '/requests/new/approval',
   },
-  {
-    id: 'workflow',
-    title: 'Customize Workflow',
-    description: 'Configure approval steps, conditions & escalations',
-    icon: 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15',
-    color: 'secondary',
-    href: '/requests/new/workflow',
-  },
+
   {
     id: 'form',
     title: 'Design New Form',
@@ -46,6 +39,46 @@ const requestTypes = [
     icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
     color: 'warning',
     href: '/requests/new/capex',
+  },
+  {
+    id: 'hotel',
+    title: 'Complimentary Hotel Guest Booking Form',
+    description: 'Complimentary hotel accommodation request',
+    icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4',
+    color: 'primary',
+    href: '/requests/new/hotel-booking',
+  },
+  {
+    id: 'travel',
+    title: 'Travel Authorization',
+    description: 'Local travel authorization form',
+    icon: 'M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+    color: 'success',
+    href: '/requests/new/travel-auth',
+  },
+];
+
+const frequentlyUsedForms = [
+  {
+    id: 'leave',
+    title: 'Leave Request',
+    category: 'HR',
+    icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z',
+    href: '/requests/new/leave',
+  },
+  {
+    id: 'expense',
+    title: 'Expense Claim',
+    category: 'Finance',
+    icon: 'M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z',
+    href: '/requests/new/expense',
+  },
+  {
+    id: 'it_help',
+    title: 'IT Help Desk',
+    category: 'IT Support',
+    icon: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z',
+    href: '/requests/new/it-request',
   },
 ];
 
@@ -89,8 +122,8 @@ export default function NewRequestPage() {
         <div className="mb-8 rounded-2xl bg-gradient-to-br from-primary-50 via-white to-accent/5 border border-primary-100/50 p-6 sm:p-8">
           <div className="flex flex-col sm:flex-row items-center gap-6">
             <div className="w-48 h-48 sm:w-56 sm:h-56 flex-shrink-0">
-              <Lottie 
-                animationData={sendingApprovalAnimation} 
+              <Lottie
+                animationData={sendingApprovalAnimation}
                 loop={true}
                 className="w-full h-full drop-shadow-lg"
               />
@@ -106,7 +139,7 @@ export default function NewRequestPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
           {requestTypes.map((type) => {
             const colors = getColorClasses(type.color);
             return (
@@ -133,6 +166,30 @@ export default function NewRequestPage() {
               </Card>
             );
           })}
+        </div>
+
+        {/* Frequently Used Section */}
+        <div className="mb-4">
+          <h2 className="text-lg font-bold text-text-primary mb-4 font-heading">Frequently Used</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {frequentlyUsedForms.map((form) => (
+              <button
+                key={form.id}
+                onClick={() => router.push(form.href)}
+                className="flex items-center gap-3 p-3 rounded-xl bg-white border border-gray-200 hover:border-primary-300 hover:shadow-sm transition-all text-left group"
+              >
+                <div className="w-10 h-10 rounded-lg bg-gray-50 flex items-center justify-center text-gray-500 group-hover:text-primary-600 transition-colors">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={form.icon} />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="font-medium text-text-primary group-hover:text-primary-600 transition-colors">{form.title}</h3>
+                  <p className="text-xs text-text-secondary">{form.category}</p>
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
 
         <Card className="mt-6 bg-gray-50 border-gray-200">

@@ -69,6 +69,15 @@ const navSections: NavSection[] = [
           </svg>
         ),
       },
+      {
+        href: '/requests/forms',
+        label: 'All Forms',
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+        ),
+      },
     ],
   },
   {
@@ -101,7 +110,7 @@ const navSections: NavSection[] = [
           </svg>
         ),
       },
-      
+
       {
         href: '/admin/document-templates',
         label: 'Document Templates',
@@ -197,17 +206,35 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
       {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 transform transition-transform duration-300 ease-in-out lg:translate-x-0 font-sans ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 transform transition-transform duration-300 ease-in-out lg:translate-x-0 font-sans ${isOpen ? 'translate-x-0' : '-translate-x-full'
+          }`}
       >
         <div className="flex flex-col h-full">
           {/* Logo */}
           <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-brand-600 flex items-center justify-center shadow-lg shadow-brand-200">
-                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <div className="w-9 h-9 flex items-center justify-center">
+                <svg className="w-9 h-9" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <defs>
+                    <linearGradient id="brandGradientSidebar" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stopColor="#2D9CDB" />
+                      <stop offset="100%" stopColor="#A78BFA" />
+                    </linearGradient>
+                  </defs>
+                  <path d="M 100 25
+                     C 145 25, 180 60, 180 100
+                     C 180 145, 145 180, 100 180
+                     C 55 180, 20 145, 20 100
+                     C 20 60, 52 28, 95 25
+                     L 100 25
+                     L 98 40
+                     C 60 42, 35 65, 35 100
+                     C 35 138, 65 167, 100 167
+                     C 138 167, 167 138, 167 100
+                     C 167 65, 140 38, 100 38
+                     Z"
+                    fill="url(#brandGradientSidebar)"
+                  />
                 </svg>
               </div>
               <span className="text-gray-900 font-bold text-xl">The Circle</span>
@@ -233,9 +260,8 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                   >
                     {section.title}
                     <svg
-                      className={`w-4 h-4 transition-transform ${
-                        expandedSections.includes(section.title) ? 'rotate-180' : ''
-                      }`}
+                      className={`w-4 h-4 transition-transform ${expandedSections.includes(section.title) ? 'rotate-180' : ''
+                        }`}
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -245,9 +271,8 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                   </button>
                 )}
                 <div
-                  className={`space-y-1 ${
-                    section.title && !expandedSections.includes(section.title) ? 'hidden' : ''
-                  }`}
+                  className={`space-y-1 ${section.title && !expandedSections.includes(section.title) ? 'hidden' : ''
+                    }`}
                 >
                   {section.items.map((item) => (
                     <Link
@@ -258,11 +283,10 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                           onClose();
                         }
                       }}
-                      className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                        isActive(item.href!)
-                          ? 'bg-brand-50 text-brand-600'
-                          : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                      }`}
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${isActive(item.href!)
+                        ? 'bg-brand-50 text-brand-600'
+                        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                        }`}
                     >
                       <span className={isActive(item.href!) ? 'text-brand-500' : 'text-gray-400'}>
                         {item.icon}
