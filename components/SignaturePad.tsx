@@ -55,11 +55,15 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
     useEffect(() => {
         let interval: NodeJS.Timeout;
         if (isPolling && sessionId) {
+            console.log(`[SignaturePad] Starting poll for session ${sessionId}`);
             interval = setInterval(async () => {
                 try {
+                    // console.log(`[SignaturePad] Polling... ${sessionId}`);
                     const res = await fetch(`/api/signature/check?sessionId=${sessionId}`);
                     const data = await res.json();
+
                     if (data.found && data.url) {
+                        console.log('[SignaturePad] Signature found!', data);
                         setStatusMessage('Signature received. Saving...');
 
                         const claimRes = await fetch('/api/signature/claim-temp', {
@@ -70,6 +74,7 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
 
                         if (claimRes.ok) {
                             const claimData = await claimRes.json();
+                            console.log('[SignaturePad] Signature claimed:', claimData);
                             if (claimData.url) {
                                 setCurrentSignature(claimData.url);
                                 if (onSave) onSave(claimData.url);
@@ -78,6 +83,7 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
                                 setStatusMessage('Signature saved.');
                             }
                         } else {
+                            console.error('[SignaturePad] Claim failed', await claimRes.text());
                             setStatusMessage('Could not save signature. Please try again.');
                         }
 

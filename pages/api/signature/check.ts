@@ -13,6 +13,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     try {
+        console.log(`[Signature Check] Checking for session: ${sessionId}`);
+
         // Check if the temp file exists in storage
         // using list() on the folder
         const { data, error } = await supabaseAdmin.storage
@@ -23,15 +25,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             });
 
         if (error) {
+            console.error('[Signature Check] Storage list error:', error);
             throw error;
         }
 
-        if (data && data.length > 0) {
-            const { data: { publicUrl } } = supabaseAdmin.storage
-                .from('signatures')
-                .getPublicUrl(`temp/${sessionId}.png`);
+        console.log(`[Signature Check] List result for ${sessionId}:`, data);
 
-            return res.status(200).json({ found: true, url: publicUrl });
+        if (data && data.length > 0) {
+            // Precise match check because 'search' is fuzzy
+            const exactMatch = data.find(f => f.name === `${sessionId}.png`);
+
+            if (exactMatch) {
+                console.log(`[Signature Check] Found exact match for ${sessionId}.png`);
+                const { data: { publicUrl } } = supabaseAdmin.storage
+                    .from('signatures')
+                    .getPublicUrl(`temp/${sessionId}.png`);
+
+                return res.status(200).json({ found: true, url: publicUrl });
+            } else {
+                console.log(`[Signature Check] No exact match found in results for ${sessionId}.png`);
+            }
+        } else {
+            console.log(`[Signature Check] Empty data returned for ${sessionId}`);
         }
 
         return res.status(200).json({ found: false });
