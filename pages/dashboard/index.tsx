@@ -8,14 +8,26 @@ import { AppLayout } from '@/components/layout';
 import { motion } from 'framer-motion';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { useDashboardStats, useSignatureCheck } from '@/hooks';
 
 const Lottie = dynamic(() => import('lottie-react'), { ssr: false });
 import animationData from '../../Office illustration.json';
 import { supabase } from '@/lib/supabaseClient';
-import { useState } from 'react';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+function getTimeAgo(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+  if (diffInSeconds < 60) return 'Just now';
+  if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
+  if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
+  if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d ago`;
+  return date.toLocaleDateString();
 }
 
 const container = {
@@ -36,23 +48,8 @@ const item = {
 export default function Dashboard() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [signatureUrl, setSignatureUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (session?.user) {
-      const userId = (session.user as any).id;
-      if (userId && supabase) {
-        const { data } = supabase.storage.from('signatures').getPublicUrl(`${userId}.png`);
-
-        // Simple head check
-        fetch(data.publicUrl, { method: 'HEAD' })
-          .then(res => {
-            if (res.ok) setSignatureUrl(data.publicUrl);
-          })
-          .catch(() => { });
-      }
-    }
-  }, [session]);
+  const { stats, recentActivity, teamMembers, pendingForUser, loading: statsLoading } = useDashboardStats();
+  const { signatureUrl, hasSignature } = useSignatureCheck();
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -85,11 +82,11 @@ export default function Dashboard() {
     return 'Good evening';
   };
 
-  const stats = [
-    { label: 'Pending', value: '3', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', color: 'warning', trend: '+2 this week' },
-    { label: 'Approved', value: '12', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'success', trend: '+15% vs last month' },
-    { label: 'Rejected', value: '2', icon: 'M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'danger', trend: '-1 this week' },
-    { label: 'Total', value: '17', icon: 'M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', color: 'primary', trend: 'All time' },
+  const statsCards = [
+    { label: 'Pending', value: stats.pending.toString(), icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', color: 'warning', trend: 'Awaiting action' },
+    { label: 'Approved', value: stats.approved.toString(), icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'success', trend: `${stats.completionRate}% approval rate` },
+    { label: 'Rejected', value: stats.rejected.toString(), icon: 'M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'danger', trend: 'Declined requests' },
+    { label: 'Total', value: stats.total.toString(), icon: 'M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', color: 'primary', trend: 'All time' },
   ];
 
   return (
@@ -130,14 +127,17 @@ export default function Dashboard() {
                 </h1>
 
                 <p className="text-blue-50 text-lg sm:text-xl max-w-xl leading-relaxed">
-                  You have <span className="font-bold text-white">3 pending items</span> waiting for your review.
-                  Let's get things moving!
+                  {pendingForUser > 0 ? (
+                    <>You have <span className="font-bold text-white">{pendingForUser} pending item{pendingForUser !== 1 ? 's' : ''}</span> waiting for your review. Let's get things moving!</>
+                  ) : (
+                    <>You're all caught up! No pending items waiting for your review.</>  
+                  )}
                 </p>
 
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
-                  onClick={() => router.push('/approvals')}
+                  onClick={() => router.push('/requests/approvals')}
                   className="group relative inline-flex items-center gap-3 bg-white text-blue-600 font-bold py-4 px-8 rounded-2xl shadow-xl hover:shadow-2xl hover:shadow-white/20 transition-all duration-300"
                 >
                   Review Now
@@ -156,7 +156,7 @@ export default function Dashboard() {
 
           {/* Stats Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {stats.map((stat, i) => (
+            {statsCards.map((stat, i) => (
               <motion.div
                 key={i}
                 variants={item}
@@ -230,56 +230,63 @@ export default function Dashboard() {
                   <h3 className="text-xl font-bold text-gray-900">Recent Activity</h3>
                   <p className="text-gray-500 text-sm">Your latest actions and updates</p>
                 </div>
-                <Link href="/approvals" className="text-blue-600 hover:text-blue-700 font-semibold text-sm bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-xl transition-colors">
+                <Link href="/requests/approvals" className="text-blue-600 hover:text-blue-700 font-semibold text-sm bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-xl transition-colors">
                   View All
                 </Link>
               </div>
 
               <div className="space-y-4">
-                {[
-                  { title: 'Budget Request #2024-001', status: 'Approved', time: '2h ago', user: 'Sarah Wilson', amount: '$1,200', type: 'Finance' },
-                  { title: 'Q4 Marketing Plan', status: 'Pending', time: '5h ago', user: 'Mike Chen', amount: '-', type: 'Marketing' },
-                  { title: 'New Equipment', status: 'Rejected', time: '1d ago', user: 'Alex Brown', amount: '$3,500', type: 'Operations' },
-                  { title: 'Team Offsite', status: 'Approved', time: '2d ago', user: 'Emma Davis', amount: '$500', type: 'HR' },
-                ].map((item, i) => (
-                  <div key={i} className="group flex items-center gap-4 p-4 rounded-2xl hover:bg-white/50 border border-transparent hover:border-white/60 transition-all duration-200">
-                    <div className={cn(
-                      "w-12 h-12 rounded-2xl flex items-center justify-center text-lg font-bold shadow-sm",
-                      item.status === 'Approved' && "bg-green-100 text-green-600",
-                      item.status === 'Pending' && "bg-amber-100 text-amber-600",
-                      item.status === 'Rejected' && "bg-red-100 text-red-600",
-                    )}>
-                      {item.user.charAt(0)}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <h4 className="font-bold text-gray-900 truncate group-hover:text-blue-600 transition-colors">{item.title}</h4>
-                        <span className="text-xs text-gray-400 font-medium">{item.time}</span>
-                      </div>
-                      <div className="flex items-center gap-3 text-sm text-gray-500">
-                        <span>{item.user}</span>
-                        <span className="w-1 h-1 rounded-full bg-gray-300" />
-                        <span>{item.type}</span>
-                        {item.amount !== '-' && (
-                          <>
-                            <span className="w-1 h-1 rounded-full bg-gray-300" />
-                            <span className="font-medium text-gray-700">{item.amount}</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className={cn(
-                      "px-3 py-1 rounded-lg text-xs font-bold",
-                      item.status === 'Approved' && "bg-green-100 text-green-700",
-                      item.status === 'Pending' && "bg-amber-100 text-amber-700",
-                      item.status === 'Rejected' && "bg-red-100 text-red-700",
-                    )}>
-                      {item.status}
-                    </div>
+                {statsLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
                   </div>
-                ))}
+                ) : recentActivity.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <p>No recent activity yet</p>
+                    <p className="text-sm mt-1">Create your first request to get started</p>
+                  </div>
+                ) : (
+                  recentActivity.slice(0, 4).map((activity) => {
+                    const creatorName = activity.creator?.display_name || activity.creator?.email?.split('@')[0] || 'Unknown';
+                    const timeAgo = getTimeAgo(activity.created_at);
+                    const requestType = activity.metadata?.type || 'Request';
+                    const statusDisplay = activity.status.charAt(0).toUpperCase() + activity.status.slice(1);
+                    
+                    return (
+                      <div key={activity.id} className="group flex items-center gap-4 p-4 rounded-2xl hover:bg-white/50 border border-transparent hover:border-white/60 transition-all duration-200">
+                        <div className={cn(
+                          "w-12 h-12 rounded-2xl flex items-center justify-center text-lg font-bold shadow-sm",
+                          activity.status === 'approved' && "bg-green-100 text-green-600",
+                          (activity.status === 'pending' || activity.status === 'draft') && "bg-amber-100 text-amber-600",
+                          activity.status === 'rejected' && "bg-red-100 text-red-600",
+                        )}>
+                          {creatorName.charAt(0).toUpperCase()}
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-1">
+                            <h4 className="font-bold text-gray-900 truncate group-hover:text-blue-600 transition-colors">{activity.title}</h4>
+                            <span className="text-xs text-gray-400 font-medium">{timeAgo}</span>
+                          </div>
+                          <div className="flex items-center gap-3 text-sm text-gray-500">
+                            <span>{creatorName}</span>
+                            <span className="w-1 h-1 rounded-full bg-gray-300" />
+                            <span>{requestType}</span>
+                          </div>
+                        </div>
+
+                        <div className={cn(
+                          "px-3 py-1 rounded-lg text-xs font-bold",
+                          activity.status === 'approved' && "bg-green-100 text-green-700",
+                          (activity.status === 'pending' || activity.status === 'draft') && "bg-amber-100 text-amber-700",
+                          activity.status === 'rejected' && "bg-red-100 text-red-700",
+                        )}>
+                          {statusDisplay}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </motion.div>
 
@@ -304,44 +311,24 @@ export default function Dashboard() {
                   </div>
 
                   <div className="space-y-2 mb-8">
-                    <h3 className="text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-purple-200">+28</h3>
-                    <p className="text-purple-200">New requests received</p>
+                    <h3 className="text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-purple-200">+{stats.thisMonthRequests}</h3>
+                    <p className="text-purple-200">New requests this month</p>
                   </div>
 
                   <div className="space-y-3">
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-400">Completion Rate</span>
-                      <span className="font-bold text-white">92%</span>
+                      <span className="text-gray-400">Approval Rate</span>
+                      <span className="font-bold text-white">{stats.completionRate}%</span>
                     </div>
                     <div className="h-2 bg-white/10 rounded-full overflow-hidden">
                       <motion.div
                         initial={{ width: 0 }}
-                        animate={{ width: '92%' }}
+                        animate={{ width: `${stats.completionRate}%` }}
                         transition={{ duration: 1, delay: 0.5 }}
                         className="h-full bg-gradient-to-r from-blue-400 to-purple-400 rounded-full"
                       />
                     </div>
                   </div>
-                </div>
-              </motion.div>
-
-              {/* Team Members */}
-              <motion.div variants={item} className="bg-white/60 backdrop-blur-xl rounded-[2rem] p-6 border border-white/50 shadow-lg">
-                <h3 className="font-bold text-gray-900 mb-4">Team Members</h3>
-                <div className="flex items-center justify-between">
-                  <div className="flex -space-x-3">
-                    {[1, 2, 3, 4].map((_, i) => (
-                      <div key={i} className="w-10 h-10 rounded-full border-2 border-white bg-gradient-to-br from-gray-200 to-gray-300 shadow-md" />
-                    ))}
-                    <div className="w-10 h-10 rounded-full border-2 border-white bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-500 shadow-md">
-                      +5
-                    </div>
-                  </div>
-                  <button className="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center text-gray-400 hover:bg-gray-50 transition-colors">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                  </button>
                 </div>
               </motion.div>
 

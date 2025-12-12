@@ -1,7 +1,10 @@
 import { ReactNode, useState } from 'react';
+import { useRouter } from 'next/router';
 import AppHeader from './AppHeader';
 import BottomNav from './BottomNav';
 import Sidebar from './Sidebar';
+import SignatureRequiredModal from '../SignatureRequiredModal';
+import { useSignatureCheck } from '@/hooks';
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -10,6 +13,7 @@ interface AppLayoutProps {
   onBack?: () => void;
   hideNav?: boolean;
   hideSidebar?: boolean;
+  skipSignatureCheck?: boolean;
 }
 
 export default function AppLayout({
@@ -18,12 +22,31 @@ export default function AppLayout({
   showBack,
   onBack,
   hideNav = false,
-  hideSidebar = false
+  hideSidebar = false,
+  skipSignatureCheck = false
 }: AppLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const router = useRouter();
+  const { hasSignature, loading: signatureLoading, refetch } = useSignatureCheck();
+
+  // Pages that should skip signature check
+  const isSettingsPage = router.pathname === '/profile/settings';
+  const shouldCheckSignature = !skipSignatureCheck && !isSettingsPage;
+
+  const handleSignatureSaved = async (url: string) => {
+    await refetch();
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Signature Required Modal */}
+      {shouldCheckSignature && !signatureLoading && !hasSignature && (
+        <SignatureRequiredModal
+          isOpen={true}
+          onSignatureSaved={handleSignatureSaved}
+        />
+      )}
+
       {/* Sidebar for desktop and mobile */}
       {!hideSidebar && (
         <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
