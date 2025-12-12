@@ -201,6 +201,8 @@ export default function NewTemplatePage() {
   const [expandedField, setExpandedField] = useState<string | null>(null);
   const [showFieldPicker, setShowFieldPicker] = useState(false);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [workflowSettings, setWorkflowSettings] = useState<WorkflowSettings>({
     allowParallelApprovals: false,
     requireAllParallel: true,
@@ -218,6 +220,44 @@ export default function NewTemplatePage() {
       router.push('/');
     }
   }, [status, router]);
+
+  const handleSubmit = async () => {
+    if (!templateName || steps.length === 0) {
+      setError('Template name and at least one approval step are required');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/templates', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: templateName,
+          description: templateDescription,
+          formFields: formFields,
+          workflowSteps: steps,
+          workflowSettings: workflowSettings,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create template');
+      }
+
+      router.push('/admin/document-templates');
+    } catch (err: any) {
+      setError(err.message || 'Failed to create template');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const addStep = () => {
     const newStep: ApprovalStep = {
@@ -812,6 +852,12 @@ export default function NewTemplatePage() {
           <h1 className="text-xl font-bold text-text-primary font-heading">Create Approval Template</h1>
           <p className="text-sm text-text-secondary mt-1">Define a reusable approval workflow with custom rules</p>
         </div>
+
+        {error && (
+          <Card className="mb-4 bg-danger-50 border-danger-200">
+            <p className="text-danger-600 text-sm">{error}</p>
+          </Card>
+        )}
 
         <Card className="mb-4">
           <div className="space-y-4">
@@ -1692,7 +1738,9 @@ export default function NewTemplatePage() {
               type="button"
               variant="primary"
               className="flex-1"
-              disabled={!templateName || steps.length === 0}
+              disabled={!templateName || steps.length === 0 || loading}
+              onClick={handleSubmit}
+              isLoading={loading}
             >
               Save Template
             </Button>

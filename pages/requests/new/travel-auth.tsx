@@ -8,6 +8,7 @@ export default function TravelAuthPage() {
     const { data: session, status } = useSession();
     const router = useRouter();
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     const [formData, setFormData] = useState({
         travelerName: '',
@@ -33,11 +34,45 @@ export default function TravelAuthPage() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
-        // Simulate API submission
-        setTimeout(() => {
+        setError(null);
+
+        try {
+            const response = await fetch('/api/requests', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    title: `Travel Auth: ${formData.destination}`,
+                    description: formData.purpose,
+                    priority: 'normal',
+                    category: 'travel',
+                    requestType: 'travel_authorization',
+                    metadata: {
+                        travelerName: formData.travelerName,
+                        destination: formData.destination,
+                        startDate: formData.startDate,
+                        endDate: formData.endDate,
+                        purpose: formData.purpose,
+                        estimatedCost: formData.estimatedCost,
+                        modeOfTransport: formData.modeOfTransport,
+                        department: formData.department,
+                    },
+                }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to create travel authorization');
+            }
+
+            router.push('/requests/my-requests');
+        } catch (err: any) {
+            setError(err.message || 'Failed to create travel authorization');
+        } finally {
             setLoading(false);
-            router.push('/requests/all');
-        }, 1000);
+        }
     };
 
     const formatCurrency = (value: string) => {
@@ -65,6 +100,12 @@ export default function TravelAuthPage() {
                     <h1 className="text-xl font-bold text-text-primary font-heading">Local Travel Authorization</h1>
                     <p className="text-sm text-text-secondary mt-1">Request approval for local business travel</p>
                 </div>
+
+                {error && (
+                    <Card className="mb-4 bg-danger-50 border-danger-200">
+                        <p className="text-danger-600 text-sm">{error}</p>
+                    </Card>
+                )}
 
                 <Card>
                     <h3 className="font-semibold text-text-primary mb-4 flex items-center gap-2">
