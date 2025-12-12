@@ -83,7 +83,10 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
 
         if (sigCanvas.current?.isEmpty()) return;
 
-        const dataURL = sigCanvas.current?.getTrimmedCanvas().toDataURL('image/png');
+        // Use getCanvas instead of getTrimmedCanvas to avoid trim_canvas dependency issue
+        const canvas = sigCanvas.current?.getCanvas();
+        if (!canvas) return;
+        const dataURL = canvas.toDataURL('image/png');
         if (!dataURL) return;
 
         try {
