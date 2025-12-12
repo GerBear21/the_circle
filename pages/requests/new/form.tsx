@@ -31,12 +31,56 @@ export default function NewFormDesignerPage() {
   const [formDescription, setFormDescription] = useState('');
   const [fields, setFields] = useState<FormField[]>([]);
   const [showFieldPicker, setShowFieldPicker] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
       router.push('/');
     }
   }, [status, router]);
+
+  const handleSubmit = async () => {
+    if (!formName || fields.length === 0) {
+      setError('Form name and at least one field are required');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/templates', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: formName,
+          description: formDescription,
+          formFields: fields.map((f, index) => ({
+            ...f,
+            order: index + 1,
+            validation: { required: f.required },
+          })),
+          workflowSteps: [],
+          workflowSettings: {},
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create form');
+      }
+
+      router.push('/admin/document-templates');
+    } catch (err: any) {
+      setError(err.message || 'Failed to create form');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const addField = (type: FieldType) => {
     const newField: FormField = {
@@ -85,6 +129,12 @@ export default function NewFormDesignerPage() {
           <h1 className="text-xl font-bold text-text-primary font-heading">Form Designer</h1>
           <p className="text-sm text-text-secondary mt-1">Create a custom form by adding fields</p>
         </div>
+
+        {error && (
+          <Card className="mb-4 bg-danger-50 border-danger-200">
+            <p className="text-danger-600 text-sm">{error}</p>
+          </Card>
+        )}
 
         <Card className="mb-4">
           <div className="space-y-4">
@@ -255,7 +305,9 @@ export default function NewFormDesignerPage() {
               type="button"
               variant="primary"
               className="flex-1"
-              disabled={!formName || fields.length === 0}
+              disabled={!formName || fields.length === 0 || loading}
+              onClick={handleSubmit}
+              isLoading={loading}
             >
               Save Form
             </Button>

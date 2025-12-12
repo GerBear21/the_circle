@@ -8,6 +8,7 @@ export default function HotelBookingPage() {
     const { data: session, status } = useSession();
     const router = useRouter();
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     // Initial date for display
     const today = new Date().toLocaleDateString('en-GB', {
@@ -51,11 +52,49 @@ export default function HotelBookingPage() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
-        // Simulate API submission
-        setTimeout(() => {
+        setError(null);
+
+        try {
+            const response = await fetch('/api/requests', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    title: `Hotel Booking: ${formData.guestNames}`,
+                    description: formData.reason,
+                    priority: 'normal',
+                    category: 'hotel',
+                    requestType: 'hotel_booking',
+                    metadata: {
+                        hotelUnit: formData.hotelUnit,
+                        guestNames: formData.guestNames,
+                        telBookingMade: formData.telBookingMade,
+                        arrivalDate: formData.arrivalDate,
+                        departureDate: formData.departureDate,
+                        numberOfNights: formData.numberOfNights,
+                        numberOfRooms: formData.numberOfRooms,
+                        accommodationType: formData.accommodationType,
+                        allocationType: formData.allocationType,
+                        percentageDiscount: formData.percentageDiscount,
+                        specialArrangements: formData.specialArrangements,
+                        reason: formData.reason,
+                    },
+                }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to create hotel booking request');
+            }
+
+            router.push('/requests/my-requests');
+        } catch (err: any) {
+            setError(err.message || 'Failed to create hotel booking request');
+        } finally {
             setLoading(false);
-            router.push('/requests/all');
-        }, 1000);
+        }
     };
 
     if (status === 'loading') {
@@ -78,6 +117,12 @@ export default function HotelBookingPage() {
                         Complimentary Hotel Guest Booking Form
                     </h1>
                 </div>
+
+                {error && (
+                    <Card className="mb-4 bg-danger-50 border-danger-200">
+                        <p className="text-danger-600 text-sm">{error}</p>
+                    </Card>
+                )}
 
                 <div className="space-y-6">
                     {/* Header Section */}

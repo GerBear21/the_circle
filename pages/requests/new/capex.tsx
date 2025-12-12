@@ -48,9 +48,43 @@ export default function NewCapexRequestPage() {
     setError(null);
 
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      router.push('/requests');
+      const response = await fetch('/api/requests', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: `CAPEX: ${formData.projectName}`,
+          description: formData.description,
+          priority: 'high',
+          category: 'capex',
+          requestType: 'capex',
+          metadata: {
+            requester: formData.requester,
+            unit: formData.unit,
+            department: formData.department,
+            projectName: formData.projectName,
+            budgetType: formData.budgetType,
+            amount: formData.amount,
+            currency: formData.currency,
+            justification: formData.justification,
+            paybackPeriod: formData.paybackPeriod,
+            npv: formData.npv,
+            irr: formData.irr,
+            fundingSource: formData.fundingSource,
+            startDate: formData.startDate,
+            endDate: formData.endDate,
+          },
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create CAPEX request');
+      }
+
+      router.push('/requests/my-requests');
     } catch (err: any) {
       setError(err.message || 'Failed to create CAPEX request');
     } finally {
