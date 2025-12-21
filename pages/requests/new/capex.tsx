@@ -3,12 +3,14 @@ import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input } from '../../../components/ui';
+import { WorkflowSelector } from '../../../components/workflow/WorkflowSelector';
 
 export default function NewCapexRequestPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState('');
 
   const [formData, setFormData] = useState({
     requester: session?.user?.name || '',
@@ -48,9 +50,36 @@ export default function NewCapexRequestPage() {
     setError(null);
 
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      router.push('/requests');
+      const title = formData.projectName?.trim()
+        ? `CAPEX: ${formData.projectName.trim()}`
+        : 'CAPEX Request';
+
+      const response = await fetch('/api/requests', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title,
+          description: formData.description,
+          priority: 'normal',
+          category: formData.category || 'capex',
+          type: 'capex',
+          metadata: {
+            capex: formData,
+          },
+          // Include workflow ID if selected - this will auto-trigger the workflow
+          workflowId: selectedWorkflowId || undefined,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.error || 'Failed to create CAPEX request');
+      }
+
+      router.push('/requests/all');
     } catch (err: any) {
       setError(err.message || 'Failed to create CAPEX request');
     } finally {
@@ -315,6 +344,27 @@ export default function NewCapexRequestPage() {
             <p className="text-sm text-gray-700 font-medium">Click to upload quotations or drag and drop</p>
             <p className="text-xs text-gray-400 mt-1">PDF, Excel, Word, or Images up to 10MB</p>
           </div>
+        </Card>
+
+        {/* Workflow Selection */}
+        <Card>
+          <h3 className="font-semibold text-text-primary mb-4 flex items-center gap-2 text-lg">
+            <svg className="w-5 h-5 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Select Approval Workflow
+          </h3>
+          <WorkflowSelector
+            value={selectedWorkflowId}
+            onChange={setSelectedWorkflowId}
+            label="Workflow"
+            showDescription={true}
+          />
+          <p className="text-xs text-gray-500 mt-3">
+            When you submit this request, the selected workflow will automatically start.
+            This includes triggering any configured integrations (Teams, Slack, n8n, etc.)
+            and creating approval tasks.
+          </p>
         </Card>
 
         {/* Capex Workflow Section */}
