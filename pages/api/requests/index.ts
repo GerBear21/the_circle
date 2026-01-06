@@ -5,10 +5,6 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { startWorkflowExecution, WorkflowDefinition } from '@/lib/workflowExecutor';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
   try {
     if (!supabaseAdmin) {
       return res.status(500).json({ error: 'Database not configured (missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY)' });
@@ -22,12 +18,127 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const user = session.user as any;
     const organizationId = user.org_id;
-    const creatorId = user.id;
+    const userId = user.id;
 
-    if (!organizationId || !creatorId) {
+    if (!organizationId || !userId) {
       return res.status(400).json({ error: 'User session missing organization or user id' });
     }
 
+    // Handle GET request - fetch all requests
+    if (req.method === 'GET') {
+      const { status, type, search, sort = 'newest', limit = 50, offset = 0 } = req.query;
+
+      let query = supabaseAdmin
+        .from('requests')
+        .select(`
+          id,
+          title,
+          description,
+          status,
+          metadata,
+          created_at,
+          updated_at,
+          creator_id,
+          creator:app_users!requests_creator_id_fkey (
+            id,
+            display_name,
+            email,
+            job_title,
+            department_id,
+            department:departments!app_users_department_id_fkey (
+              id,
+              name
+            )
+          )
+        `)
+        .eq('organization_id', organizationId);
+
+      // Apply status filter
+      if (status && status !== 'all') {
+        query = query.eq('status', status);
+      }
+
+      // Apply type filter (stored in metadata)
+      if (type && type !== 'all') {
+        query = query.contains('metadata', { type });
+      }
+
+      // Apply search filter
+      if (search && typeof search === 'string' && search.trim()) {
+        query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`);
+      }
+
+      // Apply sorting
+      switch (sort) {
+        case 'oldest':
+          query = query.order('created_at', { ascending: true });
+          break;
+        case 'newest':
+        default:
+          query = query.order('created_at', { ascending: false });
+          break;
+      }
+
+      // Apply pagination
+      const limitNum = Math.min(Number(limit) || 50, 100);
+      const offsetNum = Number(offset) || 0;
+      query = query.range(offsetNum, offsetNum + limitNum - 1);
+
+      const { data, error, count } = await query;
+
+      if (error) {
+        console.error('Fetch requests error:', error);
+        return res.status(500).json({
+          error: 'Failed to fetch requests',
+          details: error.message,
+        });
+      }
+
+      // Transform data to match frontend interface
+      const requests = (data || []).map((req: any) => {
+        const meta = req.metadata || {};
+        const creator = req.creator || {};
+        const department = creator.department || {};
+
+        return {
+          id: req.id,
+          title: req.title,
+          description: req.description || '',
+          status: req.status || 'draft',
+          priority: meta.priority || 'normal',
+          category: meta.category || 'General',
+          department: department.name || 'Unknown',
+          created_at: req.created_at,
+          updated_at: req.updated_at || req.created_at,
+          current_step: meta.currentStep || 1,
+          total_steps: meta.totalSteps || 1,
+          type: meta.type || 'approval',
+          amount: meta.amount || meta.estimatedCost || null,
+          currency: meta.currency || 'USD',
+          requester: {
+            id: creator.id || req.creator_id,
+            name: creator.display_name || 'Unknown User',
+            email: creator.email || '',
+            department: department.name || 'Unknown',
+            position: creator.job_title || '',
+          },
+          current_approver: meta.currentApprover || null,
+          due_date: meta.dueDate || null,
+          reference_number: `REQ-${req.id?.slice(0, 8)?.toUpperCase() || ''}`,
+          attachments_count: meta.attachmentsCount || 0,
+          comments_count: meta.commentsCount || 0,
+        };
+      });
+
+      return res.status(200).json({ requests, total: count || requests.length });
+    }
+
+    // Handle POST request - create new request
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: 'Method not allowed' });
+    }
+
+    const creatorId = userId;
     const { title, description, priority, category, type, metadata, workflowId } = req.body || {};
 
     if (!title || typeof title !== 'string') {
@@ -39,12 +150,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       creator_id: creatorId,
       title,
       description: typeof description === 'string' ? description : null,
-      priority: typeof priority === 'string' ? priority : 'normal',
-      category: typeof category === 'string' ? category : null,
       status: 'draft',
       metadata: {
         ...(metadata && typeof metadata === 'object' ? metadata : {}),
         ...(type ? { type } : {}),
+        ...(category ? { category } : {}),
+        ...(priority ? { priority } : { priority: 'normal' }),
         ...(workflowId ? { workflowId } : {}),
       },
     };
