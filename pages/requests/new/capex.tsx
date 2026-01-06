@@ -4,11 +4,22 @@ import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input } from '../../../components/ui';
 
+interface User {
+  id: string;
+  display_name: string;
+  email: string;
+  role?: string;
+}
+
 export default function NewCapexRequestPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
+  const [selectedApprovers, setSelectedApprovers] = useState<string[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
 
   const [formData, setFormData] = useState({
     requester: session?.user?.name || '',
@@ -42,9 +53,55 @@ export default function NewCapexRequestPage() {
     }
   }, [status, router]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Fetch users for approver selection
+  useEffect(() => {
+    async function fetchUsers() {
+      if (status !== 'authenticated') return;
+      try {
+        const response = await fetch('/api/users');
+        if (response.ok) {
+          const data = await response.json();
+          setUsers(data.users || []);
+        }
+      } catch (err) {
+        console.error('Error fetching users:', err);
+      } finally {
+        setLoadingUsers(false);
+      }
+    }
+    fetchUsers();
+  }, [status]);
+
+  const toggleApprover = (userId: string) => {
+    setSelectedApprovers(prev => {
+      if (prev.includes(userId)) {
+        return prev.filter(id => id !== userId);
+      }
+      return [...prev, userId];
+    });
+  };
+
+  const moveApprover = (index: number, direction: 'up' | 'down') => {
+    const newApprovers = [...selectedApprovers];
+    const newIndex = direction === 'up' ? index - 1 : index + 1;
+    if (newIndex < 0 || newIndex >= newApprovers.length) return;
+    [newApprovers[index], newApprovers[newIndex]] = [newApprovers[newIndex], newApprovers[index]];
+    setSelectedApprovers(newApprovers);
+  };
+
+  const handleSubmit = async (e: React.FormEvent, asDraft: boolean = false) => {
     e.preventDefault();
-    setLoading(true);
+    
+    if (!asDraft && selectedApprovers.length === 0) {
+      setError('Please select at least one approver before submitting');
+      return;
+    }
+
+    if (asDraft) {
+      setSavingDraft(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
 
     try {
@@ -59,13 +116,14 @@ export default function NewCapexRequestPage() {
           priority: 'high',
           category: 'capex',
           requestType: 'capex',
+          status: asDraft ? 'draft' : 'pending',
           metadata: {
             requester: formData.requester,
             unit: formData.unit,
             department: formData.department,
             projectName: formData.projectName,
             budgetType: formData.budgetType,
-            amount: formData.amount,
+            amount: parseFloat(formData.amount.replace(/,/g, '')) || 0,
             currency: formData.currency,
             justification: formData.justification,
             paybackPeriod: formData.paybackPeriod,
@@ -74,6 +132,7 @@ export default function NewCapexRequestPage() {
             fundingSource: formData.fundingSource,
             startDate: formData.startDate,
             endDate: formData.endDate,
+            approvers: selectedApprovers,
           },
         }),
       });
@@ -84,11 +143,23 @@ export default function NewCapexRequestPage() {
         throw new Error(data.error || 'Failed to create CAPEX request');
       }
 
+      // If not a draft, also create request_steps and publish
+      if (!asDraft && data.request?.id) {
+        const publishResponse = await fetch(`/api/requests/${data.request.id}/publish`, {
+          method: 'POST',
+        });
+        if (!publishResponse.ok) {
+          const publishData = await publishResponse.json();
+          throw new Error(publishData.error || 'Failed to publish request');
+        }
+      }
+
       router.push('/requests/my-requests');
     } catch (err: any) {
       setError(err.message || 'Failed to create CAPEX request');
     } finally {
       setLoading(false);
+      setSavingDraft(false);
     }
   };
 
@@ -97,16 +168,6 @@ export default function NewCapexRequestPage() {
     if (!num) return '';
     return parseFloat(num).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
   };
-
-  const approvalWorkflow = [
-    { role: 'Finance Manager', status: 'pending' },
-    { role: 'GM', status: 'pending' },
-    { role: 'Procurement Manager', status: 'pending' },
-    { role: 'Projects Manager', status: 'pending' },
-    { role: 'Managing Director', status: 'pending' },
-    { role: 'Finance Director', status: 'pending' },
-    { role: 'CEO', status: 'pending' },
-  ];
 
   if (status === 'loading') {
     return (
@@ -351,33 +412,120 @@ export default function NewCapexRequestPage() {
           </div>
         </Card>
 
-        {/* Capex Workflow Section */}
+        {/* Approver Selection Section */}
         <Card>
-          <h3 className="font-semibold text-text-primary mb-6 flex items-center gap-2 text-lg">
+          <h3 className="font-semibold text-text-primary mb-4 flex items-center gap-2 text-lg">
             <svg className="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
             </svg>
-            Capex Approval Workflow
+            Select Approvers
+            <span className="text-sm font-normal text-gray-500 ml-2">
+              ({selectedApprovers.length} selected)
+            </span>
           </h3>
-          <div className="relative">
-            <div className="absolute left-8 top-4 bottom-4 w-0.5 bg-gray-100" />
-            <div className="space-y-6">
-              {approvalWorkflow.map((step, index) => (
-                <div key={index} className="relative flex items-center gap-4 group">
-                  <div className={`w-16 h-16 rounded-2xl flex items-center justify-center border-2 z-10 
-                                ${index === 0 ? 'bg-primary-50 border-primary-200 text-primary-600' : 'bg-white border-gray-100 text-gray-400'}`}>
-                    <span className="font-bold text-lg">{index + 1}</span>
-                  </div>
-                  <div className="flex-1 bg-white border border-gray-100 p-4 rounded-xl shadow-sm hover:shadow-md transition-shadow">
-                    <h4 className={`font-semibold ${index === 0 ? 'text-primary-700' : 'text-text-primary'}`}>{step.role}</h4>
-                    <p className="text-xs text-text-secondary mt-1 uppercase tracking-wide">
-                      {index === 0 ? 'Next approver' : 'Pending'}
-                    </p>
+          
+          {loadingUsers ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-500"></div>
+              <span className="ml-2 text-gray-500">Loading users...</span>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Available Users */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Available Approvers
+                </label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-y-auto border border-gray-200 rounded-xl p-3">
+                  {users.filter(u => !selectedApprovers.includes(u.id)).map(user => (
+                    <button
+                      key={user.id}
+                      type="button"
+                      onClick={() => toggleApprover(user.id)}
+                      className="flex items-center gap-3 p-2 rounded-lg hover:bg-primary-50 transition-colors text-left"
+                    >
+                      <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-medium text-gray-600">
+                        {user.display_name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '??'}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{user.display_name}</p>
+                        <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                      </div>
+                      <svg className="w-5 h-5 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                      </svg>
+                    </button>
+                  ))}
+                  {users.filter(u => !selectedApprovers.includes(u.id)).length === 0 && (
+                    <p className="text-sm text-gray-500 italic col-span-2 text-center py-4">All users have been selected</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Selected Approvers (Ordered) */}
+              {selectedApprovers.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Approval Order (drag to reorder)
+                  </label>
+                  <div className="space-y-2">
+                    {selectedApprovers.map((approverId, index) => {
+                      const user = users.find(u => u.id === approverId);
+                      if (!user) return null;
+                      return (
+                        <div
+                          key={approverId}
+                          className="flex items-center gap-3 p-3 bg-primary-50 border border-primary-200 rounded-xl"
+                        >
+                          <div className="w-8 h-8 rounded-full bg-primary-500 text-white flex items-center justify-center text-sm font-bold">
+                            {index + 1}
+                          </div>
+                          <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-xs font-medium text-gray-600 border border-gray-200">
+                            {user.display_name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '??'}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">{user.display_name}</p>
+                            <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => moveApprover(index, 'up')}
+                              disabled={index === 0}
+                              className="p-1 rounded hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed"
+                            >
+                              <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => moveApprover(index, 'down')}
+                              disabled={index === selectedApprovers.length - 1}
+                              className="p-1 rounded hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed"
+                            >
+                              <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => toggleApprover(approverId)}
+                              className="p-1 rounded hover:bg-red-100 text-red-500"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-              ))}
+              )}
             </div>
-          </div>
+          )}
         </Card>
 
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-sm border-t border-gray-100 pb-safe lg:left-64 z-20">
@@ -391,13 +539,23 @@ export default function NewCapexRequestPage() {
               Cancel
             </Button>
             <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              isLoading={savingDraft}
+              disabled={!formData.projectName || !formData.amount || loading}
+              onClick={(e) => handleSubmit(e as any, true)}
+            >
+              Save as Draft
+            </Button>
+            <Button
               type="submit"
               variant="primary"
               className="flex-1"
               isLoading={loading}
-              disabled={!formData.projectName || !formData.amount || !formData.budgetType}
+              disabled={!formData.projectName || !formData.amount || !formData.budgetType || selectedApprovers.length === 0 || savingDraft}
             >
-              Submit Capex Request
+              Submit for Approval
             </Button>
           </div>
         </div>

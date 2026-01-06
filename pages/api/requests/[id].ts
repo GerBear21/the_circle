@@ -31,20 +31,50 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           title,
           description,
           status,
-          priority,
-          category,
-          request_type,
           metadata,
           created_at,
           updated_at,
           creator:app_users!requests_creator_id_fkey (
             id,
             display_name,
-            email
+            email,
+            department:departments (
+              id,
+              name
+            )
           ),
-          template:approval_templates (
+          request_steps (
             id,
-            name
+            step_index,
+            step_type,
+            approver_role,
+            status,
+            due_at,
+            created_at,
+            approver:app_users!request_steps_approver_user_id_fkey (
+              id,
+              display_name,
+              email
+            ),
+            approvals (
+              id,
+              decision,
+              comment,
+              signed_at,
+              approver:app_users!approvals_approver_id_fkey (
+                id,
+                display_name,
+                email
+              )
+            )
+          ),
+          documents (
+            id,
+            filename,
+            storage_path,
+            file_size,
+            mime_type,
+            created_at
           )
         `)
         .eq('id', id)
@@ -58,7 +88,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         throw error;
       }
 
-      return res.status(200).json({ request });
+      // Sort request_steps by step_index
+      if (request.request_steps) {
+        request.request_steps.sort((a: any, b: any) => a.step_index - b.step_index);
+      }
+
+      // Calculate current step (first pending step)
+      const currentStepIndex = request.request_steps?.findIndex((step: any) => step.status === 'pending') ?? -1;
+      const currentStep = currentStepIndex >= 0 ? request.request_steps[currentStepIndex] : null;
+
+      return res.status(200).json({ 
+        request: {
+          ...request,
+          current_step: currentStepIndex >= 0 ? currentStepIndex + 1 : request.request_steps?.length || 0,
+          total_steps: request.request_steps?.length || 0,
+          current_approver: currentStep?.approver || null
+        }
+      });
     }
 
     if (req.method === 'PUT') {

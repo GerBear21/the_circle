@@ -68,12 +68,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         category,
         requestType,
         metadata = {},
-        templateId
+        templateId,
+        status: requestStatus
       } = req.body;
 
       if (!title) {
         return res.status(400).json({ error: 'Title is required' });
       }
+
+      // Allow draft or pending status, default to pending
+      const validStatuses = ['draft', 'pending'];
+      const finalStatus = validStatuses.includes(requestStatus) ? requestStatus : 'draft';
 
       const { data, error } = await supabaseAdmin
         .from('requests')
@@ -87,7 +92,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           request_type: requestType || 'general',
           metadata,
           template_id: templateId || null,
-          status: 'pending',
+          status: finalStatus,
         })
         .select()
         .single();
