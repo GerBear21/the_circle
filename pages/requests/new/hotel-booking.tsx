@@ -131,27 +131,33 @@ export default function HotelBookingPage() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
+        setError(null);
 
         try {
-            setError(null);
-
-            const title = formData.guestNames?.trim()
-                ? `Hotel Booking: ${formData.guestNames.trim().split('\n')[0]}`
-                : 'Hotel Booking Request';
-
             const response = await fetch('/api/requests', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    title,
+                    title: `Hotel Booking: ${formData.guestNames}`,
                     description: formData.reason,
                     priority: 'normal',
-                    category: 'hotel_booking',
-                    type: 'hotel_booking',
+                    category: 'hotel',
+                    requestType: 'hotel_booking',
                     metadata: {
-                        hotelBooking: formData,
+                        hotelUnit: formData.hotelUnit,
+                        guestNames: formData.guestNames,
+                        telBookingMade: formData.telBookingMade,
+                        arrivalDate: formData.arrivalDate,
+                        departureDate: formData.departureDate,
+                        numberOfNights: formData.numberOfNights,
+                        numberOfRooms: formData.numberOfRooms,
+                        accommodationType: formData.accommodationType,
+                        allocationType: formData.allocationType,
+                        percentageDiscount: formData.percentageDiscount,
+                        specialArrangements: formData.specialArrangements,
+                        reason: formData.reason,
                     },
                 }),
             });
@@ -159,10 +165,10 @@ export default function HotelBookingPage() {
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data?.error || 'Failed to create hotel booking request');
+                throw new Error(data.error || 'Failed to create hotel booking request');
             }
 
-            router.push('/requests/all');
+            router.push('/requests/my-requests');
         } catch (err: any) {
             setError(err.message || 'Failed to create hotel booking request');
         } finally {

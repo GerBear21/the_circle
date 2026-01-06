@@ -109,6 +109,8 @@ export default function CustomizeWorkflowPage() {
   const [steps, setSteps] = useState<WorkflowStep[]>([]);
   const [expandedStep, setExpandedStep] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'steps' | 'settings' | 'rules'>('steps');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [workflowSettings, setWorkflowSettings] = useState<WorkflowSettings>({
     allowParallelApprovals: false,
     requireAllParallel: true,
@@ -127,8 +129,46 @@ export default function CustomizeWorkflowPage() {
     }
   }, [status, router]);
 
-  const addStep = (type: StepType) => {
-    const newStep: WorkflowStep = {
+  const handleSubmit = async () => {
+    if (!workflowName || steps.length === 0) {
+      setError('Workflow name and at least one approval step are required');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/templates', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: workflowName,
+          description: workflowDescription,
+          formFields: [],
+          workflowSteps: steps,
+          workflowSettings: workflowSettings,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create workflow');
+      }
+
+      router.push('/admin/document-templates');
+    } catch (err: any) {
+      setError(err.message || 'Failed to create workflow');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const addStep = () => {
+    const newStep: ApprovalStep = {
       id: `step_${Date.now()}`,
       name: type === 'approval' ? `Approval Step ${steps.length + 1}` : `Integration Step ${steps.length + 1}`,
       order: steps.length + 1,
@@ -887,6 +927,12 @@ export default function CustomizeWorkflowPage() {
           <p className="text-sm text-text-secondary mt-1">Configure approval steps, conditions, escalations, and business rules</p>
         </div>
 
+        {error && (
+          <Card className="mb-4 bg-danger-50 border-danger-200">
+            <p className="text-danger-600 text-sm">{error}</p>
+          </Card>
+        )}
+
         <Card className="mb-4">
           <div className="space-y-4">
             <Input
@@ -1114,8 +1160,9 @@ export default function CustomizeWorkflowPage() {
               type="button"
               variant="primary"
               className="flex-1 !bg-primary-600 hover:!bg-primary-700"
-              disabled={!workflowName || steps.length === 0}
-              onClick={handleSave}
+              disabled={!workflowName || steps.length === 0 || loading}
+              onClick={handleSubmit}
+              isLoading={loading}
             >
               Save Workflow
             </Button>

@@ -127,26 +127,32 @@ export default function NewCapexRequestPage() {
     }
 
     try {
-      const title = formData.projectName?.trim()
-        ? `CAPEX: ${formData.projectName.trim()}`
-        : 'CAPEX Request';
-
       const response = await fetch('/api/requests', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          title,
+          title: `CAPEX: ${formData.projectName}`,
           description: formData.description,
-          priority: 'normal',
-          category: formData.category || 'capex',
-          type: 'capex',
+          priority: 'high',
+          category: 'capex',
+          requestType: 'capex',
           metadata: {
-            capex: formData,
-            approvers: selectedApprovers,
-            documents: uploadedDocuments.map(f => ({ name: f.name, size: f.size, type: f.type })),
-            documentJustification: uploadedDocuments.length < 3 ? documentJustification : undefined,
+            requester: formData.requester,
+            unit: formData.unit,
+            department: formData.department,
+            projectName: formData.projectName,
+            budgetType: formData.budgetType,
+            amount: formData.amount,
+            currency: formData.currency,
+            justification: formData.justification,
+            paybackPeriod: formData.paybackPeriod,
+            npv: formData.npv,
+            irr: formData.irr,
+            fundingSource: formData.fundingSource,
+            startDate: formData.startDate,
+            endDate: formData.endDate,
           },
         }),
       });
@@ -154,10 +160,10 @@ export default function NewCapexRequestPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data?.error || 'Failed to create CAPEX request');
+        throw new Error(data.error || 'Failed to create CAPEX request');
       }
 
-      router.push('/requests/all');
+      router.push('/requests/my-requests');
     } catch (err: any) {
       setError(err.message || 'Failed to create CAPEX request');
     } finally {

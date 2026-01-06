@@ -10,7 +10,6 @@ export default function TravelAuthPage() {
     const router = useRouter();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [selectedWorkflowId, setSelectedWorkflowId] = useState('');
 
     const [formData, setFormData] = useState({
         travelerName: '',
@@ -36,40 +35,40 @@ export default function TravelAuthPage() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
+        setError(null);
 
         try {
-            setError(null);
-
-            const title = formData.destination?.trim()
-                ? `Travel Authorization: ${formData.destination.trim()}`
-                : 'Travel Authorization';
-
             const response = await fetch('/api/requests', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    title,
+                    title: `Travel Auth: ${formData.destination}`,
                     description: formData.purpose,
                     priority: 'normal',
                     category: 'travel',
-                    type: 'travel_auth',
+                    requestType: 'travel_authorization',
                     metadata: {
-                        travelAuthorization: formData,
+                        travelerName: formData.travelerName,
+                        destination: formData.destination,
+                        startDate: formData.startDate,
+                        endDate: formData.endDate,
+                        purpose: formData.purpose,
+                        estimatedCost: formData.estimatedCost,
+                        modeOfTransport: formData.modeOfTransport,
+                        department: formData.department,
                     },
-                    // Include workflow ID if selected - this will auto-trigger the workflow
-                    workflowId: selectedWorkflowId || undefined,
                 }),
             });
 
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data?.error || 'Failed to create travel authorization');
+                throw new Error(data.error || 'Failed to create travel authorization');
             }
 
-            router.push('/requests/all');
+            router.push('/requests/my-requests');
         } catch (err: any) {
             setError(err.message || 'Failed to create travel authorization');
         } finally {
@@ -104,7 +103,7 @@ export default function TravelAuthPage() {
                 </div>
 
                 {error && (
-                    <Card className="bg-danger-50 border-danger-200">
+                    <Card className="mb-4 bg-danger-50 border-danger-200">
                         <p className="text-danger-600 text-sm">{error}</p>
                     </Card>
                 )}

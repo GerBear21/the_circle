@@ -28,6 +28,8 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
     const [currentSignature, setCurrentSignature] = useState<string | null>(initialUrl || null);
     const sigCanvas = useRef<SignatureCanvas>(null);
 
+    const [statusMessage, setStatusMessage] = useState<string>('');
+
     // Mobile Mobile State
     const [sessionId, setSessionId] = useState<string>('');
     const [mobileUrl, setMobileUrl] = useState<string>('');
@@ -40,8 +42,11 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
             // Construct the URL for the mobile page
             // Assuming the app is hosted at the current origin
             if (typeof window !== 'undefined') {
-                const origin = window.location.origin;
-                setMobileUrl(`${origin}/mobile-signature/${newSessionId}`);
+                const configuredBaseUrl = process.env.NEXT_PUBLIC_APP_URL;
+                const baseUrl = (configuredBaseUrl && configuredBaseUrl.trim().length > 0)
+                    ? configuredBaseUrl.replace(/\/$/, '')
+                    : window.location.origin;
+                setMobileUrl(`${baseUrl}/mobile-signature/${newSessionId}`);
             }
             setIsPolling(true);
         }
@@ -50,16 +55,40 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
     useEffect(() => {
         let interval: NodeJS.Timeout;
         if (isPolling && sessionId) {
+            console.log(`[SignaturePad] Starting poll for session ${sessionId}`);
             interval = setInterval(async () => {
                 try {
+                    // console.log(`[SignaturePad] Polling... ${sessionId}`);
                     const res = await fetch(`/api/signature/check?sessionId=${sessionId}`);
                     const data = await res.json();
+
                     if (data.found && data.url) {
-                        setCurrentSignature(data.url);
-                        if (onSave) onSave(data.url);
+                        console.log('[SignaturePad] Signature found!', data);
+                        setStatusMessage('Signature received. Saving...');
+
+                        const claimRes = await fetch('/api/signature/claim-temp', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ sessionId }),
+                        });
+
+                        if (claimRes.ok) {
+                            const claimData = await claimRes.json();
+                            console.log('[SignaturePad] Signature claimed:', claimData);
+                            if (claimData.url) {
+                                setCurrentSignature(claimData.url);
+                                if (onSave) onSave(claimData.url);
+                                setStatusMessage('Signature saved successfully.');
+                            } else {
+                                setStatusMessage('Signature saved.');
+                            }
+                        } else {
+                            console.error('[SignaturePad] Claim failed', await claimRes.text());
+                            setStatusMessage('Could not save signature. Please try again.');
+                        }
+
                         setIsPolling(false);
-                        setActiveTab('draw'); // Switch back to view/draw tab to show result
-                        // Clear canvas ref if exists to avoid confusion, or load image into it
+                        setActiveTab('draw');
                     }
                 } catch (err) {
                     console.error('Polling error', err);
@@ -90,6 +119,7 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
         if (!dataURL) return;
 
         try {
+            setStatusMessage('Saving...');
             const res = await fetch('/api/signature/upload', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -99,9 +129,13 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
             if (data.url) {
                 setCurrentSignature(data.url);
                 if (onSave) onSave(data.url);
+                setStatusMessage('Signature saved successfully.');
+            } else {
+                setStatusMessage('Failed to save signature.');
             }
         } catch (err) {
             console.error('Save error', err);
+            setStatusMessage('Failed to save signature.');
         }
     };
 
@@ -113,6 +147,7 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
         reader.onload = async (event) => {
             const base64 = event.target?.result as string;
             try {
+                setStatusMessage('Saving...');
                 const res = await fetch('/api/signature/upload', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -122,9 +157,13 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
                 if (data.url) {
                     setCurrentSignature(data.url);
                     if (onSave) onSave(data.url);
+                    setStatusMessage('Signature saved successfully.');
+                } else {
+                    setStatusMessage('Failed to save signature.');
                 }
             } catch (err) {
                 console.error('Upload error', err);
+                setStatusMessage('Failed to save signature.');
             }
         };
         reader.readAsDataURL(file);
@@ -154,6 +193,11 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
             </div>
 
             <div className="p-6">
+                {statusMessage && (
+                    <div className="mb-4 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                        {statusMessage}
+                    </div>
+                )}
                 {activeTab === 'draw' && (
                     <div className="space-y-4">
                         <div className="border border-gray-200 rounded-lg bg-white relative group">
