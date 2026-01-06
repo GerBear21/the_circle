@@ -3,7 +3,6 @@ import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input } from '../../../components/ui';
-import { supabase, isSupabaseConfigured } from '../../../lib/supabaseClient';
 
 export default function NewApprovalRequestPage() {
   const { data: session, status } = useSession();
@@ -26,39 +25,32 @@ export default function NewApprovalRequestPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!isSupabaseConfigured) {
-      setError('Database not configured. Please contact your administrator.');
-      return;
-    }
-
-    const user = session?.user as any;
-    if (!user?.id || !user?.org_id) {
-      setError('User session not found');
-      return;
-    }
 
     setLoading(true);
     setError(null);
 
     try {
-      const { data, error: insertError } = await supabase
-        .from('requests')
-        .insert({
-          organization_id: user.org_id,
-          creator_id: user.id,
+      const response = await fetch('/api/requests', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
           title: formData.title,
           description: formData.description,
           priority: formData.priority,
           category: formData.category,
-          status: 'draft',
-        })
-        .select()
-        .single();
+          type: 'approval',
+        }),
+      });
 
-      if (insertError) throw insertError;
+      const data = await response.json();
 
-      router.push(`/requests/${data.id}`);
+      if (!response.ok) {
+        throw new Error(data?.error || 'Failed to create request');
+      }
+
+      router.push('/requests/all');
     } catch (err: any) {
       setError(err.message || 'Failed to create request');
     } finally {

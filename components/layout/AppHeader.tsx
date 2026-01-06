@@ -3,6 +3,7 @@ import NotificationPanel from '../ui/NotificationPanel';
 import { useSession, signOut } from 'next-auth/react';
 import Link from 'next/link';
 import { useState, useRef, useEffect } from 'react';
+import { useCurrentUser } from '@/hooks';
 
 interface AppHeaderProps {
   title?: string;
@@ -20,6 +21,7 @@ export default function AppHeader({
   showMenuButton = false
 }: AppHeaderProps) {
   const { data: session } = useSession();
+  const { user: appUser } = useCurrentUser();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
@@ -43,7 +45,7 @@ export default function AppHeader({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const user = session?.user as any;
+  const sessionUser = session?.user as any;
 
   return (
     <header className="sticky top-0 z-40 bg-white border-b border-gray-100 font-sans">
@@ -85,7 +87,7 @@ export default function AppHeader({
                 <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                 </svg>
-                <span className="text-sm font-medium text-gray-700">Rainbow Towers Hotel</span>
+                <span className="text-sm font-medium text-gray-700">{appUser?.business_unit?.name || 'Select Business Unit'}</span>
               </div>
 
               {/* Business Unit Selector */}
@@ -93,7 +95,7 @@ export default function AppHeader({
                 <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                 </svg>
-                <span className="text-sm font-medium text-gray-700">Finance</span>
+                <span className="text-sm font-medium text-gray-700">{appUser?.department?.name || 'Select Department'}</span>
               </div>
 
               {/* Notifications Bell */}
@@ -122,7 +124,7 @@ export default function AppHeader({
                   className="flex items-center gap-2 p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
                 >
                   <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center text-primary-600 font-medium text-sm">
-                    {user?.name?.charAt(0) || user?.email?.charAt(0) || '?'}
+                    {sessionUser?.name?.charAt(0) || sessionUser?.email?.charAt(0) || '?'}
                   </div>
                   <svg className="w-4 h-4 text-gray-400 hidden sm:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -134,8 +136,8 @@ export default function AppHeader({
                   <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-gray-200 py-1 z-50">
                     {/* User Info */}
                     <div className="px-4 py-3 border-b border-gray-100">
-                      <p className="text-sm font-medium text-gray-900 truncate">{user?.name || 'User'}</p>
-                      <p className="text-xs text-gray-500 truncate">{user?.email || ''}</p>
+                      <p className="text-sm font-medium text-gray-900 truncate">{sessionUser?.name || 'User'}</p>
+                      <p className="text-xs text-gray-500 truncate">{sessionUser?.email || ''}</p>
                     </div>
 
                     {/* Menu Items */}

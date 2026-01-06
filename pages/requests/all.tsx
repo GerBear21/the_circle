@@ -38,7 +38,27 @@ interface Request {
   comments_count: number;
 }
 
-// Extended mock data for demonstration
+// Fetch requests from API
+async function fetchRequests(params: {
+  status?: string;
+  type?: string;
+  search?: string;
+  sort?: string;
+}): Promise<{ requests: Request[]; total: number }> {
+  const searchParams = new URLSearchParams();
+  if (params.status && params.status !== 'all') searchParams.set('status', params.status);
+  if (params.type && params.type !== 'all') searchParams.set('type', params.type);
+  if (params.search) searchParams.set('search', params.search);
+  if (params.sort) searchParams.set('sort', params.sort);
+
+  const response = await fetch(`/api/requests?${searchParams.toString()}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch requests');
+  }
+  return response.json();
+}
+
+// Mock data kept as fallback for demo/development
 const mockRequests: Request[] = [
   {
     id: '1',
@@ -388,13 +408,35 @@ export default function AllRequestsPage() {
     }
   }, [status, router]);
 
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch requests from API
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setRequests(mockRequests);
-      setLoading(false);
-    }, 500);
-    return () => clearTimeout(timer);
-  }, []);
+    const loadRequests = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const { requests: data } = await fetchRequests({
+          status: statusFilter,
+          type: typeFilter,
+          search: searchQuery,
+          sort: sortBy,
+        });
+        setRequests(data);
+      } catch (err) {
+        console.error('Error fetching requests:', err);
+        setError('Failed to load requests. Using demo data.');
+        // Fallback to mock data if API fails
+        setRequests(mockRequests);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    // Debounce search queries
+    const debounceTimer = setTimeout(loadRequests, searchQuery ? 300 : 0);
+    return () => clearTimeout(debounceTimer);
+  }, [statusFilter, typeFilter, searchQuery, sortBy]);
 
   const filteredRequests = requests
     .filter((req) => {
@@ -536,6 +578,16 @@ export default function AllRequestsPage() {
             </Button>
           </div>
         </div>
+
+        {/* Error Banner */}
+        {error && (
+          <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-xl flex items-center gap-2 text-yellow-800">
+            <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <span className="text-sm">{error}</span>
+          </div>
+        )}
 
         {/* Stats Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">

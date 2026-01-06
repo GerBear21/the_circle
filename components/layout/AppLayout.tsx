@@ -4,7 +4,8 @@ import AppHeader from './AppHeader';
 import BottomNav from './BottomNav';
 import Sidebar from './Sidebar';
 import SignatureRequiredModal from '../SignatureRequiredModal';
-import { useSignatureCheck } from '@/hooks';
+import ProfileSetupModal from '../ProfileSetupModal';
+import { useSignatureCheck, useCurrentUser } from '@/hooks';
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -28,6 +29,7 @@ export default function AppLayout({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const router = useRouter();
   const { hasSignature, loading: signatureLoading, refetch } = useSignatureCheck();
+  const { user, loading: userLoading, needsProfileSetup, refetch: refetchUser } = useCurrentUser();
 
   // Pages that should skip signature check
   const isSettingsPage = router.pathname === '/profile/settings';
@@ -37,10 +39,27 @@ export default function AppLayout({
     await refetch();
   };
 
+  const handleProfileSetupComplete = async () => {
+    await refetchUser();
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Signature Required Modal */}
-      {shouldCheckSignature && !signatureLoading && !hasSignature && (
+      {/* Profile Setup Modal - shown first if user needs to set up profile */}
+      {!userLoading && user && needsProfileSetup && (
+        <ProfileSetupModal
+          isOpen={true}
+          userId={user.id}
+          currentOrganizationId={user.organization_id}
+          currentDepartmentId={user.department_id ?? undefined}
+          currentBusinessUnitId={user.business_unit_id ?? undefined}
+          onComplete={handleProfileSetupComplete}
+        />
+      )}
+
+
+      {/* Signature Required Modal - shown after profile is set up */}
+      {shouldCheckSignature && !signatureLoading && !hasSignature && !needsProfileSetup && (
         <SignatureRequiredModal
           isOpen={true}
           onSignatureSaved={handleSignatureSaved}

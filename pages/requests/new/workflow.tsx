@@ -4,20 +4,36 @@ import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input } from '../../../components/ui';
 
-interface ApprovalStep {
+type StepType = 'approval' | 'integration';
+
+interface WorkflowStep {
   id: string;
   name: string;
-  approverType: 'user' | 'role' | 'department' | 'manager' | 'skip_level';
-  approverValue: string;
+  type: StepType;
   order: number;
-  isParallel: boolean;
+
+  // Approval specific props
+  approverType?: 'fixed_user' | 'variable_user' | 'role' | 'department' | 'manager' | 'skip_level';
+  approverValue?: string;
+  isParallel?: boolean;
   parallelWith?: string;
+  autoApprove?: AutoApproveConfig;
+  allowDelegation?: boolean;
+  requireComment?: boolean;
+  escalation?: EscalationConfig;
+  notifications?: NotificationConfig; // For approvals, these are specific step notifications
+
+  // Integration specific props
+  integration?: IntegrationConfig;
+
+  // Common props
   conditions: StepCondition[];
-  escalation: EscalationConfig;
-  notifications: NotificationConfig;
-  allowDelegation: boolean;
-  requireComment: boolean;
-  autoApprove: AutoApproveConfig;
+}
+
+interface IntegrationConfig {
+  provider: 'teams' | 'slack' | 'outlook' | 'n8n' | 'webhook';
+  action: string; // e.g., 'send_message', 'create_event'
+  config: Record<string, any>;
 }
 
 interface StepCondition {
@@ -62,7 +78,10 @@ interface WorkflowSettings {
   requireAttachments: boolean;
 }
 
-const defaultStepConfig = (): Partial<ApprovalStep> => ({
+const defaultApprovalConfig = (): Partial<WorkflowStep> => ({
+  type: 'approval',
+  approverType: 'role',
+  approverValue: '',
   isParallel: false,
   conditions: [],
   escalation: { enabled: false, hours: 24, escalateTo: '', reminder: true, reminderHours: 12 },
@@ -72,12 +91,22 @@ const defaultStepConfig = (): Partial<ApprovalStep> => ({
   autoApprove: { enabled: false, condition: 'amount_below', value: '' },
 });
 
+const defaultIntegrationConfig = (): Partial<WorkflowStep> => ({
+  type: 'integration',
+  integration: {
+    provider: 'teams',
+    action: 'send_message',
+    config: {}
+  },
+  conditions: [],
+});
+
 export default function CustomizeWorkflowPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [workflowName, setWorkflowName] = useState('');
   const [workflowDescription, setWorkflowDescription] = useState('');
-  const [steps, setSteps] = useState<ApprovalStep[]>([]);
+  const [steps, setSteps] = useState<WorkflowStep[]>([]);
   const [expandedStep, setExpandedStep] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'steps' | 'settings' | 'rules'>('steps');
   const [loading, setLoading] = useState(false);
@@ -141,17 +170,15 @@ export default function CustomizeWorkflowPage() {
   const addStep = () => {
     const newStep: ApprovalStep = {
       id: `step_${Date.now()}`,
-      name: `Step ${steps.length + 1}`,
-      approverType: 'role',
-      approverValue: '',
+      name: type === 'approval' ? `Approval Step ${steps.length + 1}` : `Integration Step ${steps.length + 1}`,
       order: steps.length + 1,
-      ...defaultStepConfig(),
-    } as ApprovalStep;
+      ...(type === 'approval' ? defaultApprovalConfig() : defaultIntegrationConfig()),
+    } as WorkflowStep;
     setSteps([...steps, newStep]);
     setExpandedStep(newStep.id);
   };
 
-  const updateStep = (id: string, updates: Partial<ApprovalStep>) => {
+  const updateStep = (id: string, updates: Partial<WorkflowStep>) => {
     setSteps(steps.map(s => s.id === id ? { ...s, ...updates } : s));
   };
 
@@ -195,6 +222,35 @@ export default function CustomizeWorkflowPage() {
     updateStep(stepId, { conditions: step.conditions.filter(c => c.id !== conditionId) });
   };
 
+  const handleSave = async () => {
+    if (!workflowName || steps.length === 0) return;
+
+    try {
+      const response = await fetch('/api/workflows', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: workflowName,
+          description: workflowDescription,
+          steps,
+          settings: workflowSettings,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save workflow');
+      }
+
+      // Handle success
+      router.push('/requests/new');
+    } catch (error) {
+      console.error('Error saving workflow:', error);
+      alert('Failed to save workflow');
+    }
+  };
+
   if (status === 'loading') {
     return (
       <AppLayout title="Customize Workflow" showBack onBack={() => router.back()}>
@@ -207,12 +263,403 @@ export default function CustomizeWorkflowPage() {
 
   if (!session) return null;
 
-  const renderStepConfig = (step: ApprovalStep) => {
+  const renderStepConfig = (step: WorkflowStep) => {
     if (expandedStep !== step.id) return null;
 
     return (
       <div className="mt-4 pt-4 border-t border-gray-100 space-y-4">
-        {/* Conditions */}
+        {/* Step Name */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">Step Name</label>
+          <Input
+            value={step.name}
+            onChange={(e) => updateStep(step.id, { name: e.target.value })}
+            placeholder="Name this step"
+          />
+        </div>
+
+        {/* Integration Configuration */}
+        {step.type === 'integration' && step.integration && (
+          <div>
+            <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 block">Integration Details</label>
+            <div className="p-4 bg-blue-50/50 rounded-lg border border-blue-100 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Provider</label>
+                  <div className="relative">
+                    <select
+                      className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-white"
+                      value={step.integration.provider}
+                      onChange={(e) => updateStep(step.id, {
+                        integration: {
+                          ...step.integration!,
+                          provider: e.target.value as any,
+                          // Reset action when provider changes
+                          action: e.target.value === 'n8n' ? 'trigger_workflow' : 'send_message'
+                        }
+                      })}
+                    >
+                      <option value="teams">Microsoft Teams</option>
+                      <option value="slack">Slack</option>
+                      <option value="outlook">Outlook</option>
+                      <option value="n8n">n8n Workflow</option>
+                      <option value="webhook">Webhook</option>
+                    </select>
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                      <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Action</label>
+                  <div className="relative">
+                    <select
+                      className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-white"
+                      value={step.integration.action}
+                      onChange={(e) => updateStep(step.id, { integration: { ...step.integration!, action: e.target.value } })}
+                    >
+                      {step.integration.provider === 'teams' && (
+                        <>
+                          <option value="send_message">Send Channel Message</option>
+                          <option value="send_dm">Send Direct Message</option>
+                        </>
+                      )}
+                      {step.integration.provider === 'slack' && (
+                        <>
+                          <option value="send_message">Send Channel Message</option>
+                          <option value="send_dm">Send Direct Message</option>
+                        </>
+                      )}
+                      {step.integration.provider === 'outlook' && (
+                        <>
+                          <option value="send_email">Send Email</option>
+                          <option value="create_event">Create Calendar Event</option>
+                        </>
+                      )}
+                      {step.integration.provider === 'n8n' && (
+                        <option value="trigger_workflow">Trigger Workflow</option>
+                      )}
+                      {step.integration.provider === 'webhook' && (
+                        <option value="post">POST Request</option>
+                      )}
+                    </select>
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                      <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Dynamic Config Fields based on Provider/Action */}
+              <div>
+                {step.integration.provider === 'n8n' ? (
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Workflow ID / Webhook Slug</label>
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="e.g. my-custom-workflow"
+                      value={step.integration.config.workflowId || ''}
+                      onChange={(e) => updateStep(step.id, {
+                        integration: {
+                          ...step.integration!,
+                          config: { ...step.integration!.config, workflowId: e.target.value }
+                        }
+                      })}
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1">Found in your n8n webhook node settings</p>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Target (Channel/Email/URL)</label>
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder={
+                        step.integration.provider === 'webhook' ? 'https://api.example.com/webhook' :
+                          step.integration.provider === 'outlook' ? 'user@example.com' :
+                            'Channel ID or Name'
+                      }
+                      value={step.integration.config.target || ''}
+                      onChange={(e) => updateStep(step.id, {
+                        integration: {
+                          ...step.integration!,
+                          config: { ...step.integration!.config, target: e.target.value }
+                        }
+                      })}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Message / Payload Details</label>
+                <textarea
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 h-20 resize-none"
+                  placeholder="JSON payload or message text..."
+                  value={step.integration.config.payload || ''}
+                  onChange={(e) => updateStep(step.id, {
+                    integration: {
+                      ...step.integration!,
+                      config: { ...step.integration!.config, payload: e.target.value }
+                    }
+                  })}
+                />
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* Approval Configuration */}
+        {step.type === 'approval' && (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">
+                  Approver Type
+                </label>
+                <select
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  value={step.approverType}
+                  onChange={(e) => updateStep(step.id, { approverType: e.target.value as any })}
+                >
+                  <option value="fixed_user">Fixed User (Specific Person)</option>
+                  <option value="variable_user">Variable User (Any User/Requester Choice)</option>
+                  <option value="role">Role (e.g. Finance Manager)</option>
+                  <option value="department">Department Head</option>
+                  <option value="manager">Direct Manager</option>
+                  <option value="skip_level">Skip-level Manager</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">
+                  {step.approverType === 'fixed_user' ? 'Select User' : step.approverType === 'variable_user' ? 'Selection Logic' : step.approverType === 'role' ? 'Role' : step.approverType === 'manager' ? 'Relationship' : step.approverType === 'skip_level' ? 'Level' : 'Department'}
+                </label>
+                <select
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  value={step.approverValue}
+                  onChange={(e) => updateStep(step.id, { approverValue: e.target.value })}
+                >
+                  <option value="">Select...</option>
+                  {step.approverType === 'role' && (
+                    <>
+                      <option value="manager">Manager</option>
+                      <option value="director">Director</option>
+                      <option value="finance">Finance Team</option>
+                      <option value="hr">HR Team</option>
+                      <option value="legal">Legal Team</option>
+                      <option value="procurement">Procurement</option>
+                    </>
+                  )}
+                  {step.approverType === 'department' && (
+                    <>
+                      <option value="engineering">Engineering</option>
+                      <option value="marketing">Marketing</option>
+                      <option value="sales">Sales</option>
+                      <option value="operations">Operations</option>
+                      <option value="finance">Finance</option>
+                      <option value="hr">Human Resources</option>
+                    </>
+                  )}
+                  {step.approverType === 'fixed_user' && (
+                    <>
+                      <option value="user1">John Doe (General Manager)</option>
+                      <option value="user2">Jane Smith (Finance Director)</option>
+                      <option value="user3">Mike Johnson (HR Head)</option>
+                    </>
+                  )}
+                  {step.approverType === 'variable_user' && (
+                    <>
+                      <option value="any">Any User (Anyone can sign)</option>
+                      <option value="requester_choice">Requester Selects</option>
+                      <option value="form_field">From Form Field</option>
+                    </>
+                  )}
+                  {step.approverType === 'manager' && (
+                    <>
+                      <option value="direct">Direct Manager</option>
+                      <option value="cost_center">Cost Center Owner</option>
+                    </>
+                  )}
+                  {step.approverType === 'skip_level' && (
+                    <>
+                      <option value="1">1 Level Up</option>
+                      <option value="2">2 Levels Up</option>
+                      <option value="3">3 Levels Up</option>
+                    </>
+                  )}
+                </select>
+              </div>
+            </div>
+
+            {/* Escalation */}
+            <div>
+              <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 block">Escalation</label>
+              <div className="p-3 bg-warning-50/50 rounded-lg border border-warning-100">
+                <label className="flex items-center gap-2 mb-3">
+                  <input
+                    type="checkbox"
+                    checked={step.escalation?.enabled}
+                    onChange={(e) => updateStep(step.id, { escalation: { ...step.escalation!, enabled: e.target.checked } })}
+                    className="rounded border-gray-300 text-warning-500 focus:ring-warning-500"
+                  />
+                  <span className="text-sm text-gray-700">Enable auto-escalation</span>
+                </label>
+                {step.escalation?.enabled && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Escalate after (hours)</label>
+                      <input
+                        type="number"
+                        className="w-full px-2 py-1.5 text-sm rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-warning-500"
+                        value={step.escalation.hours}
+                        onChange={(e) => updateStep(step.id, { escalation: { ...step.escalation!, hours: parseInt(e.target.value) || 0 } })}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Escalate to</label>
+                      <select
+                        className="w-full px-2 py-1.5 text-sm rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-warning-500"
+                        value={step.escalation.escalateTo}
+                        onChange={(e) => updateStep(step.id, { escalation: { ...step.escalation!, escalateTo: e.target.value } })}
+                      >
+                        <option value="">Select...</option>
+                        <option value="skip_level">Skip-level Manager</option>
+                        <option value="department_head">Department Head</option>
+                        <option value="admin">System Admin</option>
+                      </select>
+                    </div>
+                    <label className="flex items-center gap-2 col-span-2">
+                      <input
+                        type="checkbox"
+                        checked={step.escalation.reminder}
+                        onChange={(e) => updateStep(step.id, { escalation: { ...step.escalation!, reminder: e.target.checked } })}
+                        className="rounded border-gray-300 text-warning-500 focus:ring-warning-500"
+                      />
+                      <span className="text-xs text-gray-600">Send reminder {step.escalation.reminderHours}h before escalation</span>
+                    </label>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Notifications */}
+            <div>
+              <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 block">Notifications</label>
+              <div className="p-3 bg-primary-50/50 rounded-lg border border-primary-100">
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  {[
+                    { key: 'onAssignment', label: 'On assignment' },
+                    { key: 'onApproval', label: 'On approval' },
+                    { key: 'onRejection', label: 'On rejection' },
+                    { key: 'onEscalation', label: 'On escalation' },
+                  ].map(({ key, label }) => (
+                    <label key={key} className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={step.notifications?.[key as keyof NotificationConfig] as boolean}
+                        onChange={(e) => updateStep(step.id, { notifications: { ...step.notifications!, [key]: e.target.checked } })}
+                        className="rounded border-gray-300 text-primary-500 focus:ring-primary-500"
+                      />
+                      <span className="text-xs text-gray-600">{label}</span>
+                    </label>
+                  ))}
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Channels</label>
+                  <div className="flex gap-3">
+                    {['email', 'push', 'sms'].map((channel) => (
+                      <label key={channel} className="flex items-center gap-1.5">
+                        <input
+                          type="checkbox"
+                          checked={step.notifications?.channels.includes(channel as any)}
+                          onChange={(e) => {
+                            const channels = e.target.checked
+                              ? [...step.notifications!.channels, channel as any]
+                              : step.notifications!.channels.filter(c => c !== channel);
+                            updateStep(step.id, { notifications: { ...step.notifications!, channels } });
+                          }}
+                          className="rounded border-gray-300 text-primary-500 focus:ring-primary-500"
+                        />
+                        <span className="text-xs text-gray-600 capitalize">{channel}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Additional Options */}
+            <div>
+              <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 block">Options</label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+                  <input
+                    type="checkbox"
+                    checked={step.allowDelegation}
+                    onChange={(e) => updateStep(step.id, { allowDelegation: e.target.checked })}
+                    className="rounded border-gray-300 text-primary-500 focus:ring-primary-500"
+                  />
+                  <span className="text-xs text-gray-600">Allow delegation</span>
+                </label>
+                <label className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+                  <input
+                    type="checkbox"
+                    checked={step.requireComment}
+                    onChange={(e) => updateStep(step.id, { requireComment: e.target.checked })}
+                    className="rounded border-gray-300 text-primary-500 focus:ring-primary-500"
+                  />
+                  <span className="text-xs text-gray-600">Require comment</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Auto-Approve */}
+            <div>
+              <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 block">Auto-Approve</label>
+              <div className="p-3 bg-success-50/50 rounded-lg border border-success-100">
+                <label className="flex items-center gap-2 mb-3">
+                  <input
+                    type="checkbox"
+                    checked={step.autoApprove?.enabled}
+                    onChange={(e) => updateStep(step.id, { autoApprove: { ...step.autoApprove!, enabled: e.target.checked } })}
+                    className="rounded border-gray-300 text-success-500 focus:ring-success-500"
+                  />
+                  <span className="text-sm text-gray-700">Enable auto-approve</span>
+                </label>
+                {step.autoApprove?.enabled && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Condition</label>
+                      <select
+                        className="w-full px-2 py-1.5 text-sm rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-success-500"
+                        value={step.autoApprove.condition}
+                        onChange={(e) => updateStep(step.id, { autoApprove: { ...step.autoApprove!, condition: e.target.value as any } })}
+                      >
+                        <option value="amount_below">Amount below</option>
+                        <option value="same_approver">Same as previous approver</option>
+                        <option value="time_elapsed">Time elapsed (hours)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Value</label>
+                      <input
+                        type="text"
+                        className="w-full px-2 py-1.5 text-sm rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-success-500"
+                        placeholder={step.autoApprove.condition === 'amount_below' ? 'e.g., 1000' : 'e.g., 48'}
+                        value={step.autoApprove.value}
+                        onChange={(e) => updateStep(step.id, { autoApprove: { ...step.autoApprove!, value: e.target.value } })}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Conditions (Common for all steps) */}
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Conditions</label>
@@ -225,7 +672,7 @@ export default function CustomizeWorkflowPage() {
             </button>
           </div>
           {step.conditions.length === 0 ? (
-            <p className="text-xs text-gray-400 italic">No conditions - step will always be included</p>
+            <p className="text-xs text-gray-400 italic">No conditions - step will always be executed</p>
           ) : (
             <div className="space-y-2">
               {step.conditions.map((cond) => (
@@ -283,170 +730,6 @@ export default function CustomizeWorkflowPage() {
               ))}
             </div>
           )}
-        </div>
-
-        {/* Escalation */}
-        <div>
-          <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 block">Escalation</label>
-          <div className="p-3 bg-warning-50/50 rounded-lg border border-warning-100">
-            <label className="flex items-center gap-2 mb-3">
-              <input
-                type="checkbox"
-                checked={step.escalation.enabled}
-                onChange={(e) => updateStep(step.id, { escalation: { ...step.escalation, enabled: e.target.checked } })}
-                className="rounded border-gray-300 text-warning-500 focus:ring-warning-500"
-              />
-              <span className="text-sm text-gray-700">Enable auto-escalation</span>
-            </label>
-            {step.escalation.enabled && (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Escalate after (hours)</label>
-                  <input
-                    type="number"
-                    className="w-full px-2 py-1.5 text-sm rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-warning-500"
-                    value={step.escalation.hours}
-                    onChange={(e) => updateStep(step.id, { escalation: { ...step.escalation, hours: parseInt(e.target.value) || 0 } })}
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Escalate to</label>
-                  <select
-                    className="w-full px-2 py-1.5 text-sm rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-warning-500"
-                    value={step.escalation.escalateTo}
-                    onChange={(e) => updateStep(step.id, { escalation: { ...step.escalation, escalateTo: e.target.value } })}
-                  >
-                    <option value="">Select...</option>
-                    <option value="skip_level">Skip-level Manager</option>
-                    <option value="department_head">Department Head</option>
-                    <option value="admin">System Admin</option>
-                  </select>
-                </div>
-                <label className="flex items-center gap-2 col-span-2">
-                  <input
-                    type="checkbox"
-                    checked={step.escalation.reminder}
-                    onChange={(e) => updateStep(step.id, { escalation: { ...step.escalation, reminder: e.target.checked } })}
-                    className="rounded border-gray-300 text-warning-500 focus:ring-warning-500"
-                  />
-                  <span className="text-xs text-gray-600">Send reminder {step.escalation.reminderHours}h before escalation</span>
-                </label>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Notifications */}
-        <div>
-          <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 block">Notifications</label>
-          <div className="p-3 bg-primary-50/50 rounded-lg border border-primary-100">
-            <div className="grid grid-cols-2 gap-2 mb-3">
-              {[
-                { key: 'onAssignment', label: 'On assignment' },
-                { key: 'onApproval', label: 'On approval' },
-                { key: 'onRejection', label: 'On rejection' },
-                { key: 'onEscalation', label: 'On escalation' },
-              ].map(({ key, label }) => (
-                <label key={key} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={step.notifications[key as keyof NotificationConfig] as boolean}
-                    onChange={(e) => updateStep(step.id, { notifications: { ...step.notifications, [key]: e.target.checked } })}
-                    className="rounded border-gray-300 text-primary-500 focus:ring-primary-500"
-                  />
-                  <span className="text-xs text-gray-600">{label}</span>
-                </label>
-              ))}
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Channels</label>
-              <div className="flex gap-3">
-                {['email', 'push', 'sms'].map((channel) => (
-                  <label key={channel} className="flex items-center gap-1.5">
-                    <input
-                      type="checkbox"
-                      checked={step.notifications.channels.includes(channel as any)}
-                      onChange={(e) => {
-                        const channels = e.target.checked
-                          ? [...step.notifications.channels, channel as any]
-                          : step.notifications.channels.filter(c => c !== channel);
-                        updateStep(step.id, { notifications: { ...step.notifications, channels } });
-                      }}
-                      className="rounded border-gray-300 text-primary-500 focus:ring-primary-500"
-                    />
-                    <span className="text-xs text-gray-600 capitalize">{channel}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Additional Options */}
-        <div>
-          <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 block">Options</label>
-          <div className="grid grid-cols-2 gap-2">
-            <label className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
-              <input
-                type="checkbox"
-                checked={step.allowDelegation}
-                onChange={(e) => updateStep(step.id, { allowDelegation: e.target.checked })}
-                className="rounded border-gray-300 text-primary-500 focus:ring-primary-500"
-              />
-              <span className="text-xs text-gray-600">Allow delegation</span>
-            </label>
-            <label className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
-              <input
-                type="checkbox"
-                checked={step.requireComment}
-                onChange={(e) => updateStep(step.id, { requireComment: e.target.checked })}
-                className="rounded border-gray-300 text-primary-500 focus:ring-primary-500"
-              />
-              <span className="text-xs text-gray-600">Require comment</span>
-            </label>
-          </div>
-        </div>
-
-        {/* Auto-Approve */}
-        <div>
-          <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 block">Auto-Approve</label>
-          <div className="p-3 bg-success-50/50 rounded-lg border border-success-100">
-            <label className="flex items-center gap-2 mb-3">
-              <input
-                type="checkbox"
-                checked={step.autoApprove.enabled}
-                onChange={(e) => updateStep(step.id, { autoApprove: { ...step.autoApprove, enabled: e.target.checked } })}
-                className="rounded border-gray-300 text-success-500 focus:ring-success-500"
-              />
-              <span className="text-sm text-gray-700">Enable auto-approve</span>
-            </label>
-            {step.autoApprove.enabled && (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Condition</label>
-                  <select
-                    className="w-full px-2 py-1.5 text-sm rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-success-500"
-                    value={step.autoApprove.condition}
-                    onChange={(e) => updateStep(step.id, { autoApprove: { ...step.autoApprove, condition: e.target.value as any } })}
-                  >
-                    <option value="amount_below">Amount below</option>
-                    <option value="same_approver">Same as previous approver</option>
-                    <option value="time_elapsed">Time elapsed (hours)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Value</label>
-                  <input
-                    type="text"
-                    className="w-full px-2 py-1.5 text-sm rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-success-500"
-                    placeholder={step.autoApprove.condition === 'amount_below' ? 'e.g., 1000' : 'e.g., 48'}
-                    value={step.autoApprove.value}
-                    onChange={(e) => updateStep(step.id, { autoApprove: { ...step.autoApprove, value: e.target.value } })}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
         </div>
       </div>
     );
@@ -684,11 +967,10 @@ export default function CustomizeWorkflowPage() {
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium transition-all ${
-                activeTab === tab.id
-                  ? 'bg-white text-primary-600 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium transition-all ${activeTab === tab.id
+                ? 'bg-white text-primary-600 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+                }`}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={tab.icon} />
@@ -715,8 +997,8 @@ export default function CustomizeWorkflowPage() {
                     <svg className="w-12 h-12 mx-auto text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                     </svg>
-                    <p className="text-gray-500 font-medium">No approval steps defined</p>
-                    <p className="text-sm text-gray-400 mt-1">Add steps to define the approval workflow</p>
+                    <p className="text-gray-500 font-medium">No steps defined</p>
+                    <p className="text-sm text-gray-400 mt-1">Add steps to define the workflow</p>
                   </div>
                 </Card>
               ) : (
@@ -724,6 +1006,7 @@ export default function CustomizeWorkflowPage() {
                   {steps.map((step, index) => (
                     <Card key={step.id} variant="outlined" className={`relative transition-all ${expandedStep === step.id ? 'ring-2 ring-primary-200' : ''}`}>
                       <div className="flex items-start gap-4">
+                        {/* Reorder and Number */}
                         <div className="flex flex-col items-center gap-1">
                           <button
                             type="button"
@@ -735,8 +1018,12 @@ export default function CustomizeWorkflowPage() {
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
                             </svg>
                           </button>
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${step.isParallel ? 'bg-primary-100' : 'bg-primary-100'}`}>
-                            <span className="text-sm font-bold text-primary-600">{step.order}</span>
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${step.type === 'approval' ? 'bg-primary-100 text-primary-600' : 'bg-blue-100 text-blue-600'}`}>
+                            {step.type === 'approval' ? (
+                              <span className="text-sm font-bold">{step.order}</span>
+                            ) : (
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                            )}
                           </div>
                           <button
                             type="button"
@@ -749,14 +1036,12 @@ export default function CustomizeWorkflowPage() {
                             </svg>
                           </button>
                         </div>
+
+                        {/* Content */}
                         <div className="flex-1 space-y-3">
+                          {/* Header Line */}
                           <div className="flex items-center gap-2">
-                            <Input
-                              placeholder="Step name"
-                              value={step.name}
-                              onChange={(e) => updateStep(step.id, { name: e.target.value })}
-                              className="flex-1"
-                            />
+                            <span className="font-medium text-gray-900 flex-1">{step.name}</span>
                             <button
                               type="button"
                               onClick={() => setExpandedStep(expandedStep === step.id ? null : step.id)}
@@ -768,78 +1053,25 @@ export default function CustomizeWorkflowPage() {
                               </svg>
                             </button>
                           </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                              <label className="block text-xs font-medium text-gray-500 mb-1">
-                                Approver Type
-                              </label>
-                              <select
-                                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                                value={step.approverType}
-                                onChange={(e) => updateStep(step.id, { approverType: e.target.value as any })}
-                              >
-                                <option value="user">Specific User</option>
-                                <option value="role">Role</option>
-                                <option value="department">Department Head</option>
-                                <option value="manager">Direct Manager</option>
-                                <option value="skip_level">Skip-level Manager</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="block text-xs font-medium text-gray-500 mb-1">
-                                {step.approverType === 'user' ? 'User' : step.approverType === 'role' ? 'Role' : step.approverType === 'manager' ? 'Relationship' : step.approverType === 'skip_level' ? 'Level' : 'Department'}
-                              </label>
-                              <select
-                                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                                value={step.approverValue}
-                                onChange={(e) => updateStep(step.id, { approverValue: e.target.value })}
-                              >
-                                <option value="">Select...</option>
-                                {step.approverType === 'role' && (
-                                  <>
-                                    <option value="manager">Manager</option>
-                                    <option value="director">Director</option>
-                                    <option value="finance">Finance Team</option>
-                                    <option value="hr">HR Team</option>
-                                    <option value="legal">Legal Team</option>
-                                    <option value="procurement">Procurement</option>
-                                  </>
-                                )}
-                                {step.approverType === 'department' && (
-                                  <>
-                                    <option value="engineering">Engineering</option>
-                                    <option value="marketing">Marketing</option>
-                                    <option value="sales">Sales</option>
-                                    <option value="operations">Operations</option>
-                                    <option value="finance">Finance</option>
-                                    <option value="hr">Human Resources</option>
-                                  </>
-                                )}
-                                {step.approverType === 'user' && (
-                                  <>
-                                    <option value="user1">John Doe</option>
-                                    <option value="user2">Jane Smith</option>
-                                    <option value="user3">Mike Johnson</option>
-                                  </>
-                                )}
-                                {step.approverType === 'manager' && (
-                                  <>
-                                    <option value="direct">Direct Manager</option>
-                                    <option value="cost_center">Cost Center Owner</option>
-                                  </>
-                                )}
-                                {step.approverType === 'skip_level' && (
-                                  <>
-                                    <option value="1">1 Level Up</option>
-                                    <option value="2">2 Levels Up</option>
-                                    <option value="3">3 Levels Up</option>
-                                  </>
-                                )}
-                              </select>
-                            </div>
+
+                          {/* Subtitle / Details */}
+                          <div className="flex flex-col sm:flex-row gap-2 text-sm text-gray-500">
+                            {step.type === 'approval' ? (
+                              <>
+                                <span className="bg-gray-100 px-2 py-0.5 rounded text-xs border border-gray-200 w-fit">Approval Step</span>
+                                <span className="hidden sm:inline">•</span>
+                                <span className="capitalize">{step.approverType?.replace('_', ' ')}</span>
+                              </>
+                            ) : (
+                              <>
+                                <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-xs border border-blue-100 w-fit">Integration Step</span>
+                                <span className="hidden sm:inline">•</span>
+                                <span className="capitalize">{step.integration?.provider} - {step.integration?.action.replace('_', ' ')}</span>
+                              </>
+                            )}
                           </div>
 
-                          {/* Quick badges showing step config */}
+                          {/* Badges */}
                           <div className="flex flex-wrap gap-1.5">
                             {step.conditions.length > 0 && (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary-100 text-primary-700 text-xs rounded-full">
@@ -849,7 +1081,7 @@ export default function CustomizeWorkflowPage() {
                                 {step.conditions.length} condition{step.conditions.length > 1 ? 's' : ''}
                               </span>
                             )}
-                            {step.escalation.enabled && (
+                            {step.escalation?.enabled && (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-warning-100 text-warning-700 text-xs rounded-full">
                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -857,7 +1089,7 @@ export default function CustomizeWorkflowPage() {
                                 {step.escalation.hours}h escalation
                               </span>
                             )}
-                            {step.autoApprove.enabled && (
+                            {step.autoApprove?.enabled && (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-success-100 text-success-700 text-xs rounded-full">
                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -865,18 +1097,13 @@ export default function CustomizeWorkflowPage() {
                                 Auto-approve
                               </span>
                             )}
-                            {step.requireComment && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-full">
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-                                </svg>
-                                Comment required
-                              </span>
-                            )}
                           </div>
 
+                          {/* Configuration Form */}
                           {renderStepConfig(step)}
                         </div>
+
+                        {/* Delete Button */}
                         <button
                           type="button"
                           onClick={() => removeStep(step.id)}
@@ -893,18 +1120,31 @@ export default function CustomizeWorkflowPage() {
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={addStep}
-              className="w-full py-3 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:border-primary-400 hover:text-primary-600 hover:bg-primary-50/30 transition-colors flex items-center justify-center gap-2"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Add Approval Step
-            </button>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => addStep('approval')}
+                className="py-3 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:border-primary-400 hover:text-primary-600 hover:bg-primary-50/30 transition-colors flex items-center justify-center gap-2"
+              >
+                <div className="w-6 h-6 rounded-full bg-primary-100 flex items-center justify-center">
+                  <span className="text-xs font-bold text-primary-600">+</span>
+                </div>
+                Add Approval Step
+              </button>
+              <button
+                type="button"
+                onClick={() => addStep('integration')}
+                className="py-3 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/30 transition-colors flex items-center justify-center gap-2"
+              >
+                <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">
+                  <svg className="w-3 h-3 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                </div>
+                Add Integration Step
+              </button>
+            </div>
           </>
-        )}
+        )
+        }
 
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-sm border-t border-gray-100 pb-safe lg:left-64">
           <div className="flex gap-3 max-w-4xl mx-auto">
@@ -928,7 +1168,7 @@ export default function CustomizeWorkflowPage() {
             </Button>
           </div>
         </div>
-      </div>
-    </AppLayout>
+      </div >
+    </AppLayout >
   );
 }

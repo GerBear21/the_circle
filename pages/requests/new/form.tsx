@@ -1,31 +1,35 @@
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
-import { useEffect, useState } from 'react';
-import { AppLayout } from '../../../components/layout';
-import { Card, Button, Input } from '../../../components/ui';
-
-type FieldType = 'text' | 'number' | 'email' | 'date' | 'select' | 'textarea' | 'checkbox';
-
-interface FormField {
-  id: string;
-  label: string;
-  type: FieldType;
-  required: boolean;
-  options?: string[];
-}
-
-const fieldTypes: { value: FieldType; label: string; icon: string }[] = [
-  { value: 'text', label: 'Text', icon: 'M4 6h16M4 12h16M4 18h7' },
-  { value: 'number', label: 'Number', icon: 'M7 20l4-16m2 16l4-16M6 9h14M4 15h14' },
-  { value: 'email', label: 'Email', icon: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
-  { value: 'date', label: 'Date', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
-  { value: 'select', label: 'Dropdown', icon: 'M19 9l-7 7-7-7' },
-  { value: 'textarea', label: 'Long Text', icon: 'M4 6h16M4 10h16M4 14h16M4 18h10' },
-  { value: 'checkbox', label: 'Checkbox', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' },
-];
+import { useEffect } from 'react';
+import { Editor, Frame, Element } from '@craftjs/core';
+import {
+  Container,
+  TextField,
+  NumberField,
+  Heading,
+  Logo,
+  CheckboxGroup,
+  RadioGroup,
+  Rating,
+  SignatureField,
+  Table,
+  Dropdown,
+  DateField,
+  TextArea,
+  Divider,
+  Section,
+  FileAttachment,
+  MultiFileAttachment,
+  MultiSelect,
+  WatchersField,
+  BusinessUnitField,
+  DepartmentField,
+  CurrencyAmountField
+} from '../../../components/form-builder/user';
+import { Viewport } from '../../../components/form-builder/Viewport';
 
 export default function NewFormDesignerPage() {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const router = useRouter();
   const [formName, setFormName] = useState('');
   const [formDescription, setFormDescription] = useState('');
@@ -112,15 +116,11 @@ export default function NewFormDesignerPage() {
 
   if (status === 'loading') {
     return (
-      <AppLayout title="Design Form" showBack onBack={() => router.back()}>
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500" />
-        </div>
-      </AppLayout>
+      <div className="h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500" />
+      </div>
     );
   }
-
-  if (!session) return null;
 
   return (
     <AppLayout title="Design Form" showBack onBack={() => router.back()} hideNav>
