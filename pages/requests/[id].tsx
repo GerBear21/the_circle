@@ -421,11 +421,14 @@ export default function RequestDetailsPage() {
     const [activeTab, setActiveTab] = useState<'details' | 'timeline' | 'documents'>('details');
     const [publishing, setPublishing] = useState(false);
     const [publishError, setPublishError] = useState<string | null>(null);
+    const [deleting, setDeleting] = useState(false);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
     const currentUserId = (session?.user as any)?.id;
     const isCreator = request?.creator?.id === currentUserId;
     const isDraft = request?.status === 'draft';
     const canPublish = isCreator && isDraft;
+    const canDelete = isCreator && request?.status !== 'approved';
 
     const handlePublish = async () => {
         if (!id || !canPublish) return;
@@ -457,6 +460,33 @@ export default function RequestDetailsPage() {
             setPublishError(err.message || 'Failed to publish request');
         } finally {
             setPublishing(false);
+        }
+    };
+
+    const handleDelete = async () => {
+        if (!id || !canDelete) return;
+
+        setDeleting(true);
+        setPublishError(null);
+
+        try {
+            const response = await fetch(`/api/requests/${id}`, {
+                method: 'DELETE',
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to delete request');
+            }
+
+            router.push('/requests/my-requests');
+        } catch (err: any) {
+            console.error('Error deleting request:', err);
+            setPublishError(err.message || 'Failed to delete request');
+            setShowDeleteConfirm(false);
+        } finally {
+            setDeleting(false);
         }
     };
 
@@ -586,6 +616,19 @@ export default function RequestDetailsPage() {
                     </div>
 
                     <div className="flex gap-3 flex-shrink-0">
+                        {/* Delete button for creator's non-approved requests */}
+                        {canDelete && (
+                            <Button
+                                variant="outline"
+                                className="gap-2 bg-white text-danger-600 border-danger-200 hover:bg-danger-50"
+                                onClick={() => setShowDeleteConfirm(true)}
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                                Delete
+                            </Button>
+                        )}
                         <Button variant="outline" className="gap-2 bg-white">
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -949,6 +992,46 @@ export default function RequestDetailsPage() {
 
                     </div>
                 </div>
+
+                {/* Delete Confirmation Modal */}
+                {showDeleteConfirm && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                        <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl">
+                            <div className="flex items-center gap-4 mb-4">
+                                <div className="w-12 h-12 rounded-full bg-danger-100 flex items-center justify-center flex-shrink-0">
+                                    <svg className="w-6 h-6 text-danger-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-bold text-text-primary">Delete Request</h3>
+                                    <p className="text-sm text-text-secondary">This action cannot be undone</p>
+                                </div>
+                            </div>
+                            <p className="text-text-secondary mb-6">
+                                Are you sure you want to delete "<span className="font-medium text-text-primary">{request.title}</span>"? 
+                                All associated data including documents and approval steps will be permanently removed.
+                            </p>
+                            <div className="flex gap-3 justify-end">
+                                <Button
+                                    variant="outline"
+                                    onClick={() => setShowDeleteConfirm(false)}
+                                    disabled={deleting}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    variant="danger"
+                                    onClick={handleDelete}
+                                    disabled={deleting}
+                                    isLoading={deleting}
+                                >
+                                    {deleting ? 'Deleting...' : 'Delete Request'}
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </AppLayout>
     );

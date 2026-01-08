@@ -9,13 +9,18 @@ interface Request {
   title: string;
   description: string;
   status: 'pending' | 'approved' | 'rejected' | 'in_review' | 'withdrawn' | 'draft';
-  priority: 'low' | 'normal' | 'high' | 'urgent';
-  category: string;
+  priority?: string;
+  category?: string;
   created_at: string;
   updated_at: string;
-  current_step: number;
-  total_steps: number;
-  type: 'approval' | 'capex' | 'leave' | 'expense';
+  current_step?: number;
+  total_steps?: number;
+  type?: string;
+  metadata?: {
+    priority?: string;
+    requestType?: string;
+    [key: string]: any;
+  };
   current_approver?: {
     id: string;
     name: string;
@@ -44,9 +49,14 @@ const statusConfig: Record<string, { label: string; bg: string; text: string }> 
 const priorityConfig: Record<string, { label: string; color: string }> = {
   low: { label: 'Low', color: 'text-gray-500' },
   normal: { label: 'Normal', color: 'text-primary-600' },
+  medium: { label: 'Medium', color: 'text-primary-600' },
   high: { label: 'High', color: 'text-warning-600' },
   urgent: { label: 'Urgent', color: 'text-danger-600' },
+  critical: { label: 'Critical', color: 'text-danger-600' },
 };
+
+const defaultPriority = { label: 'Normal', color: 'text-gray-500' };
+const defaultType = { label: 'Request', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' };
 
 const typeConfig: Record<string, { label: string; icon: string }> = {
   approval: { label: 'Approval', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' },
@@ -248,9 +258,12 @@ export default function MyRequestsPage() {
         ) : (
           <div className="space-y-3">
             {filteredRequests.map((request) => {
-              const statusInfo = statusConfig[request.status];
-              const priorityInfo = priorityConfig[request.priority];
-              const typeInfo = typeConfig[request.type];
+              const statusInfo = statusConfig[request.status] || statusConfig['pending'];
+              const priority = request.priority || request.metadata?.priority || 'normal';
+              const priorityInfo = priorityConfig[priority] || defaultPriority;
+              const requestType = request.type || request.metadata?.requestType || 'approval';
+              const typeInfo = typeConfig[requestType] || defaultType;
+              const category = request.category || request.metadata?.requestType || 'General';
 
               return (
                 <Card
@@ -285,7 +298,7 @@ export default function MyRequestsPage() {
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
                           </svg>
-                          {request.category}
+                          {category}
                         </span>
                         <span className={`flex items-center gap-1 ${priorityInfo.color}`}>
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

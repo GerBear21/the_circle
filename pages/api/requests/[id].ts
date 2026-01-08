@@ -140,6 +140,61 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === 'DELETE') {
+      const userId = user.id;
+
+      // First, fetch the request to verify ownership and status
+      const { data: existingRequest, error: fetchError } = await supabaseAdmin
+        .from('requests')
+        .select('id, creator_id, status')
+        .eq('id', id)
+        .eq('organization_id', organizationId)
+        .single();
+
+      if (fetchError) {
+        if (fetchError.code === 'PGRST116') {
+          return res.status(404).json({ error: 'Request not found' });
+        }
+        throw fetchError;
+      }
+
+      // Check if user is the creator
+      if (existingRequest.creator_id !== userId) {
+        return res.status(403).json({ error: 'You can only delete your own requests' });
+      }
+
+      // Check if request is already approved - cannot delete approved requests
+      if (existingRequest.status === 'approved') {
+        return res.status(400).json({ error: 'Cannot delete an approved request' });
+      }
+
+      // Delete related records first (request_steps, approvals, documents)
+      // Delete approvals for this request's steps
+      const { data: steps } = await supabaseAdmin
+        .from('request_steps')
+        .select('id')
+        .eq('request_id', id);
+
+      if (steps && steps.length > 0) {
+        const stepIds = steps.map(s => s.id);
+        await supabaseAdmin
+          .from('approvals')
+          .delete()
+          .in('step_id', stepIds);
+      }
+
+      // Delete request steps
+      await supabaseAdmin
+        .from('request_steps')
+        .delete()
+        .eq('request_id', id);
+
+      // Delete documents
+      await supabaseAdmin
+        .from('documents')
+        .delete()
+        .eq('request_id', id);
+
+      // Finally delete the request
       const { error } = await supabaseAdmin
         .from('requests')
         .delete()
@@ -148,7 +203,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       if (error) throw error;
 
-      return res.status(200).json({ success: true });
+      return res.status(200).json({ success: true, message: 'Request deleted successfully' });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });

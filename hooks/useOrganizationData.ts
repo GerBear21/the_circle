@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabaseClient';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 
 interface Organization {
   id: string;
@@ -28,6 +28,12 @@ export function useOrganizationData(organizationId?: string) {
 
   useEffect(() => {
     async function fetchData() {
+      if (!isSupabaseConfigured) {
+        setError(new Error('Supabase is not configured. Please check your environment variables.'));
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       try {
         // Fetch organizations

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabaseClient';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { useCurrentUser } from './useCurrentUser';
 
 interface Approval {
@@ -50,6 +50,12 @@ export function useApprovals() {
         return;
       }
 
+      if (!isSupabaseConfigured) {
+        setError(new Error('Supabase is not configured. Please check your environment variables.'));
+        setLoading(false);
+        return;
+      }
+
       try {
         // Fetch requests where user is an approver and step is pending
         const { data, error: fetchError } = await supabase
@@ -85,6 +91,7 @@ export function useApprovals() {
 
   const approveRequest = async (requestId: string, stepId: string, comment?: string) => {
     if (!user?.id) throw new Error('User not authenticated');
+    if (!isSupabaseConfigured) throw new Error('Supabase is not configured');
 
     const { error } = await supabase.from('approvals').insert({
       request_id: requestId,
@@ -105,6 +112,7 @@ export function useApprovals() {
 
   const rejectRequest = async (requestId: string, stepId: string, comment: string) => {
     if (!user?.id) throw new Error('User not authenticated');
+    if (!isSupabaseConfigured) throw new Error('Supabase is not configured');
 
     const { error } = await supabase.from('approvals').insert({
       request_id: requestId,

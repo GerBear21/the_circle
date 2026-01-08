@@ -12,7 +12,6 @@ import { useDashboardStats, useSignatureCheck } from '@/hooks';
 
 const Lottie = dynamic(() => import('lottie-react'), { ssr: false });
 import animationData from '../../Office illustration.json';
-import { supabase } from '@/lib/supabaseClient';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));

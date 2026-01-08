@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabaseClient';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 
 type TableName = 'requests' | 'approvals' | 'request_steps' | 'documents';
@@ -26,6 +26,10 @@ export function useRealtime({
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
+    if (!isSupabaseConfigured) {
+      return;
+    }
+
     const channelName = `realtime:${table}:${filter || 'all'}`;
 
     const newChannel = supabase

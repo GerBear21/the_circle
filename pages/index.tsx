@@ -4,10 +4,11 @@ import { useEffect, useState } from "react";
 import Head from "next/head";
 import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
-import Loader from "../components/Loader";
 
 // Dynamically import Lottie to avoid SSR issues
 const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
+// Dynamically import Loader to avoid styled-components hydration mismatch
+const Loader = dynamic(() => import("../components/Loader"), { ssr: false });
 import heroAnimation from "../Girl doing remote job using laptop.json";
 
 export default function Home() {

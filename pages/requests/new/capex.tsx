@@ -8,6 +8,7 @@ export default function NewCapexRequestPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [businessUnits, setBusinessUnits] = useState<Array<{ id: string; name: string }>>([]);
   const [loadingUnits, setLoadingUnits] = useState(true);
@@ -38,6 +39,7 @@ export default function NewCapexRequestPage() {
     category: '', // kept for consistency if needed, but not explicitly asked for in new list. Will keep as it's useful.
     startDate: '', // kept
     endDate: '', // kept
+    priority: '', // urgency/priority level
   });
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -115,12 +117,18 @@ export default function NewCapexRequestPage() {
     }
   }, [status]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent, isDraft: boolean = false) => {
     e.preventDefault();
-    setLoading(true);
+    
+    if (isDraft) {
+      setSavingDraft(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
 
-    if (uploadedDocuments.length < 3 && !documentJustification.trim()) {
+    // Only validate documents for submission, not for drafts
+    if (!isDraft && uploadedDocuments.length < 3 && !documentJustification.trim()) {
       setError('Please provide a justification for uploading less than 3 documents.');
       setLoading(false);
       return;
@@ -135,9 +143,9 @@ export default function NewCapexRequestPage() {
         body: JSON.stringify({
           title: `CAPEX: ${formData.projectName}`,
           description: formData.description,
-          priority: 'high',
-          category: 'capex',
+          priority: formData.priority || 'medium',
           requestType: 'capex',
+          status: isDraft ? 'draft' : 'pending',
           metadata: {
             requester: formData.requester,
             unit: formData.unit,
@@ -153,6 +161,14 @@ export default function NewCapexRequestPage() {
             fundingSource: formData.fundingSource,
             startDate: formData.startDate,
             endDate: formData.endDate,
+            priority: formData.priority,
+            approvers: selectedApprovers,
+            documents: uploadedDocuments.map(file => ({
+              name: file.name,
+              size: file.size,
+              type: file.type,
+            })),
+            documentJustification: documentJustification || null,
           },
         }),
       });
@@ -160,14 +176,15 @@ export default function NewCapexRequestPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to create CAPEX request');
+        throw new Error(data.error || `Failed to ${isDraft ? 'save draft' : 'create CAPEX request'}`);
       }
 
       router.push('/requests/my-requests');
     } catch (err: any) {
-      setError(err.message || 'Failed to create CAPEX request');
+      setError(err.message || `Failed to ${isDraft ? 'save draft' : 'create CAPEX request'}`);
     } finally {
       setLoading(false);
+      setSavingDraft(false);
     }
   };
 
@@ -294,6 +311,23 @@ export default function NewCapexRequestPage() {
                 <option value="budget">Budgeted</option>
                 <option value="non-budget">Non-Budgeted</option>
                 <option value="emergency">Emergency</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Priority / Urgency Level
+              </label>
+              <select
+                className="w-full px-4 py-2 min-h-[44px] rounded-xl border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                value={formData.priority}
+                onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
+                required
+              >
+                <option value="">Select priority</option>
+                <option value="low">Low - Can wait</option>
+                <option value="medium">Medium - Standard timeline</option>
+                <option value="high">High - Urgent</option>
+                <option value="critical">Critical - Immediate attention</option>
               </select>
             </div>
           </div>
@@ -675,10 +709,20 @@ export default function NewCapexRequestPage() {
             <Button
               type="button"
               variant="secondary"
-              className="flex-1"
+              className="flex-shrink-0"
               onClick={() => router.back()}
             >
               Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="flex-1"
+              onClick={(e) => handleSubmit(e, true)}
+              isLoading={savingDraft}
+              disabled={!formData.projectName || savingDraft || loading}
+            >
+              Save as Draft
             </Button>
             <Button
               type="submit"
@@ -689,10 +733,12 @@ export default function NewCapexRequestPage() {
                 !formData.projectName || 
                 !formData.amount || 
                 !formData.budgetType ||
-                (uploadedDocuments.length < 3 && !documentJustification.trim())
+                !formData.priority ||
+                (uploadedDocuments.length < 3 && !documentJustification.trim()) ||
+                savingDraft
               }
             >
-              Submit Capex Request
+              Submit for Approval
             </Button>
           </div>
         </div>

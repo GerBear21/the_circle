@@ -5,7 +5,7 @@ import { AppLayout } from '../../components/layout';
 
 import { Card, Button, Input } from '../../components/ui';
 import dynamic from 'next/dynamic';
-import { supabase } from '../../lib/supabaseClient';
+import { supabase, isSupabaseConfigured } from '../../lib/supabaseClient';
 import { useState } from 'react';
 
 const SignaturePad = dynamic(() => import('../../components/SignaturePad'), {
@@ -37,7 +37,7 @@ export default function SettingsPage() {
   useEffect(() => {
     if (session?.user) {
       const userId = (session.user as any).id;
-      if (userId && supabase) {
+      if (userId && isSupabaseConfigured) {
         // Fetch signature
         const { data } = supabase.storage.from('signatures').getPublicUrl(`${userId}.png`);
         checkSignature(data.publicUrl);
@@ -49,6 +49,7 @@ export default function SettingsPage() {
   }, [session]);
 
   const fetchProfile = async (userId: string) => {
+    if (!isSupabaseConfigured) return;
     setInitialLoading(true);
     try {
       const { data, error } = await supabase
@@ -74,6 +75,10 @@ export default function SettingsPage() {
 
   const updateProfile = async () => {
     if (!session?.user) return;
+    if (!isSupabaseConfigured) {
+      alert('Database is not configured. Please check your environment variables.');
+      return;
+    }
     const userId = (session.user as any).id;
     setSaving(true);
 

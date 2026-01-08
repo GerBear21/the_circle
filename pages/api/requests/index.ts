@@ -29,9 +29,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           title,
           description,
           status,
-          priority,
-          category,
-          request_type,
           metadata,
           created_at,
           updated_at,
@@ -48,10 +45,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (statusFilter) {
         query = query.eq('status', statusFilter);
       }
-      
-      if (type) {
-        query = query.eq('request_type', type);
-      }
 
       const { data: requests, error } = await query;
 
@@ -64,11 +57,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const { 
         title, 
         description, 
-        priority = 'normal', 
-        category,
+        priority = 'medium', 
         requestType,
         metadata = {},
-        templateId,
         status: requestStatus
       } = req.body;
 
@@ -76,9 +67,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: 'Title is required' });
       }
 
-      // Allow draft or pending status, default to pending
+      // Allow draft or pending status, default to draft
       const validStatuses = ['draft', 'pending'];
       const finalStatus = validStatuses.includes(requestStatus) ? requestStatus : 'draft';
+
+      // Store priority and requestType in metadata
+      const finalMetadata = { 
+        ...metadata, 
+        priority,
+        requestType: requestType || 'general'
+      };
 
       const { data, error } = await supabaseAdmin
         .from('requests')
@@ -87,11 +85,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           creator_id: userId,
           title,
           description: description || null,
-          priority,
-          category: category || null,
-          request_type: requestType || 'general',
-          metadata,
-          template_id: templateId || null,
+          metadata: finalMetadata,
           status: finalStatus,
         })
         .select()
