@@ -3,10 +3,12 @@ import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input } from '../../../components/ui';
+import { useToast } from '../../../components/ui/ToastProvider';
 
 export default function NewCapexRequestPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const { addToast } = useToast();
   const [loading, setLoading] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -119,7 +121,7 @@ export default function NewCapexRequestPage() {
 
   const handleSubmit = async (e: React.FormEvent, isDraft: boolean = false) => {
     e.preventDefault();
-    
+
     if (isDraft) {
       setSavingDraft(true);
     } else {
@@ -135,6 +137,7 @@ export default function NewCapexRequestPage() {
     }
 
     try {
+      // First, create the request to get the request ID
       const response = await fetch('/api/requests', {
         method: 'POST',
         headers: {
@@ -177,6 +180,44 @@ export default function NewCapexRequestPage() {
 
       if (!response.ok) {
         throw new Error(data.error || `Failed to ${isDraft ? 'save draft' : 'create CAPEX request'}`);
+      }
+
+      const requestId = data.request?.id;
+
+      // Upload documents to the quotations bucket if we have any
+      if (requestId && uploadedDocuments.length > 0) {
+        for (const file of uploadedDocuments) {
+          const uploadFormData = new FormData();
+          uploadFormData.append('file', file);
+
+          try {
+            const uploadResponse = await fetch(`/api/requests/${requestId}/documents`, {
+              method: 'POST',
+              body: uploadFormData,
+            });
+
+            if (!uploadResponse.ok) {
+              console.error(`Failed to upload document: ${file.name}`);
+            }
+          } catch (uploadErr) {
+            console.error(`Error uploading document ${file.name}:`, uploadErr);
+          }
+        }
+      }
+
+      // Show success toast
+      if (isDraft) {
+        addToast({
+          type: 'success',
+          title: 'Draft Saved',
+          message: 'Your CAPEX request has been saved as a draft.',
+        });
+      } else {
+        addToast({
+          type: 'success',
+          title: 'Request Submitted',
+          message: 'Your CAPEX request has been submitted for approval.',
+        });
       }
 
       router.push('/requests/my-requests');
@@ -370,7 +411,7 @@ export default function NewCapexRequestPage() {
               </label>
               <textarea
                 className="w-full px-4 py-3 min-h-[100px] rounded-xl border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none transition-all"
-                placeholder="Explain the business need and expected benefits..."
+                placeholder="Explain the business, expected benefits and why you chose the quotation you chose..."
                 value={formData.justification}
                 onChange={(e) => setFormData({ ...formData, justification: e.target.value })}
                 required

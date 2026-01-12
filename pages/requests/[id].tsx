@@ -2,7 +2,7 @@ import { useRouter } from 'next/router';
 import { useSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
 import { AppLayout } from '../../components/layout';
-import { Card, Button } from '../../components/ui';
+import { Card, Button, Input } from '../../components/ui';
 import Link from 'next/link';
 
 // Extended Request Interface for Detail View
@@ -180,15 +180,52 @@ interface ApproverInfo {
     comment?: string;
 }
 
+// Helper to get approver IDs from metadata (handles nested structures)
+function getApproverIds(metadata: Record<string, any> | undefined): string[] {
+    if (!metadata) return [];
+
+    // Check direct approvers array
+    if (Array.isArray(metadata.approvers)) {
+        return metadata.approvers;
+    }
+
+    // Check nested form data (capex, leave, travel, expense, etc.)
+    const formTypes = ['capex', 'leave', 'travel', 'expense', 'approval'];
+    for (const formType of formTypes) {
+        if (metadata[formType] && Array.isArray(metadata[formType].approvers)) {
+            return metadata[formType].approvers;
+        }
+    }
+
+    return [];
+}
+
 // ApprovalTimeline component to show approvers and their status
-function ApprovalTimeline({ request }: { request: RequestDetail }) {
+function ApprovalTimeline({ request, isEditing, onApproversChange }: {
+    request: RequestDetail;
+    isEditing?: boolean;
+    onApproversChange?: (approverIds: string[]) => void;
+}) {
     const [approvers, setApprovers] = useState<ApproverInfo[]>([]);
     const [loadingApprovers, setLoadingApprovers] = useState(true);
+    const [allUsers, setAllUsers] = useState<Array<{ id: string; display_name: string; email: string }>>([]);
+    const [approverSearch, setApproverSearch] = useState('');
+    const [showApproverDropdown, setShowApproverDropdown] = useState(false);
+
+    // Fetch all users for editing mode
+    useEffect(() => {
+        if (isEditing) {
+            fetch('/api/users')
+                .then(res => res.json())
+                .then(data => setAllUsers(data.users || []))
+                .catch(err => console.error('Error fetching users:', err));
+        }
+    }, [isEditing]);
 
     useEffect(() => {
         async function fetchApprovers() {
-            // Get approver IDs from metadata
-            const approverIds: string[] = request.metadata?.approvers || [];
+            // Get approver IDs from metadata (handles nested structures)
+            const approverIds: string[] = getApproverIds(request.metadata);
 
             if (approverIds.length === 0) {
                 setLoadingApprovers(false);
@@ -259,6 +296,45 @@ function ApprovalTimeline({ request }: { request: RequestDetail }) {
         fetchApprovers();
     }, [request]);
 
+    const handleAddApprover = (userId: string) => {
+        const user = allUsers.find(u => u.id === userId);
+        if (user && !approvers.find(a => a.id === userId)) {
+            const newApprover: ApproverInfo = {
+                id: userId,
+                display_name: user.display_name,
+                email: user.email,
+                status: 'pending',
+            };
+            const newApprovers = [...approvers, newApprover];
+            setApprovers(newApprovers);
+            onApproversChange?.(newApprovers.map(a => a.id));
+        }
+        setApproverSearch('');
+        setShowApproverDropdown(false);
+    };
+
+    const handleRemoveApprover = (userId: string) => {
+        const newApprovers = approvers.filter(a => a.id !== userId);
+        setApprovers(newApprovers);
+        onApproversChange?.(newApprovers.map(a => a.id));
+    };
+
+    const handleMoveApprover = (index: number, direction: 'up' | 'down') => {
+        const newApprovers = [...approvers];
+        const targetIndex = direction === 'up' ? index - 1 : index + 1;
+        if (targetIndex >= 0 && targetIndex < newApprovers.length) {
+            [newApprovers[index], newApprovers[targetIndex]] = [newApprovers[targetIndex], newApprovers[index]];
+            setApprovers(newApprovers);
+            onApproversChange?.(newApprovers.map(a => a.id));
+        }
+    };
+
+    const filteredUsers = allUsers.filter(user =>
+        !approvers.find(a => a.id === user.id) &&
+        (user.display_name?.toLowerCase().includes(approverSearch.toLowerCase()) ||
+            user.email?.toLowerCase().includes(approverSearch.toLowerCase()))
+    );
+
     if (loadingApprovers) {
         return (
             <Card className="!p-8 border-gray-200 shadow-sm">
@@ -270,60 +346,114 @@ function ApprovalTimeline({ request }: { request: RequestDetail }) {
         );
     }
 
-    if (approvers.length === 0) {
-        return (
-            <Card className="!p-8 border-gray-200 shadow-sm">
-                <div className="text-center py-8 text-gray-400 italic">
-                    No approvers assigned to this request.
-                </div>
-            </Card>
-        );
-    }
-
     // Calculate progress
     const approvedCount = approvers.filter(a => a.status === 'approved').length;
     const rejectedCount = approvers.filter(a => a.status === 'rejected').length;
     const pendingCount = approvers.filter(a => a.status === 'pending').length;
+
+    // Render edit mode UI for adding approvers
+    const renderEditControls = () => {
+        if (!isEditing) return null;
+
+        return (
+            <div className="mb-6 p-4 bg-primary-50 rounded-lg border border-primary-100">
+                <h4 className="text-sm font-medium text-primary-700 mb-3">Add Approvers</h4>
+                <div className="relative">
+                    <input
+                        type="text"
+                        className="w-full px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                        placeholder="Search by name or email..."
+                        value={approverSearch}
+                        onChange={(e) => {
+                            setApproverSearch(e.target.value);
+                            setShowApproverDropdown(true);
+                        }}
+                        onFocus={() => setShowApproverDropdown(true)}
+                    />
+                    {showApproverDropdown && approverSearch && filteredUsers.length > 0 && (
+                        <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                            {filteredUsers.slice(0, 5).map(user => (
+                                <button
+                                    key={user.id}
+                                    type="button"
+                                    className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center gap-3"
+                                    onClick={() => handleAddApprover(user.id)}
+                                >
+                                    <img
+                                        src={`https://ui-avatars.com/api/?name=${encodeURIComponent(user.display_name)}&background=random&size=32`}
+                                        alt={user.display_name}
+                                        className="w-8 h-8 rounded-full"
+                                    />
+                                    <div>
+                                        <div className="font-medium text-gray-900">{user.display_name}</div>
+                                        <div className="text-xs text-gray-500">{user.email}</div>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
+    if (approvers.length === 0) {
+        return (
+            <Card className="!p-6 border-gray-200 shadow-sm">
+                {renderEditControls()}
+                <div className="text-center py-8 text-gray-400 italic">
+                    {isEditing ? 'Search and add approvers above' : 'No approvers assigned to this request.'}
+                </div>
+            </Card>
+        );
+    }
 
     return (
         <Card className="!p-0 border-gray-200 shadow-sm overflow-hidden">
             {/* Progress Header */}
             <div className="bg-gray-50/50 px-6 py-4 border-b border-gray-100">
                 <div className="flex items-center justify-between">
-                    <h3 className="font-semibold text-text-primary font-heading">Approval Progress</h3>
-                    <div className="flex items-center gap-4 text-sm">
-                        <span className="flex items-center gap-1.5">
-                            <div className="w-3 h-3 rounded-full bg-success-500"></div>
-                            <span className="text-text-secondary">{approvedCount} Approved</span>
-                        </span>
-                        <span className="flex items-center gap-1.5">
-                            <div className="w-3 h-3 rounded-full bg-warning-500"></div>
-                            <span className="text-text-secondary">{pendingCount} Pending</span>
-                        </span>
-                        {rejectedCount > 0 && (
+                    <h3 className="font-semibold text-text-primary font-heading">
+                        {isEditing ? 'Edit Approvers' : 'Approval Progress'}
+                    </h3>
+                    {!isEditing && (
+                        <div className="flex items-center gap-4 text-sm">
                             <span className="flex items-center gap-1.5">
-                                <div className="w-3 h-3 rounded-full bg-danger-500"></div>
-                                <span className="text-text-secondary">{rejectedCount} Rejected</span>
+                                <div className="w-3 h-3 rounded-full bg-success-500"></div>
+                                <span className="text-text-secondary">{approvedCount} Approved</span>
                             </span>
-                        )}
+                            <span className="flex items-center gap-1.5">
+                                <div className="w-3 h-3 rounded-full bg-warning-500"></div>
+                                <span className="text-text-secondary">{pendingCount} Pending</span>
+                            </span>
+                            {rejectedCount > 0 && (
+                                <span className="flex items-center gap-1.5">
+                                    <div className="w-3 h-3 rounded-full bg-danger-500"></div>
+                                    <span className="text-text-secondary">{rejectedCount} Rejected</span>
+                                </span>
+                            )}
+                        </div>
+                    )}
+                </div>
+                {/* Progress Bar - only show when not editing */}
+                {!isEditing && (
+                    <div className="mt-3 h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div
+                            className="h-full bg-gradient-to-r from-success-500 to-success-400 transition-all duration-500"
+                            style={{ width: `${(approvedCount / approvers.length) * 100}%` }}
+                        />
                     </div>
-                </div>
-                {/* Progress Bar */}
-                <div className="mt-3 h-2 bg-gray-200 rounded-full overflow-hidden">
-                    <div
-                        className="h-full bg-gradient-to-r from-success-500 to-success-400 transition-all duration-500"
-                        style={{ width: `${(approvedCount / approvers.length) * 100}%` }}
-                    />
-                </div>
+                )}
             </div>
 
             {/* Approvers List */}
             <div className="p-6">
+                {renderEditControls()}
                 <div className="relative">
                     {/* Vertical Line */}
                     <div className="absolute left-6 top-3 bottom-3 w-0.5 bg-gray-100" />
 
-                    <div className="space-y-8">
+                    <div className="space-y-4">
                         {approvers.map((approver, index) => {
                             const isApproved = approver.status === 'approved';
                             const isRejected = approver.status === 'rejected';
@@ -342,14 +472,14 @@ function ApprovalTimeline({ request }: { request: RequestDetail }) {
                                 statusColor = 'bg-danger-100 text-danger-600 border-danger-200';
                                 statusBg = 'bg-danger-50';
                                 statusText = 'Rejected';
-                            } else if (isCurrentStep) {
+                            } else if (isCurrentStep && !isEditing) {
                                 statusColor = 'bg-primary-100 text-primary-600 border-primary-200 ring-4 ring-primary-50';
                                 statusBg = 'bg-primary-50';
                                 statusText = 'Current';
                             }
 
                             return (
-                                <div key={approver.id} className="relative flex items-start gap-6">
+                                <div key={approver.id} className="relative flex items-start gap-4">
                                     {/* Step Node */}
                                     <div className={`w-12 h-12 rounded-full border-2 flex items-center justify-center flex-shrink-0 z-10 bg-white transition-all ${statusColor}`}>
                                         {isApproved ? (
@@ -367,7 +497,7 @@ function ApprovalTimeline({ request }: { request: RequestDetail }) {
 
                                     {/* Content */}
                                     <div className={`flex-1 p-4 rounded-lg ${statusBg} border border-gray-100`}>
-                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-2">
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                                             <div className="flex items-center gap-3">
                                                 <img
                                                     src={`https://ui-avatars.com/api/?name=${encodeURIComponent(approver.display_name)}&background=random&size=40`}
@@ -379,22 +509,61 @@ function ApprovalTimeline({ request }: { request: RequestDetail }) {
                                                     <p className="text-sm text-text-secondary">{approver.email}</p>
                                                 </div>
                                             </div>
-                                            <span className={`mt-2 sm:mt-0 inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${isApproved ? 'bg-success-100 text-success-700' :
-                                                    isRejected ? 'bg-danger-100 text-danger-700' :
-                                                        isCurrentStep ? 'bg-primary-100 text-primary-700' :
-                                                            'bg-gray-100 text-text-secondary'
-                                                }`}>
-                                                {statusText}
-                                            </span>
+                                            <div className="flex items-center gap-2">
+                                                {isEditing ? (
+                                                    <>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleMoveApprover(index, 'up')}
+                                                            disabled={index === 0}
+                                                            className="p-1.5 rounded-lg hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                                            title="Move up"
+                                                        >
+                                                            <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                                                            </svg>
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleMoveApprover(index, 'down')}
+                                                            disabled={index === approvers.length - 1}
+                                                            className="p-1.5 rounded-lg hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                                            title="Move down"
+                                                        >
+                                                            <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                                            </svg>
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRemoveApprover(approver.id)}
+                                                            className="p-1.5 rounded-lg hover:bg-danger-50 text-danger-500 transition-colors"
+                                                            title="Remove approver"
+                                                        >
+                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                            </svg>
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${isApproved ? 'bg-success-100 text-success-700' :
+                                                        isRejected ? 'bg-danger-100 text-danger-700' :
+                                                            isCurrentStep ? 'bg-primary-100 text-primary-700' :
+                                                                'bg-gray-100 text-text-secondary'
+                                                        }`}>
+                                                        {statusText}
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
 
-                                        {approver.signed_at && (
+                                        {!isEditing && approver.signed_at && (
                                             <p className="text-xs text-text-secondary mt-2">
                                                 {isApproved ? 'Approved' : 'Responded'} on {new Date(approver.signed_at).toLocaleString()}
                                             </p>
                                         )}
 
-                                        {approver.comment && (
+                                        {!isEditing && approver.comment && (
                                             <div className="mt-3 p-3 bg-white rounded-lg border border-gray-100 text-sm text-text-primary">
                                                 <span className="font-medium text-text-secondary">Comment: </span>
                                                 "{approver.comment}"
@@ -420,9 +589,15 @@ export default function RequestDetailsPage() {
     const [error, setError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'details' | 'timeline' | 'documents'>('details');
     const [publishing, setPublishing] = useState(false);
+    const [savingDraft, setSavingDraft] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
+    const [editedRequest, setEditedRequest] = useState<RequestDetail | null>(null);
     const [publishError, setPublishError] = useState<string | null>(null);
     const [deleting, setDeleting] = useState(false);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [uploadingDocument, setUploadingDocument] = useState(false);
+    const [documents, setDocuments] = useState<any[]>([]);
+    const [loadingDocuments, setLoadingDocuments] = useState(false);
 
     const currentUserId = (session?.user as any)?.id;
     const isCreator = request?.creator?.id === currentUserId;
@@ -461,6 +636,72 @@ export default function RequestDetailsPage() {
         } finally {
             setPublishing(false);
         }
+    };
+
+    const handleSaveDraft = async () => {
+        if (!id || !canPublish || !editedRequest) return;
+
+        setSavingDraft(true);
+        setPublishError(null);
+
+        try {
+            const response = await fetch(`/api/requests/${id}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    title: editedRequest.title,
+                    description: editedRequest.description,
+                    metadata: editedRequest.metadata,
+                    status: 'draft',
+                }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to save draft');
+            }
+
+            // Refresh the request data
+            const refreshResponse = await fetch(`/api/requests/${id}`);
+            if (refreshResponse.ok) {
+                const refreshData = await refreshResponse.json();
+                setRequest(refreshData.request);
+                setIsEditing(false);
+            }
+        } catch (err: any) {
+            console.error('Error saving draft:', err);
+            setPublishError(err.message || 'Failed to save draft');
+        } finally {
+            setSavingDraft(false);
+        }
+    };
+
+    const handleMetadataChange = (key: string, value: any) => {
+        if (!editedRequest || !editedRequest.metadata) return;
+
+        const newMetadata = { ...editedRequest.metadata };
+
+        // Find the correct form type (capex, leave, etc)
+        const formTypes = ['capex', 'leave', 'travel', 'expense', 'approval'];
+        let found = false;
+
+        for (const formType of formTypes) {
+            if (newMetadata[formType] && typeof newMetadata[formType] === 'object') {
+                newMetadata[formType] = { ...newMetadata[formType], [key]: value };
+                found = true;
+                break;
+            }
+        }
+
+        // If not found in nested, update root metadata
+        if (!found) {
+            newMetadata[key] = value;
+        }
+
+        setEditedRequest({ ...editedRequest, metadata: newMetadata });
     };
 
     const handleDelete = async () => {
@@ -522,6 +763,98 @@ export default function RequestDetailsPage() {
 
         fetchRequestDetails();
     }, [id, status]);
+
+    useEffect(() => {
+        if (request) {
+            setEditedRequest(JSON.parse(JSON.stringify(request)));
+        }
+    }, [request]);
+
+    // Fetch documents when switching to documents tab or when request loads
+    const fetchDocuments = async () => {
+        if (!id) return;
+
+        setLoadingDocuments(true);
+        try {
+            const response = await fetch(`/api/requests/${id}/documents`);
+            if (response.ok) {
+                const data = await response.json();
+                setDocuments(data.documents || []);
+            } else {
+                console.error('Failed to fetch documents:', response.status);
+            }
+        } catch (err) {
+            console.error('Error fetching documents:', err);
+        } finally {
+            setLoadingDocuments(false);
+        }
+    };
+
+    useEffect(() => {
+        if (activeTab === 'documents' && id) {
+            fetchDocuments();
+        }
+    }, [id, activeTab]);
+
+    const handleDownloadPdf = () => {
+        if (!id) return;
+        window.open(`/api/requests/${id}/pdf`, '_blank');
+    };
+
+    const handleDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file || !id) return;
+
+        setUploadingDocument(true);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const response = await fetch(`/api/requests/${id}/documents`, {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to upload document');
+            }
+
+            // Refresh the documents list after successful upload
+            await fetchDocuments();
+        } catch (err: any) {
+            console.error('Error uploading document:', err);
+            setPublishError(err.message || 'Failed to upload document');
+        } finally {
+            setUploadingDocument(false);
+            e.target.value = '';
+        }
+    };
+
+    const handleDocumentDownload = async (doc: any) => {
+        if (doc.download_url) {
+            window.open(doc.download_url, '_blank');
+        }
+    };
+
+    const handleDocumentDelete = async (documentId: string) => {
+        if (!id || !confirm('Are you sure you want to delete this document?')) return;
+
+        try {
+            const response = await fetch(`/api/requests/${id}/documents?documentId=${documentId}`, {
+                method: 'DELETE',
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to delete document');
+            }
+
+            setDocuments(prev => prev.filter(d => d.id !== documentId));
+        } catch (err: any) {
+            console.error('Error deleting document:', err);
+            setPublishError(err.message || 'Failed to delete document');
+        }
+    };
 
     if (status === 'loading' || loading) {
         return (
@@ -608,11 +941,29 @@ export default function RequestDetailsPage() {
                         </div>
 
                         <h1 className="text-3xl font-bold text-text-primary font-heading leading-tight mb-2">
-                            {request.title}
+                            {isEditing && editedRequest ? (
+                                <Input
+                                    value={editedRequest.title}
+                                    onChange={(e) => setEditedRequest({ ...editedRequest, title: e.target.value })}
+                                    className="!text-2xl !font-bold !py-3"
+                                    placeholder="Request Title"
+                                />
+                            ) : (
+                                request.title
+                            )}
                         </h1>
-                        <p className="text-text-secondary text-lg leading-relaxed max-w-3xl">
-                            {request.description}
-                        </p>
+                        <div className="text-text-secondary text-lg leading-relaxed max-w-3xl">
+                            {isEditing && editedRequest ? (
+                                <textarea
+                                    value={editedRequest.description}
+                                    onChange={(e) => setEditedRequest({ ...editedRequest, description: e.target.value })}
+                                    className="w-full px-4 py-3 rounded-xl border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent min-h-[100px]"
+                                    placeholder="Description"
+                                />
+                            ) : (
+                                request.description
+                            )}
+                        </div>
                     </div>
 
                     <div className="flex gap-3 flex-shrink-0">
@@ -629,12 +980,53 @@ export default function RequestDetailsPage() {
                                 Delete
                             </Button>
                         )}
-                        <Button variant="outline" className="gap-2 bg-white">
+                        <Button variant="outline" className="gap-2 bg-white" onClick={handleDownloadPdf}>
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                             </svg>
                             PDF
                         </Button>
+                        {/* Save as Draft / Edit Draft button */}
+                        {canPublish && (
+                            !isEditing ? (
+                                <Button
+                                    variant="outline"
+                                    className="gap-2 bg-white text-text-secondary border-gray-200 hover:bg-gray-50 hover:text-text-primary"
+                                    onClick={() => setIsEditing(true)}
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                    </svg>
+                                    Edit Draft
+                                </Button>
+                            ) : (
+                                <div className="flex gap-2">
+                                    <Button
+                                        variant="outline"
+                                        className="gap-2 bg-white text-text-secondary border-gray-200 hover:bg-gray-50"
+                                        onClick={() => {
+                                            setIsEditing(false);
+                                            setEditedRequest(JSON.parse(JSON.stringify(request)));
+                                        }}
+                                        disabled={savingDraft || publishing}
+                                    >
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        variant="primary"
+                                        className="gap-2 shadow-lg shadow-primary-500/20"
+                                        onClick={handleSaveDraft}
+                                        disabled={savingDraft || publishing}
+                                        isLoading={savingDraft}
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                                        </svg>
+                                        {savingDraft ? 'Saving...' : 'Save Draft'}
+                                    </Button>
+                                </div>
+                            )
+                        )}
                         {/* Publish button for draft requests */}
                         {canPublish && (
                             <Button
@@ -696,7 +1088,8 @@ export default function RequestDetailsPage() {
                         <div className="min-h-[400px]">
                             {activeTab === 'details' && (() => {
                                 // Get the form-specific data (handles nested capex, leave, etc.)
-                                const formData = getFormData(request.metadata);
+                                // Get the form-specific data (handles nested capex, leave, etc.)
+                                const formData = getFormData(isEditing && editedRequest ? editedRequest.metadata : request.metadata);
                                 const requestType = request.metadata?.type || 'approval';
 
                                 return (
@@ -708,16 +1101,51 @@ export default function RequestDetailsPage() {
                                                     <div className="flex items-start justify-between">
                                                         <div>
                                                             <span className="text-xs font-semibold text-primary-600 uppercase tracking-wider">Project</span>
-                                                            <h2 className="text-2xl font-bold text-text-primary mt-1 font-heading">{formData.projectName}</h2>
+                                                            <h2 className="text-2xl font-bold text-text-primary mt-1 font-heading">
+                                                                {isEditing ? (
+                                                                    <Input
+                                                                        value={formData.projectName || ''}
+                                                                        onChange={e => handleMetadataChange('projectName', e.target.value)}
+                                                                        className="mt-1"
+                                                                    />
+                                                                ) : formData.projectName}
+                                                            </h2>
                                                             {formData.unit && (
-                                                                <p className="text-text-secondary mt-1">{formData.unit}</p>
+                                                                <p className="text-text-secondary mt-1">
+                                                                    {isEditing ? (
+                                                                        <Input
+                                                                            value={formData.unit || ''}
+                                                                            onChange={e => handleMetadataChange('unit', e.target.value)}
+                                                                            className="mt-1"
+                                                                        />
+                                                                    ) : formData.unit}
+                                                                </p>
                                                             )}
                                                         </div>
                                                         {formData.amount && (
                                                             <div className="text-right">
                                                                 <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Amount</span>
                                                                 <div className="text-2xl font-bold text-text-primary mt-1">
-                                                                    {formData.currency || 'USD'} {formatFieldValue('amount', formData.amount)}
+                                                                    {isEditing ? (
+                                                                        <div className="flex items-center gap-2">
+                                                                            <select
+                                                                                value={formData.currency || 'USD'}
+                                                                                onChange={(e) => handleMetadataChange('currency', e.target.value)}
+                                                                                className="text-lg font-bold bg-transparent border-b border-gray-300 focus:border-primary-500 focus:outline-none py-1 w-20"
+                                                                            >
+                                                                                <option value="USD">USD</option>
+                                                                                <option value="ZIG">ZIG</option>
+                                                                            </select>
+                                                                            <Input
+                                                                                type="number"
+                                                                                value={formData.amount}
+                                                                                onChange={e => handleMetadataChange('amount', e.target.value === '' ? '' : parseFloat(e.target.value))}
+                                                                                className="!py-1"
+                                                                            />
+                                                                        </div>
+                                                                    ) : (
+                                                                        <>{formData.currency || 'USD'} {formatFieldValue('amount', formData.amount)}</>
+                                                                    )}
                                                                 </div>
                                                             </div>
                                                         )}
@@ -786,14 +1214,26 @@ export default function RequestDetailsPage() {
                                                 {/* Form-specific fields */}
                                                 {Object.entries(formData)
                                                     .filter(([key]) => !['projectName', 'npv', 'irr', 'paybackPeriod', 'amount', 'currency', 'unit', 'justification', 'description'].includes(key))
-                                                    .filter(([, value]) => value !== null && value !== undefined && value !== '' && typeof value !== 'object')
+                                                    .filter(([, value]) => {
+                                                        if (value === null || value === undefined || typeof value === 'object') return false;
+                                                        if (!isEditing && value === '') return false;
+                                                        return true;
+                                                    })
                                                     .map(([key, value]) => (
                                                         <div key={key} className="group">
                                                             <label className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1 block group-hover:text-primary-600 transition-colors">
                                                                 {getFieldLabel(key)}
                                                             </label>
                                                             <div className="text-text-primary font-medium text-base border-b border-gray-100 pb-2">
-                                                                {formatFieldValue(key, value)}
+                                                                {isEditing ? (
+                                                                    <Input
+                                                                        value={formData[key] || ''}
+                                                                        onChange={(e) => handleMetadataChange(key, e.target.value)}
+                                                                        className="!py-1 !text-base"
+                                                                    />
+                                                                ) : (
+                                                                    formatFieldValue(key, value)
+                                                                )}
                                                             </div>
                                                         </div>
                                                     ))
@@ -827,16 +1267,33 @@ export default function RequestDetailsPage() {
                                 );
                             })()}
 
-                            {activeTab === 'timeline' && <ApprovalTimeline request={request} />}
+                            {activeTab === 'timeline' && (
+                                <ApprovalTimeline
+                                    request={isEditing && editedRequest ? editedRequest : request}
+                                    isEditing={isEditing && canPublish}
+                                    onApproversChange={(approverIds) => {
+                                        if (editedRequest) {
+                                            setEditedRequest({
+                                                ...editedRequest,
+                                                metadata: {
+                                                    ...editedRequest.metadata,
+                                                    approvers: approverIds,
+                                                },
+                                            });
+                                        }
+                                    }}
+                                />
+                            )}
 
                             {activeTab === 'documents' && (() => {
-                                // Combine documents from DB and metadata
-                                const dbDocs = request.documents || [];
+                                // Combine documents from state (fetched from API) and metadata
                                 const metadataDocs: MetadataDocument[] = Array.isArray(request.metadata?.documents) ? request.metadata.documents : [];
-                                const hasDocuments = dbDocs.length > 0 || metadataDocs.length > 0;
+                                const allDocs = [...documents, ...metadataDocs.map((d, i) => ({ ...d, id: `meta-${i}`, isMetadata: true }))];
+                                const hasDocuments = allDocs.length > 0;
 
                                 // Helper to format file size
                                 const formatFileSize = (bytes: number) => {
+                                    if (!bytes) return 'Unknown size';
                                     if (bytes < 1024) return `${bytes} B`;
                                     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
                                     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -844,17 +1301,17 @@ export default function RequestDetailsPage() {
 
                                 // Helper to get file icon based on type
                                 const getFileIcon = (type: string) => {
-                                    if (type.includes('pdf')) return (
+                                    if (type?.includes('pdf')) return (
                                         <svg className="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 24 24">
                                             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zm-3 9.5c0 .28-.22.5-.5.5H8v2h1.5c.28 0 .5.22.5.5s-.22.5-.5.5H7.5a.5.5 0 0 1-.5-.5v-5a.5.5 0 0 1 .5-.5H10c.28 0 .5.22.5.5s-.22.5-.5.5H8v1.5h1.5c.28 0 .5.22.5.5zm4.5 2.5h-1v-5h1c1.1 0 2 .9 2 2v1c0 1.1-.9 2-2 2zm0-4v3c.55 0 1-.45 1-1v-1c0-.55-.45-1-1-1zm4.5 4h-2a.5.5 0 0 1-.5-.5v-5a.5.5 0 0 1 .5-.5h2c.28 0 .5.22.5.5s-.22.5-.5.5H18v1.5h1c.28 0 .5.22.5.5s-.22.5-.5.5h-1v2c.28 0 .5.22.5.5s-.22.5-.5.5z" />
                                         </svg>
                                     );
-                                    if (type.includes('image')) return (
+                                    if (type?.includes('image')) return (
                                         <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                                         </svg>
                                     );
-                                    if (type.includes('word') || type.includes('doc')) return (
+                                    if (type?.includes('word') || type?.includes('doc')) return (
                                         <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
                                             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM9.5 11h5c.28 0 .5.22.5.5s-.22.5-.5.5h-5a.5.5 0 0 1-.5-.5c0-.28.22-.5.5-.5zm0 2h5c.28 0 .5.22.5.5s-.22.5-.5.5h-5a.5.5 0 0 1-.5-.5c0-.28.22-.5.5-.5zm0 2h5c.28 0 .5.22.5.5s-.22.5-.5.5h-5a.5.5 0 0 1-.5-.5c0-.28.22-.5.5-.5z" />
                                         </svg>
@@ -866,62 +1323,109 @@ export default function RequestDetailsPage() {
                                     );
                                 };
 
-                                return hasDocuments ? (
-                                    <Card className="!p-6 border-gray-200 shadow-sm">
-                                        <div className="space-y-3">
-                                            {/* Documents from metadata */}
-                                            {metadataDocs.map((doc, index) => (
-                                                <div key={`meta-${index}`} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-100 hover:bg-gray-100 transition-colors">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center border border-gray-200">
-                                                            {getFileIcon(doc.type || '')}
-                                                        </div>
-                                                        <div>
-                                                            <div className="font-medium text-gray-900">{doc.name}</div>
-                                                            <div className="text-xs text-gray-500">
-                                                                {formatFileSize(doc.size)} • {doc.type?.split('/')[1]?.toUpperCase() || 'File'}
+                                if (loadingDocuments) {
+                                    return (
+                                        <Card className="!p-8 border-gray-200 shadow-sm">
+                                            <div className="flex items-center justify-center py-8">
+                                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
+                                                <span className="ml-3 text-gray-500">Loading documents...</span>
+                                            </div>
+                                        </Card>
+                                    );
+                                }
+
+                                return (
+                                    <div className="space-y-4">
+                                        {/* Upload Section */}
+                                        <Card className="!p-4 border-gray-200 shadow-sm">
+                                            <div className="flex items-center justify-between">
+                                                <div>
+                                                    <h4 className="font-medium text-text-primary">Upload Documents</h4>
+                                                    <p className="text-sm text-text-secondary">Add supporting files to this request</p>
+                                                </div>
+                                                <label className="cursor-pointer">
+                                                    <input
+                                                        type="file"
+                                                        className="hidden"
+                                                        onChange={handleDocumentUpload}
+                                                        disabled={uploadingDocument}
+                                                    />
+                                                    <Button
+                                                        variant="primary"
+                                                        className="gap-2"
+                                                        disabled={uploadingDocument}
+                                                        isLoading={uploadingDocument}
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            (e.currentTarget.previousElementSibling as HTMLInputElement)?.click();
+                                                        }}
+                                                    >
+                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                                                        </svg>
+                                                        {uploadingDocument ? 'Uploading...' : 'Upload File'}
+                                                    </Button>
+                                                </label>
+                                            </div>
+                                        </Card>
+
+                                        {/* Documents List */}
+                                        {hasDocuments ? (
+                                            <Card className="!p-6 border-gray-200 shadow-sm">
+                                                <div className="space-y-3">
+                                                    {allDocs.map((doc: any) => (
+                                                        <div key={doc.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-100 hover:bg-gray-100 transition-colors">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center border border-gray-200">
+                                                                    {getFileIcon(doc.mime_type || doc.type || '')}
+                                                                </div>
+                                                                <div>
+                                                                    <div className="font-medium text-gray-900">{doc.filename || doc.name}</div>
+                                                                    <div className="text-xs text-gray-500">
+                                                                        {formatFileSize(doc.file_size || doc.size)} • {doc.created_at ? new Date(doc.created_at).toLocaleDateString() : 'Attached'}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                {doc.download_url && (
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        className="bg-white"
+                                                                        onClick={() => handleDocumentDownload(doc)}
+                                                                    >
+                                                                        Download
+                                                                    </Button>
+                                                                )}
+                                                                {!doc.isMetadata && isCreator && (
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        className="bg-white text-danger-600 border-danger-200 hover:bg-danger-50"
+                                                                        onClick={() => handleDocumentDelete(doc.id)}
+                                                                    >
+                                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                                        </svg>
+                                                                    </Button>
+                                                                )}
                                                             </div>
                                                         </div>
-                                                    </div>
-                                                    <Button variant="outline" size="sm" className="bg-white">
-                                                        Download
-                                                    </Button>
+                                                    ))}
                                                 </div>
-                                            ))}
-                                            {/* Documents from database */}
-                                            {dbDocs.map((doc) => (
-                                                <div key={doc.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-100 hover:bg-gray-100 transition-colors">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center border border-gray-200">
-                                                            {getFileIcon(doc.mime_type || '')}
-                                                        </div>
-                                                        <div>
-                                                            <div className="font-medium text-gray-900">{doc.filename}</div>
-                                                            <div className="text-xs text-gray-500">
-                                                                {doc.file_size ? formatFileSize(doc.file_size) : 'Unknown size'} • {new Date(doc.created_at).toLocaleDateString()}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    <Button variant="outline" size="sm" className="bg-white">
-                                                        Download
-                                                    </Button>
+                                            </Card>
+                                        ) : (
+                                            <Card className="text-center py-12 border-dashed border-2 border-gray-200 bg-gray-50/50 shadow-none">
+                                                <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm border border-gray-100">
+                                                    <svg className="w-8 h-8 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                                                    </svg>
                                                 </div>
-                                            ))}
-                                        </div>
-                                    </Card>
-                                ) : (
-                                    <Card className="text-center py-16 border-dashed border-2 border-gray-200 bg-gray-50/50 shadow-none">
-                                        <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm border border-gray-100">
-                                            <svg className="w-8 h-8 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                                            </svg>
-                                        </div>
-                                        <h3 className="text-lg font-medium text-text-primary">No Documents Attached</h3>
-                                        <p className="text-text-secondary mb-6">There are no files attached to this request.</p>
-                                        <Button variant="outline" className="bg-white">
-                                            Upload Document
-                                        </Button>
-                                    </Card>
+                                                <h3 className="text-lg font-medium text-text-primary">No Documents Yet</h3>
+                                                <p className="text-text-secondary">Upload files using the button above</p>
+                                            </Card>
+                                        )}
+                                    </div>
                                 );
                             })()}
                         </div>
@@ -1009,7 +1513,7 @@ export default function RequestDetailsPage() {
                                 </div>
                             </div>
                             <p className="text-text-secondary mb-6">
-                                Are you sure you want to delete "<span className="font-medium text-text-primary">{request.title}</span>"? 
+                                Are you sure you want to delete "<span className="font-medium text-text-primary">{request.title}</span>"?
                                 All associated data including documents and approval steps will be permanently removed.
                             </p>
                             <div className="flex gap-3 justify-end">

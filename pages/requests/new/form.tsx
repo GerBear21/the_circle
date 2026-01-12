@@ -1,6 +1,6 @@
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Editor, Frame, Element } from '@craftjs/core';
 import {
   Container,
@@ -27,6 +27,29 @@ import {
   CurrencyAmountField
 } from '../../../components/form-builder/user';
 import { Viewport } from '../../../components/form-builder/Viewport';
+import { AppLayout } from '../../../components/layout';
+import { Card, Button, Input } from '../../../components/ui';
+
+// Type definitions
+type FieldType = 'text' | 'number' | 'date' | 'select' | 'textarea' | 'checkbox' | 'file';
+
+interface FormField {
+  id: string;
+  label: string;
+  type: FieldType;
+  required: boolean;
+  options?: string[];
+}
+
+const fieldTypes: { value: FieldType; label: string; icon: string }[] = [
+  { value: 'text', label: 'Text', icon: 'M4 6h16M4 12h16M4 18h7' },
+  { value: 'number', label: 'Number', icon: 'M7 20l4-16m2 16l4-16M6 9h14M4 15h14' },
+  { value: 'date', label: 'Date', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
+  { value: 'select', label: 'Dropdown', icon: 'M19 9l-7 7-7-7' },
+  { value: 'textarea', label: 'Text Area', icon: 'M4 6h16M4 10h16M4 14h16M4 18h10' },
+  { value: 'checkbox', label: 'Checkbox', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' },
+  { value: 'file', label: 'File Upload', icon: 'M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12' },
+];
 
 export default function NewFormDesignerPage() {
   const { status } = useSession();

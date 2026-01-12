@@ -676,11 +676,10 @@ export default function AllRequestsPage() {
                       <button
                         key={s}
                         onClick={() => setStatusFilter(s)}
-                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                          statusFilter === s
-                            ? 'bg-brand-100 text-brand-700'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${statusFilter === s
+                          ? 'bg-brand-100 text-brand-700'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          }`}
                       >
                         {s === 'all' ? 'All' : statusConfig[s]?.label || s}
                       </button>
@@ -695,11 +694,10 @@ export default function AllRequestsPage() {
                       <button
                         key={t}
                         onClick={() => setTypeFilter(t)}
-                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                          typeFilter === t
-                            ? 'bg-brand-100 text-brand-700'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${typeFilter === t
+                          ? 'bg-brand-100 text-brand-700'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          }`}
                       >
                         {t === 'all' ? 'All' : typeConfig[t]?.label || t}
                       </button>
@@ -760,9 +758,14 @@ export default function AllRequestsPage() {
         ) : (
           <div className="space-y-3">
             {filteredRequests.map((request) => {
-              const statusInfo = statusConfig[request.status];
-              const priorityInfo = priorityConfig[request.priority];
-              const typeInfo = typeConfig[request.type];
+              const statusInfo = statusConfig[request.status] || { label: request.status, bg: 'bg-gray-100', text: 'text-gray-600', dot: 'bg-gray-400' };
+              const priorityInfo = priorityConfig[request.priority] || { label: 'Normal', color: 'text-gray-600', bg: 'bg-gray-50' };
+              const typeInfo = typeConfig[request.type] || {
+                label: 'Request',
+                icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
+                color: 'text-gray-600',
+                bg: 'bg-gray-100'
+              };
               const dueStatus = getDueStatus(request.due_date);
               const deptColor = departmentColors[request.department] || 'bg-gray-100 text-gray-700';
 
@@ -780,6 +783,7 @@ export default function AllRequestsPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={typeInfo.icon} />
                       </svg>
                     </div>
+
 
                     {/* Content */}
                     <div className="flex-1 min-w-0">

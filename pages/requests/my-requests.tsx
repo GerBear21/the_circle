@@ -328,7 +328,7 @@ export default function MyRequestsPage() {
                           <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
                             <div
                               className="h-full bg-primary-500 rounded-full transition-all"
-                              style={{ width: `${(request.current_step / request.total_steps) * 100}%` }}
+                              style={{ width: `${((request.current_step || 0) / (request.total_steps || 1)) * 100}%` }}
                             />
                           </div>
                         </div>
