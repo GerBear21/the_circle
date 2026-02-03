@@ -3,12 +3,30 @@ import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input } from '../../../components/ui';
+import { useCurrentUser } from '../../../hooks/useCurrentUser';
+import { useOrganizationData } from '../../../hooks/useOrganizationData';
+
+interface SelectedBusinessUnit {
+    id: string;
+    name: string;
+    bookingMade: boolean;
+    arrivalDate: string;
+    departureDate: string;
+    numberOfNights: string;
+    numberOfRooms: string;
+    accommodationType: string;
+    specialArrangements: string;
+}
 
 export default function HotelBookingPage() {
     const { data: session, status } = useSession();
     const router = useRouter();
+    const { user } = useCurrentUser();
+    const { businessUnits, loading: businessUnitsLoading } = useOrganizationData(user?.organization_id);
     const [loading, setLoading] = useState(false);
+    const [savingDraft, setSavingDraft] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [selectedBusinessUnits, setSelectedBusinessUnits] = useState<SelectedBusinessUnit[]>([]);
 
     // Initial date for display
     const today = new Date().toLocaleDateString('en-GB', {
@@ -17,53 +35,119 @@ export default function HotelBookingPage() {
         year: 'numeric'
     });
 
+    // Today's date in ISO format for min date validation
+    const todayISO = new Date().toISOString().split('T')[0];
+
     const [formData, setFormData] = useState({
-        hotelUnit: 'Zambezi River Lodge',
         guestNames: '',
-        telBookingMade: false,
-        arrivalDate: '',
-        departureDate: '',
-        numberOfNights: '',
-        numberOfRooms: '',
-        accommodationType: 'accommodation_only',
+        isExternalGuest: false,
         allocationType: 'marketing_domestic',
         percentageDiscount: '',
-        specialArrangements: 'N/A',
-        reason: 'To attend the group preventative maintenance program for the group.',
+        reason: '',
+        processTravelDocument: false,
+    });
 
-        // Local Travel Authorisation
-        employeeName: '',
-        department: '',
-        dateOfRequest: new Date().toISOString().split('T')[0],
+    // Approver selection state - 4 fixed roles
+    const approvalRoles = [
+        { key: 'hod', label: 'Head of Department', description: 'Department Approval' },
+        { key: 'hr_director', label: 'HR Director', description: 'HR Review' },
+        { key: 'finance_director', label: 'Finance Director', description: 'Financial Review' },
+        { key: 'ceo', label: 'CEO', description: 'Final Authorization' },
+    ];
+    const [users, setUsers] = useState<Array<{ id: string; display_name: string; email: string; job_title?: string }>>([]);
+    const [loadingUsers, setLoadingUsers] = useState(true);
+    const [selectedApprovers, setSelectedApprovers] = useState<Record<string, string>>({
+        hod: '',
+        hr_director: '',
+        finance_director: '',
+        ceo: '',
+    });
+    const [approverSearch, setApproverSearch] = useState<Record<string, string>>({
+        hod: '',
+        hr_director: '',
+        finance_director: '',
+        ceo: '',
+    });
+    const [showApproverDropdown, setShowApproverDropdown] = useState<string | null>(null);
+
+    // Travel document state
+    const [travelData, setTravelData] = useState({
         dateOfIntendedTravel: '',
         purposeOfTravel: '',
         accompanyingAssociates: '',
-        travelMode: 'DRIVING',
-        vehicleRegistration: '',
-        conditionsAccepted: false,
-
-        // Itinerary
-        itinerary: [
-            { date: '', from: '', to: '', km: '', justification: '' }
-        ],
-
-        // Budget
+        travelMode: '',
+        acceptConditions: false,
+        itinerary: [{ date: '', from: '', to: '', km: '', justification: '' }],
+        hotelReservation: '',
         budget: {
-            fuel: { liters: '', cost: '' },
-            aaRates: { mileage: '', cost: '' },
-            tickets: { cost: '' },
-            accommodation: { cost: '' },
-            lunch: { cost: '' },
-            dinner: { cost: '' },
-            conferencing: { cost: '' },
-            other: { description: '', cost: '' },
+            fuel: { quantity: '', unitCost: '', totalCost: '' },
+            aaRates: { quantity: '', unitCost: '', totalCost: '' },
+            airBusTickets: { quantity: '', unitCost: '', totalCost: '' },
+            conferencingCost: { quantity: '', unitCost: '', totalCost: '' },
+            tollgates: { quantity: '', unitCost: '', totalCost: '' },
+            other: { description: '', quantity: '', unitCost: '', totalCost: '' },
         },
-
-        // Administration
-        fuelIssuedBy: '',
-        fuelCollectedBy: '',
-        additionalComments: '',
     });
+
+    const addItineraryRow = () => {
+        setTravelData(prev => ({
+            ...prev,
+            itinerary: [...prev.itinerary, { date: '', from: '', to: '', km: '', justification: '' }]
+        }));
+    };
+
+    const updateItineraryRow = (index: number, field: string, value: string) => {
+        setTravelData(prev => ({
+            ...prev,
+            itinerary: prev.itinerary.map((row, i) => 
+                i === index ? { ...row, [field]: value } : row
+            )
+        }));
+    };
+
+    const removeItineraryRow = (index: number) => {
+        if (travelData.itinerary.length > 1) {
+            setTravelData(prev => ({
+                ...prev,
+                itinerary: prev.itinerary.filter((_, i) => i !== index)
+            }));
+        }
+    };
+
+    const calculateGrandTotal = () => {
+        const budget = travelData.budget;
+        const values = [
+            budget.fuel.totalCost,
+            budget.aaRates.totalCost,
+            budget.airBusTickets.totalCost,
+            budget.conferencingCost.totalCost,
+            budget.tollgates.totalCost,
+            budget.other.totalCost,
+        ];
+        return values.reduce((sum, val) => sum + (parseFloat(val) || 0), 0).toFixed(2);
+    };
+
+    const updateBudgetItem = (item: keyof typeof travelData.budget, field: string, value: string) => {
+        setTravelData(prev => {
+            const currentItem = prev.budget[item];
+            const updatedItem = { ...currentItem, [field]: value };
+            
+            // Auto-calculate total cost when quantity or unit cost changes
+            if (field === 'quantity' || field === 'unitCost') {
+                const quantity = parseFloat(field === 'quantity' ? value : updatedItem.quantity) || 0;
+                const unitCost = parseFloat(field === 'unitCost' ? value : updatedItem.unitCost) || 0;
+                updatedItem.totalCost = (quantity * unitCost).toFixed(2);
+            }
+            
+            return {
+                ...prev,
+                budget: {
+                    ...prev.budget,
+                    [item]: updatedItem,
+                },
+            };
+        });
+    };
 
     useEffect(() => {
         if (status === 'unauthenticated') {
@@ -71,61 +155,87 @@ export default function HotelBookingPage() {
         }
     }, [status, router]);
 
-    // Calculate nights automatically
+    // Fetch users for approver selection
     useEffect(() => {
-        if (formData.arrivalDate && formData.departureDate) {
-            const start = new Date(formData.arrivalDate);
-            const end = new Date(formData.departureDate);
-            const diffTime = Math.abs(end.getTime() - start.getTime());
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            setFormData(prev => ({ ...prev, numberOfNights: diffDays.toString() }));
-        }
-    }, [formData.arrivalDate, formData.departureDate]);
-
-    const addItineraryRow = () => {
-        setFormData(prev => ({
-            ...prev,
-            itinerary: [...prev.itinerary, { date: '', from: '', to: '', km: '', justification: '' }]
-        }));
-    };
-
-    const removeItineraryRow = (index: number) => {
-        setFormData(prev => ({
-            ...prev,
-            itinerary: prev.itinerary.filter((_, i) => i !== index)
-        }));
-    };
-
-    const updateItineraryRow = (index: number, field: string, value: string) => {
-        setFormData(prev => ({
-            ...prev,
-            itinerary: prev.itinerary.map((row, i) => i === index ? { ...row, [field]: value } : row)
-        }));
-    };
-
-    const updateBudget = (category: string, field: string, value: string) => {
-        setFormData(prev => ({
-            ...prev,
-            budget: {
-                ...prev.budget,
-                // @ts-ignore
-                [category]: { ...prev.budget[category], [field]: value }
+        const fetchUsers = async () => {
+            try {
+                const response = await fetch('/api/users');
+                if (response.ok) {
+                    const data = await response.json();
+                    setUsers(data.users || []);
+                }
+            } catch (err) {
+                console.error('Failed to fetch users:', err);
+            } finally {
+                setLoadingUsers(false);
             }
-        }));
+        };
+
+        if (status === 'authenticated') {
+            fetchUsers();
+        }
+    }, [status]);
+
+    // Filter users by search for a specific role
+    const getFilteredUsersForRole = (roleKey: string) => {
+        const searchTerm = approverSearch[roleKey] || '';
+        const alreadySelectedIds = Object.values(selectedApprovers).filter(id => id);
+        return users.filter(u => {
+            const matchesSearch = searchTerm
+                ? (u.display_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                   u.email?.toLowerCase().includes(searchTerm.toLowerCase()))
+                : true;
+            const notAlreadySelected = !alreadySelectedIds.includes(u.id) || selectedApprovers[roleKey] === u.id;
+            return matchesSearch && notAlreadySelected;
+        });
     };
 
-    const calculateTotalBudget = () => {
-        let total = 0;
-        const b = formData.budget;
-        total += Number(b.fuel.cost || 0);
-        total += Number(b.aaRates.cost || 0);
-        total += Number(b.tickets.cost || 0);
-        total += Number(b.accommodation.cost || 0);
-        total += Number(b.lunch.cost || 0);
-        total += Number(b.dinner.cost || 0);
-        total += Number(b.conferencing.cost || 0);
-        total += Number(b.other.cost || 0);
-        return total;
+    const handleSelectApprover = (roleKey: string, userId: string) => {
+        setSelectedApprovers(prev => ({ ...prev, [roleKey]: userId }));
+        setApproverSearch(prev => ({ ...prev, [roleKey]: '' }));
+        setShowApproverDropdown(null);
+    };
+
+    const handleRemoveApprover = (roleKey: string) => {
+        setSelectedApprovers(prev => ({ ...prev, [roleKey]: '' }));
+    };
+
+    const handleBusinessUnitToggle = (unitId: string, unitName: string) => {
+        setSelectedBusinessUnits(prev => {
+            const exists = prev.find(u => u.id === unitId);
+            if (exists) {
+                return prev.filter(u => u.id !== unitId);
+            }
+            return [...prev, {
+                id: unitId,
+                name: unitName,
+                bookingMade: false,
+                arrivalDate: '',
+                departureDate: '',
+                numberOfNights: '',
+                numberOfRooms: '',
+                accommodationType: 'accommodation_only',
+                specialArrangements: 'N/A',
+            }];
+        });
+    };
+
+    const handleBusinessUnitFieldChange = (unitId: string, field: keyof SelectedBusinessUnit, value: string | boolean) => {
+        setSelectedBusinessUnits(prev =>
+            prev.map(u => {
+                if (u.id !== unitId) return u;
+                const updated = { ...u, [field]: value };
+                // Auto-calculate nights when dates change
+                if ((field === 'arrivalDate' || field === 'departureDate') && updated.arrivalDate && updated.departureDate) {
+                    const start = new Date(updated.arrivalDate);
+                    const end = new Date(updated.departureDate);
+                    const diffTime = Math.abs(end.getTime() - start.getTime());
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    updated.numberOfNights = diffDays.toString();
+                }
+                return updated;
+            })
+        );
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -133,7 +243,127 @@ export default function HotelBookingPage() {
         setLoading(true);
         setError(null);
 
+        // Validation
+        const errors: string[] = [];
+
+        // Required: At least one business unit
+        if (selectedBusinessUnits.length === 0) {
+            errors.push('Please select at least one business unit');
+        }
+
+        // Required: Business unit fields
+        for (const unit of selectedBusinessUnits) {
+            if (!unit.arrivalDate) {
+                errors.push(`Arrival date is required for ${unit.name}`);
+            }
+            if (!unit.departureDate) {
+                errors.push(`Departure date is required for ${unit.name}`);
+            }
+            if (!unit.numberOfNights) {
+                errors.push(`Number of nights is required for ${unit.name}`);
+            }
+            if (!unit.numberOfRooms) {
+                errors.push(`Number of rooms is required for ${unit.name}`);
+            }
+            if (!unit.accommodationType) {
+                errors.push(`Accommodation type is required for ${unit.name}`);
+            }
+        }
+
+        // Required: Reason for complimentary
+        if (!formData.reason.trim()) {
+            errors.push('Reason for complimentary is required');
+        }
+
+        // Required: All 4 approvers
+        if (!selectedApprovers.hod) {
+            errors.push('Please select an approver for Head of Department');
+        }
+        if (!selectedApprovers.hr_director) {
+            errors.push('Please select an approver for HR Director');
+        }
+        if (!selectedApprovers.finance_director) {
+            errors.push('Please select an approver for Finance Director');
+        }
+        if (!selectedApprovers.ceo) {
+            errors.push('Please select an approver for CEO');
+        }
+
+        // Validate dates are not in the past
+        const todayDate = new Date();
+        todayDate.setHours(0, 0, 0, 0);
+        
+        for (const unit of selectedBusinessUnits) {
+            if (unit.arrivalDate) {
+                const arrivalDate = new Date(unit.arrivalDate);
+                if (arrivalDate < todayDate) {
+                    errors.push(`Arrival date for ${unit.name} cannot be in the past`);
+                }
+            }
+            if (unit.departureDate) {
+                const departureDate = new Date(unit.departureDate);
+                if (departureDate < todayDate) {
+                    errors.push(`Departure date for ${unit.name} cannot be in the past`);
+                }
+            }
+        }
+
+        // If processTravelDocument is checked, validate travel fields
+        if (formData.processTravelDocument) {
+            if (!travelData.dateOfIntendedTravel) {
+                errors.push('Date of intended travel is required');
+            } else {
+                const travelDate = new Date(travelData.dateOfIntendedTravel);
+                if (travelDate < todayDate) {
+                    errors.push('Date of intended travel cannot be in the past');
+                }
+            }
+            if (!travelData.purposeOfTravel.trim()) {
+                errors.push('Purpose of travel is required');
+            }
+            if (!travelData.travelMode.trim()) {
+                errors.push('Travel mode is required');
+            }
+            if (!travelData.acceptConditions) {
+                errors.push('You must accept the travel conditions');
+            }
+            // At least one itinerary row with data
+            const hasValidItinerary = travelData.itinerary.some(
+                row => row.date || row.from || row.to
+            );
+            if (!hasValidItinerary) {
+                errors.push('At least one travel itinerary row is required');
+            }
+            // At least one budget row with data
+            const budget = travelData.budget;
+            const hasValidBudget = 
+                (budget.fuel.totalCost && parseFloat(budget.fuel.totalCost) > 0) ||
+                (budget.aaRates.totalCost && parseFloat(budget.aaRates.totalCost) > 0) ||
+                (budget.airBusTickets.totalCost && parseFloat(budget.airBusTickets.totalCost) > 0) ||
+                (budget.conferencingCost.totalCost && parseFloat(budget.conferencingCost.totalCost) > 0) ||
+                (budget.tollgates.totalCost && parseFloat(budget.tollgates.totalCost) > 0) ||
+                (budget.other.totalCost && parseFloat(budget.other.totalCost) > 0);
+            if (!hasValidBudget) {
+                errors.push('At least one travel budget item is required');
+            }
+        }
+
+        if (errors.length > 0) {
+            setError(errors.join('. '));
+            setLoading(false);
+            return;
+        }
+
         try {
+            // Convert approvers object to ordered array for sequential approval
+            // Order: HOD -> HR Director -> Finance Director -> CEO
+            const approversArray = [
+                selectedApprovers.hod,
+                selectedApprovers.hr_director,
+                selectedApprovers.finance_director,
+                selectedApprovers.ceo,
+            ].filter(Boolean); // Remove any empty values
+
             const response = await fetch('/api/requests', {
                 method: 'POST',
                 headers: {
@@ -146,18 +376,16 @@ export default function HotelBookingPage() {
                     category: 'hotel',
                     requestType: 'hotel_booking',
                     metadata: {
-                        hotelUnit: formData.hotelUnit,
                         guestNames: formData.guestNames,
-                        telBookingMade: formData.telBookingMade,
-                        arrivalDate: formData.arrivalDate,
-                        departureDate: formData.departureDate,
-                        numberOfNights: formData.numberOfNights,
-                        numberOfRooms: formData.numberOfRooms,
-                        accommodationType: formData.accommodationType,
+                        isExternalGuest: formData.isExternalGuest,
+                        selectedBusinessUnits: selectedBusinessUnits,
                         allocationType: formData.allocationType,
                         percentageDiscount: formData.percentageDiscount,
-                        specialArrangements: formData.specialArrangements,
                         reason: formData.reason,
+                        processTravelDocument: formData.processTravelDocument,
+                        ...(formData.processTravelDocument && { travelDocument: travelData }),
+                        approvers: approversArray, // Sequential array of approver IDs
+                        approverRoles: selectedApprovers, // Keep original object for reference
                     },
                 }),
             });
@@ -168,11 +396,65 @@ export default function HotelBookingPage() {
                 throw new Error(data.error || 'Failed to create hotel booking request');
             }
 
-            router.push('/requests/my-requests');
+            router.push(`/requests/comp/${data.request.id}`);
         } catch (err: any) {
             setError(err.message || 'Failed to create hotel booking request');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleSaveDraft = async () => {
+        setSavingDraft(true);
+        setError(null);
+
+        try {
+            // Convert approvers object to ordered array for sequential approval
+            const approversArray = [
+                selectedApprovers.hod,
+                selectedApprovers.hr_director,
+                selectedApprovers.finance_director,
+                selectedApprovers.ceo,
+            ].filter(Boolean);
+
+            const response = await fetch('/api/requests', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    title: `Hotel Booking: ${formData.guestNames || 'Draft'}`,
+                    description: formData.reason || 'Draft request',
+                    priority: 'normal',
+                    category: 'hotel',
+                    requestType: 'hotel_booking',
+                    status: 'draft',
+                    metadata: {
+                        guestNames: formData.guestNames,
+                        isExternalGuest: formData.isExternalGuest,
+                        selectedBusinessUnits: selectedBusinessUnits,
+                        allocationType: formData.allocationType,
+                        percentageDiscount: formData.percentageDiscount,
+                        reason: formData.reason,
+                        processTravelDocument: formData.processTravelDocument,
+                        ...(formData.processTravelDocument && { travelDocument: travelData }),
+                        approvers: approversArray,
+                        approverRoles: selectedApprovers,
+                    },
+                }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to save draft');
+            }
+
+            router.push(`/requests/comp/${data.request.id}`);
+        } catch (err: any) {
+            setError(err.message || 'Failed to save draft');
+        } finally {
+            setSavingDraft(false);
         }
     };
 
@@ -193,9 +475,8 @@ export default function HotelBookingPage() {
             <form onSubmit={handleSubmit} className="p-4 sm:p-6 max-w-5xl mx-auto pb-32">
                 <div className="mb-6 text-center">
                     <h1 className="text-2xl font-bold text-text-primary font-heading uppercase tracking-wide">
-                        Local Travel Authorisation & Hotel Booking
+                        Complimentary Hotel Guest Booking Form
                     </h1>
-                    <p className="text-gray-500 mt-2">DOC NO: HR APX – 1 LOCAL TRAVEL AUTHORISATION</p>
                 </div>
 
                 {error && (
@@ -205,187 +486,27 @@ export default function HotelBookingPage() {
                 )}
 
                 <div className="space-y-6">
-                    {/* Local Travel Authorisation Section */}
+                    {/* Requestor Information Section */}
                     <Card className="p-6">
-                        <h3 className="text-sm font-semibold text-gray-700 mb-4 uppercase border-b pb-2">Local Travel Authorisation</h3>
-                        <div className="space-y-6">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <Input
-                                    label="Name of Employee"
-                                    value={formData.employeeName}
-                                    onChange={(e) => setFormData({ ...formData, employeeName: e.target.value })}
-                                />
-                                <Input
-                                    label="Department"
-                                    value={formData.department}
-                                    onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-                                />
-                                <Input
-                                    type="date"
-                                    label="Date of Request"
-                                    value={formData.dateOfRequest}
-                                    onChange={(e) => setFormData({ ...formData, dateOfRequest: e.target.value })}
-                                />
-                                <Input
-                                    type="date"
-                                    label="Date of Intended Travel"
-                                    value={formData.dateOfIntendedTravel}
-                                    onChange={(e) => setFormData({ ...formData, dateOfIntendedTravel: e.target.value })}
-                                />
-                            </div>
-
+                        <h3 className="text-sm font-semibold text-gray-700 mb-4 uppercase border-b pb-2">Requestor Information</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                             <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Purpose of Travel</label>
-                                <textarea
-                                    className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all resize-none min-h-[60px]"
-                                    value={formData.purposeOfTravel}
-                                    onChange={(e) => setFormData({ ...formData, purposeOfTravel: e.target.value })}
-                                    placeholder="e.g., MONTCLAIR BIS GRADUATE TRAINEE INDUCTION AND HAND OVER"
-                                />
-                            </div>
-
-                            <Input
-                                label="Accompanying Associates"
-                                value={formData.accompanyingAssociates}
-                                onChange={(e) => setFormData({ ...formData, accompanyingAssociates: e.target.value })}
-                            />
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <Input
-                                    label="Travel Mode"
-                                    value={formData.travelMode}
-                                    onChange={(e) => setFormData({ ...formData, travelMode: e.target.value })}
-                                    placeholder="e.g., DRIVING"
-                                />
-                                <Input
-                                    label="Vehicle Registration Number"
-                                    value={formData.vehicleRegistration}
-                                    onChange={(e) => setFormData({ ...formData, vehicleRegistration: e.target.value })}
-                                    placeholder="e.g., AEY 0042"
-                                />
-                            </div>
-
-                            <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 mt-4">
-                                <h4 className="font-bold text-blue-900 mb-2">CONDITIONS OF TRAVEL:</h4>
-                                <ol className="list-decimal list-inside text-sm text-blue-800 space-y-1 ml-2">
-                                    <li>Authorization must be sought using this form at least 7 days prior to departure.</li>
-                                    <li>Travel expenses must be claimed within 30 days after completion of travel, otherwise the claim shall be void.</li>
-                                    <li>It is an act of misconduct to travel without authority.</li>
-                                </ol>
-                                <div className="mt-4 flex items-center gap-2">
-                                    <input
-                                        type="checkbox"
-                                        id="conditions"
-                                        checked={formData.conditionsAccepted}
-                                        onChange={(e) => setFormData({ ...formData, conditionsAccepted: e.target.checked })}
-                                        className="rounded text-primary-600 focus:ring-primary-500 w-5 h-5"
-                                        required
-                                    />
-                                    <label htmlFor="conditions" className="text-sm font-medium text-blue-900 cursor-pointer">
-                                        I have read these conditions and accept them.
-                                    </label>
+                                <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Name</label>
+                                <div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600">
+                                    {user?.display_name || session?.user?.name || 'N/A'}
                                 </div>
                             </div>
-                        </div>
-                    </Card>
-
-                    {/* Travel Itinerary Section */}
-                    <Card className="p-6">
-                        <div className="flex justify-between items-center mb-4 border-b pb-2">
-                            <h3 className="text-sm font-semibold text-gray-700 uppercase">Travel Itinerary</h3>
-                            <Button type="button" size="sm" onClick={addItineraryRow} variant="outline">
-                                + Add Route
-                            </Button>
-                        </div>
-
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-sm text-left">
-                                <thead className="text-xs text-gray-700 uppercase bg-gray-50">
-                                    <tr>
-                                        <th className="px-4 py-3 rounded-tl-lg">Date/Time</th>
-                                        <th className="px-4 py-3">From</th>
-                                        <th className="px-4 py-3">To</th>
-                                        <th className="px-4 py-3">KM</th>
-                                        <th className="px-4 py-3">Justification</th>
-                                        <th className="px-4 py-3 rounded-tr-lg">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {formData.itinerary.map((row, index) => (
-                                        <tr key={index} className="border-b last:border-b-0">
-                                            <td className="p-2">
-                                                <input
-                                                    type="date"
-                                                    className="w-full px-2 py-1 rounded border border-gray-200 focus:ring-1 focus:ring-primary-500 outline-none"
-                                                    value={row.date}
-                                                    onChange={(e) => updateItineraryRow(index, 'date', e.target.value)}
-                                                />
-                                            </td>
-                                            <td className="p-2">
-                                                <input
-                                                    type="text"
-                                                    className="w-full px-2 py-1 rounded border border-gray-200 focus:ring-1 focus:ring-primary-500 outline-none"
-                                                    value={row.from}
-                                                    onChange={(e) => updateItineraryRow(index, 'from', e.target.value)}
-                                                />
-                                            </td>
-                                            <td className="p-2">
-                                                <input
-                                                    type="text"
-                                                    className="w-full px-2 py-1 rounded border border-gray-200 focus:ring-1 focus:ring-primary-500 outline-none"
-                                                    value={row.to}
-                                                    onChange={(e) => updateItineraryRow(index, 'to', e.target.value)}
-                                                />
-                                            </td>
-                                            <td className="p-2">
-                                                <input
-                                                    type="number"
-                                                    className="w-20 px-2 py-1 rounded border border-gray-200 focus:ring-1 focus:ring-primary-500 outline-none"
-                                                    value={row.km}
-                                                    onChange={(e) => updateItineraryRow(index, 'km', e.target.value)}
-                                                />
-                                            </td>
-                                            <td className="p-2">
-                                                <input
-                                                    type="text"
-                                                    className="w-full px-2 py-1 rounded border border-gray-200 focus:ring-1 focus:ring-primary-500 outline-none"
-                                                    value={row.justification}
-                                                    onChange={(e) => updateItineraryRow(index, 'justification', e.target.value)}
-                                                />
-                                            </td>
-                                            <td className="p-2">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => removeItineraryRow(index)}
-                                                    className="text-red-500 hover:text-red-700"
-                                                    disabled={formData.itinerary.length === 1}
-                                                >
-                                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </Card>
-
-                    {/* Hotel Reservation Section */}
-                    {/* Header Section */}
-                    <Card className="p-6">
-                        <h3 className="text-sm font-semibold text-gray-700 mb-4 uppercase border-b pb-2">Hotel Reservation (Only For Overnight Stay)</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Hotel Unit</label>
-                                <select
-                                    className="w-full px-4 py-2 rounded-xl border border-gray-300 bg-white focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all"
-                                    value={formData.hotelUnit}
-                                    onChange={(e) => setFormData({ ...formData, hotelUnit: e.target.value })}
-                                >
-                                    <option value="Zambezi River Lodge">Zambezi River Lodge</option>
-                                    <option value="Victoria Falls Hotel">Victoria Falls Hotel</option>
-                                    <option value="Elephant Hills Resort">Elephant Hills Resort</option>
-                                </select>
+                                <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Business Unit</label>
+                                <div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600">
+                                    {user?.business_unit?.name || 'N/A'}
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Department</label>
+                                <div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600">
+                                    {user?.department?.name || 'N/A'}
+                                </div>
                             </div>
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Date</label>
@@ -409,134 +530,178 @@ export default function HotelBookingPage() {
                                     required
                                 />
                             </div>
-
-                            <div className="flex items-center gap-4 bg-gray-50 p-4 rounded-xl border border-gray-100">
-                                <span className="text-sm font-semibold text-gray-700 uppercase">Tel / Telex / Booking Already Made?</span>
-                                <div className="flex gap-6">
-                                    <label className="flex items-center gap-2 cursor-pointer">
-                                        <input
-                                            type="radio"
-                                            name="bookingMade"
-                                            checked={formData.telBookingMade === true}
-                                            onChange={() => setFormData({ ...formData, telBookingMade: true })}
-                                            className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300"
-                                        />
-                                        <span className="font-medium text-gray-900">Yes</span>
-                                    </label>
-                                    <label className="flex items-center gap-2 cursor-pointer">
-                                        <input
-                                            type="radio"
-                                            name="bookingMade"
-                                            checked={formData.telBookingMade === false}
-                                            onChange={() => setFormData({ ...formData, telBookingMade: false })}
-                                            className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300"
-                                        />
-                                        <span className="font-medium text-gray-900">No</span>
-                                    </label>
-                                </div>
+                            <div className="flex items-center gap-3">
+                                <input
+                                    type="checkbox"
+                                    id="isExternalGuest"
+                                    checked={formData.isExternalGuest}
+                                    onChange={(e) => setFormData({ ...formData, isExternalGuest: e.target.checked })}
+                                    className="w-5 h-5 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                                />
+                                <label htmlFor="isExternalGuest" className="text-sm font-medium text-gray-700 cursor-pointer">
+                                    External Guest (not part of staff)
+                                </label>
                             </div>
                         </div>
                     </Card>
 
-                    {/* Stay Section */}
+                    {/* Business Units Selection */}
                     <Card className="p-6">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <Input
-                                type="date"
-                                label="Arrival Date"
-                                value={formData.arrivalDate}
-                                onChange={(e) => setFormData({ ...formData, arrivalDate: e.target.value })}
-                                required
-                            />
-                            <Input
-                                type="number"
-                                label="No. Of Nights"
-                                value={formData.numberOfNights}
-                                onChange={(e) => setFormData({ ...formData, numberOfNights: e.target.value })}
-                                placeholder="Auto-calculated"
-                                readOnly
-                                className="bg-gray-50"
-                            />
-                            <Input
-                                type="date"
-                                label="Departure Date"
-                                value={formData.departureDate}
-                                onChange={(e) => setFormData({ ...formData, departureDate: e.target.value })}
-                                required
-                            />
-                            <Input
-                                type="number"
-                                label="No. Of Rooms"
-                                value={formData.numberOfRooms}
-                                onChange={(e) => setFormData({ ...formData, numberOfRooms: e.target.value })}
-                                required
-                                min="1"
-                            />
-                        </div>
-                    </Card>
-
-                    {/* Accommodation Type */}
-                    <Card className="p-6">
-                        <h3 className="text-sm font-semibold text-gray-700 mb-4 uppercase border-b pb-2">Accommodation Type</h3>
+                        <h3 className="text-sm font-semibold text-gray-700 mb-4 uppercase border-b pb-2">Select Business Units <span className="text-danger-500">*</span></h3>
+                        <p className="text-sm text-gray-500 mb-4">Select at least one business unit for this booking. Each unit has its own booking details.</p>
                         <div className="space-y-4">
-                            <label className="flex items-start gap-3 cursor-pointer p-3 rounded-lg hover:bg-gray-50 transition-colors border border-transparent hover:border-gray-200">
-                                <input
-                                    type="radio"
-                                    name="accommodationType"
-                                    value="accommodation_only"
-                                    checked={formData.accommodationType === 'accommodation_only'}
-                                    onChange={(e) => setFormData({ ...formData, accommodationType: e.target.value })}
-                                    className="mt-1 w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300"
-                                />
-                                <div>
-                                    <span className="font-bold text-gray-900 block">ACCOMMODATION ONLY</span>
-                                    <span className="text-sm text-gray-500">(Bed only)</span>
-                                </div>
-                            </label>
+                            {businessUnits.map((unit) => {
+                                const isSelected = selectedBusinessUnits.some(u => u.id === unit.id);
+                                const selectedUnit = selectedBusinessUnits.find(u => u.id === unit.id);
+                                return (
+                                    <div
+                                        key={unit.id}
+                                        className={`rounded-xl border transition-all ${
+                                            isSelected
+                                                ? 'border-primary-300 bg-primary-50/50'
+                                                : 'border-gray-200 bg-white hover:border-gray-300'
+                                        }`}
+                                    >
+                                        <div className="p-4">
+                                            <div className="flex items-center justify-between flex-wrap gap-4">
+                                                <label className="flex items-center gap-3 cursor-pointer flex-1 min-w-[200px]">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isSelected}
+                                                        onChange={() => handleBusinessUnitToggle(unit.id, unit.name)}
+                                                        className="w-5 h-5 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                                                    />
+                                                    <span className="font-semibold text-gray-900">{unit.name}</span>
+                                                </label>
+                                                {isSelected && (
+                                                    <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-lg border border-gray-200">
+                                                        <span className="text-sm text-gray-600">Tel / Telex / Booking Made?</span>
+                                                        <label className="flex items-center gap-2 cursor-pointer">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={selectedUnit?.bookingMade || false}
+                                                                onChange={() => handleBusinessUnitFieldChange(unit.id, 'bookingMade', !selectedUnit?.bookingMade)}
+                                                                className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                                                            />
+                                                            <span className="text-sm font-medium text-gray-700">Yes</span>
+                                                        </label>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
 
-                            <label className="flex items-start gap-3 cursor-pointer p-3 rounded-lg hover:bg-gray-50 transition-colors border border-transparent hover:border-gray-200">
-                                <input
-                                    type="radio"
-                                    name="accommodationType"
-                                    value="accommodation_and_breakfast"
-                                    checked={formData.accommodationType === 'accommodation_and_breakfast'}
-                                    onChange={(e) => setFormData({ ...formData, accommodationType: e.target.value })}
-                                    className="mt-1 w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300"
-                                />
-                                <div>
-                                    <span className="font-bold text-gray-900 block">ACCOMMODATION</span>
-                                    <span className="text-sm text-gray-500">(Bed and breakfast free. All other food & beverages to be paid for on departure)</span>
-                                </div>
-                            </label>
+                                        {isSelected && selectedUnit && (
+                                            <div className="border-t border-primary-200 bg-white p-4 rounded-b-xl space-y-4">
+                                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                                    <Input 
+                                                        type="date"
+                                                        label ="Arrival Date *"
+                                                        value={selectedUnit.arrivalDate}
+                                                        onChange={(e) => handleBusinessUnitFieldChange(unit.id, 'arrivalDate', e.target.value)}
+                                                        required
+                                                        min={todayISO}
+                                                    />
+                                                    <Input
+                                                        type="date"
+                                                        label="Departure Date *"
+                                                        value={selectedUnit.departureDate}
+                                                        onChange={(e) => handleBusinessUnitFieldChange(unit.id, 'departureDate', e.target.value)}
+                                                        required
+                                                        min={selectedUnit.arrivalDate || todayISO}
+                                                    />
+                                                    <Input
+                                                        type="number"
+                                                        label="No. Of Nights *"
+                                                        value={selectedUnit.numberOfNights}
+                                                        placeholder="Auto-calculated"
+                                                        readOnly
+                                                        className="bg-gray-50"
+                                                    />
+                                                    <Input
+                                                        type="number"
+                                                        label="No. Of Rooms *"
+                                                        value={selectedUnit.numberOfRooms}
+                                                        onChange={(e) => handleBusinessUnitFieldChange(unit.id, 'numberOfRooms', e.target.value)}
+                                                        required
+                                                        min="1"
+                                                    />
+                                                </div>
 
-                            <label className="flex items-start gap-3 cursor-pointer p-3 rounded-lg hover:bg-gray-50 transition-colors border border-transparent hover:border-gray-200">
-                                <input
-                                    type="radio"
-                                    name="accommodationType"
-                                    value="accommodation_and_meals"
-                                    checked={formData.accommodationType === 'accommodation_and_meals'}
-                                    onChange={(e) => setFormData({ ...formData, accommodationType: e.target.value })}
-                                    className="mt-1 w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300"
-                                />
-                                <div>
-                                    <span className="font-bold text-gray-900 block">ACCOMMODATION AND MEALS</span>
-                                    <span className="text-sm text-gray-500">(Beverages to be paid for on departure)</span>
-                                </div>
-                            </label>
+                                                <div>
+                                                    <label className="block text-sm font-semibold text-gray-700 mb-2 uppercase">Accommodation Type <span className="text-danger-500">*</span></label>
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                        <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200">
+                                                            <input
+                                                                type="radio"
+                                                                name={`accommodationType_${unit.id}`}
+                                                                value="accommodation_only"
+                                                                checked={selectedUnit.accommodationType === 'accommodation_only'}
+                                                                onChange={(e) => handleBusinessUnitFieldChange(unit.id, 'accommodationType', e.target.value)}
+                                                                className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300"
+                                                            />
+                                                            <span className="text-sm text-gray-700">Accommodation Only (Bed only)</span>
+                                                        </label>
+                                                        <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200">
+                                                            <input
+                                                                type="radio"
+                                                                name={`accommodationType_${unit.id}`}
+                                                                value="accommodation_and_breakfast"
+                                                                checked={selectedUnit.accommodationType === 'accommodation_and_breakfast'}
+                                                                onChange={(e) => handleBusinessUnitFieldChange(unit.id, 'accommodationType', e.target.value)}
+                                                                className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300"
+                                                            />
+                                                            <span className="text-sm text-gray-700">Bed & Breakfast</span>
+                                                        </label>
+                                                        <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200">
+                                                            <input
+                                                                type="radio"
+                                                                name={`accommodationType_${unit.id}`}
+                                                                value="accommodation_and_meals"
+                                                                checked={selectedUnit.accommodationType === 'accommodation_and_meals'}
+                                                                onChange={(e) => handleBusinessUnitFieldChange(unit.id, 'accommodationType', e.target.value)}
+                                                                className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300"
+                                                            />
+                                                            <span className="text-sm text-gray-700">Accommodation & Meals</span>
+                                                        </label>
+                                                        <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200">
+                                                            <input
+                                                                type="radio"
+                                                                name={`accommodationType_${unit.id}`}
+                                                                value="accommodation_meals_drink"
+                                                                checked={selectedUnit.accommodationType === 'accommodation_meals_drink'}
+                                                                onChange={(e) => handleBusinessUnitFieldChange(unit.id, 'accommodationType', e.target.value)}
+                                                                className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300"
+                                                            />
+                                                            <span className="text-sm text-gray-700">Accommodation, Meals & Soft Drink</span>
+                                                        </label>
+                                                    </div>
+                                                </div>
 
-                            <label className="flex items-start gap-3 cursor-pointer p-3 rounded-lg hover:bg-gray-50 transition-colors border border-transparent hover:border-gray-200">
-                                <input
-                                    type="radio"
-                                    name="accommodationType"
-                                    value="accommodation_meals_drink"
-                                    checked={formData.accommodationType === 'accommodation_meals_drink'}
-                                    onChange={(e) => setFormData({ ...formData, accommodationType: e.target.value })}
-                                    className="mt-1 w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300"
-                                />
-                                <div>
-                                    <span className="font-bold text-gray-900 block">ACCOMMODATION AND MEALS PLUS ONE SOFT DRINK PER MEAL</span>
+                                                <div>
+                                                    <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Special Arrangements</label>
+                                                    <textarea
+                                                        className="w-full px-4 py-2 rounded-xl border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all resize-none min-h-[60px]"
+                                                        value={selectedUnit.specialArrangements}
+                                                        onChange={(e) => handleBusinessUnitFieldChange(unit.id, 'specialArrangements', e.target.value)}
+                                                        placeholder="Any special arrangements for this business unit..."
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                            {businessUnitsLoading && (
+                                <div className="text-center py-8 text-gray-500">
+                                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-500 mx-auto mb-2" />
+                                    <p>Loading business units...</p>
                                 </div>
-                            </label>
+                            )}
+                            {!businessUnitsLoading && businessUnits.length === 0 && (
+                                <div className="text-center py-8 text-gray-500">
+                                    <p>No business units available.</p>
+                                </div>
+                            )}
                         </div>
                     </Card>
 
@@ -570,15 +735,7 @@ export default function HotelBookingPage() {
                             />
                         </div>
                         <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Special Arrangements</label>
-                            <textarea
-                                className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all resize-none min-h-[60px]"
-                                value={formData.specialArrangements}
-                                onChange={(e) => setFormData({ ...formData, specialArrangements: e.target.value })}
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Reason for complimentary</label>
+                            <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Reason for complimentary <span className="text-danger-500">*</span></label>
                             <textarea
                                 className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all resize-none min-h-[80px]"
                                 value={formData.reason}
@@ -587,256 +744,554 @@ export default function HotelBookingPage() {
                         </div>
                     </Card>
 
-                    {/* Travel Budget Section */}
+                    {/* Travel Document Processing */}
                     <Card className="p-6">
-                        <h3 className="text-sm font-semibold text-gray-700 mb-4 uppercase border-b pb-2">Travel Budget</h3>
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-sm text-left">
-                                <thead className="text-xs text-gray-700 uppercase bg-gray-50">
-                                    <tr>
-                                        <th className="px-4 py-3 rounded-tl-lg">Expenditure Item</th>
-                                        <th className="px-4 py-3">Details / Unit Cost</th>
-                                        <th className="px-4 py-3 rounded-tr-lg">Total Cost ($)</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr className="border-b">
-                                        <td className="px-4 py-3 font-medium">Fuel (Indicate total litres)</td>
-                                        <td className="px-4 py-3">
-                                            <Input
-                                                type="text"
-                                                placeholder="Liters"
-                                                value={formData.budget.fuel.liters}
-                                                onChange={(e) => updateBudget('fuel', 'liters', e.target.value)}
-                                                className="h-8"
-                                            />
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            <Input
-                                                type="number"
-                                                placeholder="0.00"
-                                                value={formData.budget.fuel.cost}
-                                                onChange={(e) => updateBudget('fuel', 'cost', e.target.value)}
-                                                className="h-8"
-                                            />
-                                        </td>
-                                    </tr>
-                                    <tr className="border-b">
-                                        <td className="px-4 py-3 font-medium">AA Rates (Indicate total mileage)</td>
-                                        <td className="px-4 py-3">
-                                            <Input
-                                                type="text"
-                                                placeholder="Mileage"
-                                                value={formData.budget.aaRates.mileage}
-                                                onChange={(e) => updateBudget('aaRates', 'mileage', e.target.value)}
-                                                className="h-8"
-                                            />
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            <Input
-                                                type="number"
-                                                placeholder="0.00"
-                                                value={formData.budget.aaRates.cost}
-                                                onChange={(e) => updateBudget('aaRates', 'cost', e.target.value)}
-                                                className="h-8"
-                                            />
-                                        </td>
-                                    </tr>
-                                    <tr className="border-b">
-                                        <td className="px-4 py-3 font-medium">Air/Bus Tickets</td>
-                                        <td className="px-4 py-3 bg-gray-50"></td>
-                                        <td className="px-4 py-3">
-                                            <Input
-                                                type="number"
-                                                placeholder="0.00"
-                                                value={formData.budget.tickets.cost}
-                                                onChange={(e) => updateBudget('tickets', 'cost', e.target.value)}
-                                                className="h-8"
-                                            />
-                                        </td>
-                                    </tr>
-                                    <tr className="border-b">
-                                        <td className="px-4 py-3 font-medium">Overnight Accommodation (b&b)</td>
-                                        <td className="px-4 py-3 bg-gray-50"></td>
-                                        <td className="px-4 py-3">
-                                            <Input
-                                                type="number"
-                                                placeholder="0.00"
-                                                value={formData.budget.accommodation.cost}
-                                                onChange={(e) => updateBudget('accommodation', 'cost', e.target.value)}
-                                                className="h-8"
-                                            />
-                                        </td>
-                                    </tr>
-                                    <tr className="border-b">
-                                        <td className="px-4 py-3 font-medium">Lunch</td>
-                                        <td className="px-4 py-3 bg-gray-50"></td>
-                                        <td className="px-4 py-3">
-                                            <Input
-                                                type="number"
-                                                placeholder="0.00"
-                                                value={formData.budget.lunch.cost}
-                                                onChange={(e) => updateBudget('lunch', 'cost', e.target.value)}
-                                                className="h-8"
-                                            />
-                                        </td>
-                                    </tr>
-                                    <tr className="border-b">
-                                        <td className="px-4 py-3 font-medium">Dinner</td>
-                                        <td className="px-4 py-3 bg-gray-50"></td>
-                                        <td className="px-4 py-3">
-                                            <Input
-                                                type="number"
-                                                placeholder="0.00"
-                                                value={formData.budget.dinner.cost}
-                                                onChange={(e) => updateBudget('dinner', 'cost', e.target.value)}
-                                                className="h-8"
-                                            />
-                                        </td>
-                                    </tr>
-                                    <tr className="border-b">
-                                        <td className="px-4 py-3 font-medium">Conferencing Cost</td>
-                                        <td className="px-4 py-3 bg-gray-50"></td>
-                                        <td className="px-4 py-3">
-                                            <Input
-                                                type="number"
-                                                placeholder="0.00"
-                                                value={formData.budget.conferencing.cost}
-                                                onChange={(e) => updateBudget('conferencing', 'cost', e.target.value)}
-                                                className="h-8"
-                                            />
-                                        </td>
-                                    </tr>
-                                    <tr className="border-b">
-                                        <td className="px-4 py-3 font-medium">Other</td>
-                                        <td className="px-4 py-3">
-                                            <Input
-                                                type="text"
-                                                placeholder="Description (e.g., Tollgates)"
-                                                value={formData.budget.other.description}
-                                                onChange={(e) => updateBudget('other', 'description', e.target.value)}
-                                                className="h-8"
-                                            />
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            <Input
-                                                type="number"
-                                                placeholder="0.00"
-                                                value={formData.budget.other.cost}
-                                                onChange={(e) => updateBudget('other', 'cost', e.target.value)}
-                                                className="h-8"
-                                            />
-                                        </td>
-                                    </tr>
-                                    <tr className="bg-primary-50">
-                                        <td className="px-4 py-3 font-bold text-primary-900" colSpan={2}>GRAND TOTAL</td>
-                                        <td className="px-4 py-3 font-bold text-primary-900">
-                                            ${calculateTotalBudget().toFixed(2)}
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                        <div className="flex items-start gap-4">
+                            <input
+                                type="checkbox"
+                                id="processTravelDocument"
+                                checked={formData.processTravelDocument}
+                                onChange={(e) => setFormData({ ...formData, processTravelDocument: e.target.checked })}
+                                className="mt-1 w-5 h-5 text-primary-600 focus:ring-primary-500 border-gray-300 rounded cursor-pointer"
+                            />
+                            <label htmlFor="processTravelDocument" className="cursor-pointer">
+                                <span className="font-semibold text-gray-900 block">Process Travel Document</span>
+                                <span className="text-sm text-gray-500 mt-1 block">
+                                    Check this box if you would like to process your travel authorization document along with this booking request.
+                                </span>
+                            </label>
                         </div>
                     </Card>
 
-                    {/* Administration Section */}
+                    {/* Travel Authorization Form - Conditionally Rendered */}
+                    {formData.processTravelDocument && (
+                        <Card className="p-6 border-primary-200 bg-primary-50/30">
+                            <div className="mb-4 text-center border-b pb-4">
+                                <h3 className="text-lg font-bold text-gray-800 uppercase">Local Travel Authorization</h3>
+                                <p className="text-xs text-gray-500 mt-1">DOC NO: HR APX – 1 LOCAL TRAVEL AUTHORISATION</p>
+                            </div>
+
+                            <div className="space-y-6">
+                                {/* Travel Details */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <Input
+                                        type="date"
+                                        label="Date of Intended Travel *"
+                                        value={travelData.dateOfIntendedTravel}
+                                        onChange={(e) => setTravelData({ ...travelData, dateOfIntendedTravel: e.target.value })}
+                                        required
+                                        min={todayISO}
+                                    />
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Purpose of Travel <span className="text-danger-500">*</span></label>
+                                        <textarea
+                                            className="w-full px-4 py-2 rounded-xl border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all resize-none min-h-[60px]"
+                                            value={travelData.purposeOfTravel}
+                                            onChange={(e) => setTravelData({ ...travelData, purposeOfTravel: e.target.value })}
+                                            placeholder="Enter purpose of travel"
+                                            required
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Accompanying Associates</label>
+                                        <textarea
+                                            className="w-full px-4 py-2 rounded-xl border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all resize-none min-h-[60px]"
+                                            value={travelData.accompanyingAssociates}
+                                            onChange={(e) => setTravelData({ ...travelData, accompanyingAssociates: e.target.value })}
+                                            placeholder="Enter names of accompanying associates (if any)"
+                                        />
+                                    </div>
+                                    <Input
+                                        label="Travel Mode (Vehicle Registration if Driving) *"
+                                        value={travelData.travelMode}
+                                        onChange={(e) => setTravelData({ ...travelData, travelMode: e.target.value })}
+                                        placeholder="e.g., Company Vehicle ABC 1234"
+                                    />
+                                </div>
+
+                                {/* Conditions */}
+                                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                                    <h4 className="font-semibold text-amber-800 mb-3 uppercase text-sm">Conditions of Travel</h4>
+                                    <ol className="list-decimal list-inside space-y-2 text-sm text-amber-900">
+                                        <li>Authorization must be sought using this form at least 7 days prior to departure.</li>
+                                        <li>Travel expenses must be claimed within 30 days after completion of travel, otherwise the claim shall be void.</li>
+                                        <li>It is an act of misconduct to travel without authority.</li>
+                                    </ol>
+                                    <div className="mt-4 flex items-center gap-3">
+                                        <input
+                                            type="checkbox"
+                                            id="acceptConditions"
+                                            checked={travelData.acceptConditions}
+                                            onChange={(e) => setTravelData({ ...travelData, acceptConditions: e.target.checked })}
+                                            className="w-5 h-5 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                                            required
+                                        />
+                                        <label htmlFor="acceptConditions" className="text-sm font-medium text-amber-900 cursor-pointer">
+                                            I have read these conditions and accept them. <span className="text-danger-500">*</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                {/* Travel Itinerary */}
+                                <div>
+                                    <div className="flex items-center justify-between mb-3">
+                                        <h4 className="font-semibold text-gray-700 uppercase text-sm">Travel Itinerary <span className="text-danger-500">*</span></h4>
+                                        <button
+                                            type="button"
+                                            onClick={addItineraryRow}
+                                            className="text-sm text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1"
+                                        >
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                            </svg>
+                                            Add Row
+                                        </button>
+                                    </div>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                            <thead>
+                                                <tr className="bg-gray-100">
+                                                    <th className="px-3 py-2 text-left font-semibold text-gray-700">Date/Time</th>
+                                                    <th className="px-3 py-2 text-left font-semibold text-gray-700">From</th>
+                                                    <th className="px-3 py-2 text-left font-semibold text-gray-700">To</th>
+                                                    <th className="px-3 py-2 text-left font-semibold text-gray-700">KM</th>
+                                                    <th className="px-3 py-2 text-left font-semibold text-gray-700">Justification</th>
+                                                    <th className="px-3 py-2 w-10"></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {travelData.itinerary.map((row, index) => (
+                                                    <tr key={index} className="border-b border-gray-100">
+                                                        <td className="px-2 py-2">
+                                                            <input
+                                                                type="date"
+                                                                value={row.date}
+                                                                onChange={(e) => updateItineraryRow(index, 'date', e.target.value)}
+                                                                className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
+                                                            />
+                                                        </td>
+                                                        <td className="px-2 py-2">
+                                                            <input
+                                                                type="text"
+                                                                value={row.from}
+                                                                onChange={(e) => updateItineraryRow(index, 'from', e.target.value)}
+                                                                className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
+                                                                placeholder="Origin"
+                                                            />
+                                                        </td>
+                                                        <td className="px-2 py-2">
+                                                            <input
+                                                                type="text"
+                                                                value={row.to}
+                                                                onChange={(e) => updateItineraryRow(index, 'to', e.target.value)}
+                                                                className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
+                                                                placeholder="Destination"
+                                                            />
+                                                        </td>
+                                                        <td className="px-2 py-2">
+                                                            <input
+                                                                type="number"
+                                                                value={row.km}
+                                                                onChange={(e) => updateItineraryRow(index, 'km', e.target.value)}
+                                                                className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
+                                                                placeholder="0"
+                                                            />
+                                                        </td>
+                                                        <td className="px-2 py-2">
+                                                            <input
+                                                                type="text"
+                                                                value={row.justification}
+                                                                onChange={(e) => updateItineraryRow(index, 'justification', e.target.value)}
+                                                                className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
+                                                                placeholder="Reason"
+                                                            />
+                                                        </td>
+                                                        <td className="px-2 py-2">
+                                                            {travelData.itinerary.length > 1 && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => removeItineraryRow(index)}
+                                                                    className="text-red-500 hover:text-red-700"
+                                                                >
+                                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                                    </svg>
+                                                                </button>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                
+
+                                {/* Travel Budget */}
+                                <div>
+                                    <h4 className="font-semibold text-gray-700 uppercase text-sm mb-3">Travel Budget <span className="text-danger-500">*</span></h4>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                            <thead>
+                                                <tr className="bg-gray-100">
+                                                    <th className="px-3 py-2 text-left font-semibold text-gray-700">Expenditure Item</th>
+                                                    <th className="px-3 py-2 text-left font-semibold text-gray-700 w-24">Quantity</th>
+                                                    <th className="px-3 py-2 text-left font-semibold text-gray-700 w-28">Unit Cost (USD)</th>
+                                                    <th className="px-3 py-2 text-left font-semibold text-gray-700 w-28">Total Cost (USD)</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr className="border-b border-gray-100">
+                                                    <td className="px-3 py-2 text-gray-700">Fuel (Litres)</td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.fuel.quantity}
+                                                            onChange={(e) => updateBudgetItem('fuel', 'quantity', e.target.value)}
+                                                            className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
+                                                            placeholder="0"
+                                                            min="0"
+                                                        />
+                                                    </td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.fuel.unitCost}
+                                                            onChange={(e) => updateBudgetItem('fuel', 'unitCost', e.target.value)}
+                                                            className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
+                                                            placeholder="0.00"
+                                                            step="0.01"
+                                                            min="0"
+                                                        />
+                                                    </td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.fuel.totalCost}
+                                                            readOnly
+                                                            className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm"
+                                                            placeholder="0.00"
+                                                        />
+                                                    </td>
+                                                </tr>
+                                                <tr className="border-b border-gray-100">
+                                                    <td className="px-3 py-2 text-gray-700">AA Rates (KM)</td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.aaRates.quantity}
+                                                            onChange={(e) => updateBudgetItem('aaRates', 'quantity', e.target.value)}
+                                                            className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
+                                                            placeholder="0"
+                                                            min="0"
+                                                        />
+                                                    </td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.aaRates.unitCost}
+                                                            onChange={(e) => updateBudgetItem('aaRates', 'unitCost', e.target.value)}
+                                                            className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
+                                                            placeholder="0.28"
+                                                            step="0.01"
+                                                            min="0"
+                                                        />
+                                                    </td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.aaRates.totalCost}
+                                                            readOnly
+                                                            className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm"
+                                                            placeholder="0.00"
+                                                        />
+                                                    </td>
+                                                </tr>
+                                                <tr className="border-b border-gray-100">
+                                                    <td className="px-3 py-2 text-gray-700">Air/Bus Tickets</td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.airBusTickets.quantity}
+                                                            onChange={(e) => updateBudgetItem('airBusTickets', 'quantity', e.target.value)}
+                                                            className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
+                                                            placeholder="0"
+                                                            min="0"
+                                                        />
+                                                    </td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.airBusTickets.unitCost}
+                                                            onChange={(e) => updateBudgetItem('airBusTickets', 'unitCost', e.target.value)}
+                                                            className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
+                                                            placeholder="0.00"
+                                                            step="0.01"
+                                                            min="0"
+                                                        />
+                                                    </td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.airBusTickets.totalCost}
+                                                            readOnly
+                                                            className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm"
+                                                            placeholder="0.00"
+                                                        />
+                                                    </td>
+                                                </tr>
+                                                <tr className="border-b border-gray-100">
+                                                    <td className="px-3 py-2 text-gray-700">Conferencing Cost</td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.conferencingCost.quantity}
+                                                            onChange={(e) => updateBudgetItem('conferencingCost', 'quantity', e.target.value)}
+                                                            className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
+                                                            placeholder="0"
+                                                            min="0"
+                                                        />
+                                                    </td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.conferencingCost.unitCost}
+                                                            onChange={(e) => updateBudgetItem('conferencingCost', 'unitCost', e.target.value)}
+                                                            className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
+                                                            placeholder="0.00"
+                                                            step="0.01"
+                                                            min="0"
+                                                        />
+                                                    </td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.conferencingCost.totalCost}
+                                                            readOnly
+                                                            className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm"
+                                                            placeholder="0.00"
+                                                        />
+                                                    </td>
+                                                </tr>
+                                                <tr className="border-b border-gray-100">
+                                                    <td className="px-3 py-2 text-gray-700">Tollgates</td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.tollgates.quantity}
+                                                            onChange={(e) => updateBudgetItem('tollgates', 'quantity', e.target.value)}
+                                                            className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
+                                                            placeholder="0"
+                                                            min="0"
+                                                        />
+                                                    </td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.tollgates.unitCost}
+                                                            onChange={(e) => updateBudgetItem('tollgates', 'unitCost', e.target.value)}
+                                                            className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
+                                                            placeholder="0.00"
+                                                            step="0.01"
+                                                            min="0"
+                                                        />
+                                                    </td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.tollgates.totalCost}
+                                                            readOnly
+                                                            className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm"
+                                                            placeholder="0.00"
+                                                        />
+                                                    </td>
+                                                </tr>
+                                                <tr className="border-b border-gray-100">
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="text"
+                                                            value={travelData.budget.other.description}
+                                                            onChange={(e) => updateBudgetItem('other', 'description', e.target.value)}
+                                                            className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
+                                                            placeholder="Other (specify)"
+                                                        />
+                                                    </td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.other.quantity}
+                                                            onChange={(e) => updateBudgetItem('other', 'quantity', e.target.value)}
+                                                            className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
+                                                            placeholder="0"
+                                                            min="0"
+                                                        />
+                                                    </td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.other.unitCost}
+                                                            onChange={(e) => updateBudgetItem('other', 'unitCost', e.target.value)}
+                                                            className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
+                                                            placeholder="0.00"
+                                                            step="0.01"
+                                                            min="0"
+                                                        />
+                                                    </td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.other.totalCost}
+                                                            readOnly
+                                                            className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm"
+                                                            placeholder="0.00"
+                                                        />
+                                                    </td>
+                                                </tr>
+                                                <tr className="bg-gray-100 font-semibold">
+                                                    <td className="px-3 py-2 text-gray-900" colSpan={3}>GRAND TOTAL</td>
+                                                    <td className="px-3 py-2 text-gray-900">USD {calculateGrandTotal()}</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </Card>
+                    )}
+
+                    {/* Approval Section - 4 Fixed Roles */}
                     <Card className="p-6">
-                        <h3 className="text-sm font-semibold text-gray-700 mb-4 uppercase border-b pb-2">Administration</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                            <Input
-                                label="Fuel Issued By"
-                                value={formData.fuelIssuedBy}
-                                onChange={(e) => setFormData({ ...formData, fuelIssuedBy: e.target.value })}
+                        <h3 className="font-semibold text-text-primary mb-4 flex items-center gap-2 text-lg">
+                            <svg className="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            Select Approvers <span className="text-danger-500">*</span>
+                        </h3>
+                        <p className="text-sm text-text-secondary mb-6">
+                            Select a user to act as each approver role. All 4 approvers are required.
+                        </p>
+
+                        {/* Click outside to close any dropdown */}
+                        {showApproverDropdown && (
+                            <div
+                                className="fixed inset-0 z-10"
+                                onClick={() => setShowApproverDropdown(null)}
                             />
-                            <Input
-                                label="Fuel Collected By"
-                                value={formData.fuelCollectedBy}
-                                onChange={(e) => setFormData({ ...formData, fuelCollectedBy: e.target.value })}
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Additional Comments</label>
-                            <textarea
-                                className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all resize-none min-h-[60px]"
-                                value={formData.additionalComments}
-                                onChange={(e) => setFormData({ ...formData, additionalComments: e.target.value })}
-                                placeholder="Any additional comments..."
-                            />
-                        </div>
-                    </Card>
+                        )}
 
-                    {/* Approval Workflow Visualization */}
-                    <Card className="p-6 bg-gray-50/50 border-dashed">
-                        <h3 className="text-sm font-bold text-gray-400 uppercase mb-6 text-center">Approval Workflow</h3>
+                        {/* Approval Roles */}
+                        <div className="space-y-4">
+                            {approvalRoles.map((role, index) => {
+                                const selectedUserId = selectedApprovers[role.key];
+                                const selectedUser = selectedUserId ? users.find(u => u.id === selectedUserId) : null;
+                                const filteredUsers = getFilteredUsersForRole(role.key);
 
-                        <div className="flex flex-col md:flex-row items-center justify-between gap-4 max-w-5xl mx-auto relative px-4">
-                            {/* Connecting Line (Desktop) */}
-                            <div className="hidden md:block absolute top-[28px] left-[5%] right-[5%] h-0.5 bg-gray-200 -z-0" />
+                                return (
+                                    <div key={role.key} className="relative">
+                                        <div className="flex items-start gap-4">
+                                            {/* Step Number */}
+                                            <div className="w-10 h-10 rounded-full flex items-center justify-center border-2 bg-primary-50 border-primary-200 text-primary-600 flex-shrink-0 mt-1">
+                                                <span className="font-bold text-sm">{index + 1}</span>
+                                            </div>
 
-                            {/* Step 1: HOD */}
-                            <div className="flex flex-col items-center z-10 w-full md:w-auto">
-                                <div className="w-14 h-14 rounded-full bg-white border-2 border-primary-100 text-primary-600 flex items-center justify-center font-bold mb-3 shadow-sm">
-                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                                    </svg>
-                                </div>
-                                <span className="font-semibold text-gray-900 text-center">H.O.D</span>
-                                <span className="text-xs text-gray-500 text-center mt-1">Approval</span>
-                            </div>
+                                            <div className="flex-1">
+                                                {/* Role Label */}
+                                                <div className="mb-2">
+                                                    <h4 className="font-semibold text-gray-900">{role.label}</h4>
+                                                    <p className="text-xs text-gray-500">{role.description}</p>
+                                                </div>
 
-                            {/* Arrow 1 */}
-                            <div className="text-gray-300 md:-mx-4 transform rotate-90 md:rotate-0 z-10 bg-gray-50/50 p-1">
-                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                                </svg>
-                            </div>
+                                                {/* Selected User or Search Input */}
+                                                {selectedUser ? (
+                                                    <div className="flex items-center gap-3 bg-primary-50 border border-primary-200 p-3 rounded-xl">
+                                                        <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
+                                                            <span className="text-sm font-medium text-primary-600">
+                                                                {selectedUser.display_name?.charAt(0)?.toUpperCase() || '?'}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="text-sm font-medium text-gray-900 truncate">{selectedUser.display_name}</p>
+                                                            <p className="text-xs text-gray-500 truncate">{selectedUser.email}</p>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRemoveApprover(role.key)}
+                                                            className="p-1.5 rounded-lg hover:bg-danger-50 text-gray-400 hover:text-danger-500 transition-colors"
+                                                            title="Remove"
+                                                        >
+                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                            </svg>
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="relative">
+                                                        <div className="relative">
+                                                            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                                            </svg>
+                                                            <input
+                                                                type="text"
+                                                                className="w-full pl-10 pr-4 py-2 min-h-[44px] rounded-xl border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                                                                placeholder={`Search for ${role.label}...`}
+                                                                value={approverSearch[role.key] || ''}
+                                                                onChange={(e) => {
+                                                                    setApproverSearch(prev => ({ ...prev, [role.key]: e.target.value }));
+                                                                    setShowApproverDropdown(role.key);
+                                                                }}
+                                                                onFocus={() => setShowApproverDropdown(role.key)}
+                                                            />
+                                                        </div>
 
-                            {/* Step 2: HRD */}
-                            <div className="flex flex-col items-center z-10 w-full md:w-auto">
-                                <div className="w-14 h-14 rounded-full bg-white border-2 border-primary-100 text-primary-600 flex items-center justify-center font-bold mb-3 shadow-sm">
-                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                                    </svg>
-                                </div>
-                                <span className="font-semibold text-gray-900 text-center">HRD</span>
-                                <span className="text-xs text-gray-500 text-center mt-1">Approval</span>
-                            </div>
+                                                        {/* Dropdown Results */}
+                                                        {showApproverDropdown === role.key && (
+                                                            <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                                                                {loadingUsers ? (
+                                                                    <div className="flex items-center justify-center py-4">
+                                                                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary-500" />
+                                                                    </div>
+                                                                ) : filteredUsers.length === 0 ? (
+                                                                    <div className="px-4 py-3 text-sm text-gray-500">
+                                                                        No users found
+                                                                    </div>
+                                                                ) : (
+                                                                    filteredUsers.slice(0, 10).map((u) => (
+                                                                        <button
+                                                                            key={u.id}
+                                                                            type="button"
+                                                                            onClick={() => handleSelectApprover(role.key, u.id)}
+                                                                            className="w-full px-4 py-3 text-left hover:bg-primary-50 transition-colors flex items-center gap-3 border-b border-gray-100 last:border-b-0"
+                                                                        >
+                                                                            <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
+                                                                                <span className="text-sm font-medium text-primary-600">
+                                                                                    {u.display_name?.charAt(0)?.toUpperCase() || '?'}
+                                                                                </span>
+                                                                            </div>
+                                                                            <div className="flex-1 min-w-0">
+                                                                                <p className="text-sm font-medium text-gray-900 truncate">{u.display_name}</p>
+                                                                                <p className="text-xs text-gray-500 truncate">{u.email}</p>
+                                                                            </div>
+                                                                        </button>
+                                                                    ))
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
 
-                            {/* Arrow 2 */}
-                            <div className="text-gray-300 md:-mx-4 transform rotate-90 md:rotate-0 z-10 bg-gray-50/50 p-1">
-                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                                </svg>
-                            </div>
-
-                            {/* Step 3: Finance Director */}
-                            <div className="flex flex-col items-center z-10 w-full md:w-auto">
-                                <div className="w-14 h-14 rounded-full bg-white border-2 border-primary-100 text-primary-600 flex items-center justify-center font-bold mb-3 shadow-sm">
-                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                    </svg>
-                                </div>
-                                <span className="font-semibold text-gray-900 text-center">Finance Director</span>
-                                <span className="text-xs text-gray-500 text-center mt-1">Approval</span>
-                            </div>
-
-                            {/* Arrow 3 */}
-                            <div className="text-gray-300 md:-mx-4 transform rotate-90 md:rotate-0 z-10 bg-gray-50/50 p-1">
-                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                                </svg>
-                            </div>
-
-                            {/* Step 4: CEO */}
-                            <div className="flex flex-col items-center z-10 w-full md:w-auto">
-                                <div className="w-14 h-14 rounded-full bg-white border-2 border-primary-100 text-primary-600 flex items-center justify-center font-bold mb-3 shadow-sm">
-                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                    </svg>
-                                </div>
-                                <span className="font-semibold text-gray-900 text-center">Chief Executive</span>
-                                <span className="text-xs text-gray-500 text-center mt-1">Authorisation</span>
-                            </div>
+                                        {/* Connecting line between steps */}
+                                        {index < approvalRoles.length - 1 && (
+                                            <div className="absolute left-5 top-12 bottom-0 w-0.5 bg-gray-200 -mb-4 h-8" style={{ transform: 'translateX(-50%)' }} />
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
                     </Card>
                 </div>
@@ -853,10 +1308,21 @@ export default function HotelBookingPage() {
                             Cancel
                         </Button>
                         <Button
+                            type="button"
+                            variant="secondary"
+                            className="flex-1 border-primary-300 text-primary-600 hover:bg-primary-50"
+                            onClick={handleSaveDraft}
+                            isLoading={savingDraft}
+                            disabled={loading}
+                        >
+                            Save as Draft
+                        </Button>
+                        <Button
                             type="submit"
                             variant="primary"
                             className="flex-1 shadow-primary-500/25 shadow-lg"
                             isLoading={loading}
+                            disabled={savingDraft}
                         >
                             Submit Request
                         </Button>

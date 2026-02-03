@@ -18,6 +18,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === 'GET') {
+      // Business units to exclude from the list
+      const excludedUnits = [
+        'Gateway Stream',
+        'Heritage Expeditions Africa',
+        'Corporate Office',
+        'RTG Head Office'
+      ];
+
       // Fetch business units for the organization
       const { data, error } = await supabaseAdmin
         .from('business_units')
@@ -30,7 +38,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(500).json({ error: 'Failed to fetch business units' });
       }
 
-      return res.status(200).json({ businessUnits: data || [] });
+      // Filter out excluded business units
+      const filteredData = (data || []).filter(
+        (unit) => !excludedUnits.includes(unit.name)
+      );
+
+      return res.status(200).json({ businessUnits: filteredData });
     }
 
     if (req.method === 'POST') {

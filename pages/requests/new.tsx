@@ -24,15 +24,15 @@ interface RequestItem {
 
 const allRequestItems: RequestItem[] = [
   // --- Finance ---
-  {
-    id: 'approval',
-    title: 'General Approval',
-    description: 'Submit a generic request for approval',
-    icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z',
-    color: 'primary',
-    href: '/requests/new/approval',
-    category: 'Finance',
-  },
+  // {
+  //   id: 'approval',
+  //   title: 'General Approval',
+  //   description: 'Submit a generic request for approval',
+  //   icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z',
+  //   color: 'primary',
+  //   href: '/requests/new/approval',
+  //   category: 'Finance',
+  // },
   {
     id: 'capex',
     title: 'CAPEX Request',
@@ -43,16 +43,16 @@ const allRequestItems: RequestItem[] = [
     category: 'Finance',
     popular: true,
   },
-  {
-    id: 'expense',
-    title: 'Expense Claim',
-    description: 'Submit expenses for reimbursement',
-    icon: 'M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z',
-    color: 'success',
-    href: '/requests/new/expense',
-    category: 'Finance',
-    popular: true,
-  },
+  // {
+  //   id: 'expense',
+  //   title: 'Expense Claim',
+  //   description: 'Submit expenses for reimbursement',
+  //   icon: 'M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z',
+  //   color: 'success',
+  //   href: '/requests/new/expense',
+  //   category: 'Finance',
+  //   popular: true,
+  // },
 
   // --- Travel & Events ---
   {
@@ -66,80 +66,72 @@ const allRequestItems: RequestItem[] = [
   },
   {
     id: 'hotel',
-    title: 'Internal Hotel Booking',
+    title: 'Complimentary Hotel Booking',
     description: 'Complimentary hotel accommodation',
     icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4',
     color: 'primary',
     href: '/requests/new/hotel-booking',
     category: 'Travel & Events',
   },
-  {
-    id: 'external-hotel',
-    title: 'External Guest Hotel',
-    description: 'Hotel booking for external guests',
-    icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4',
-    color: 'warning',
-    href: '/requests/new/external-hotel-booking',
-    category: 'Travel & Events',
-  },
+
 
   // --- BIS forms ---
-  {
-    id: 'it_help',
-    title: 'IT Help Desk',
-    description: 'Report technical issues or requests',
-    icon: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z',
-    color: 'secondary',
-    href: '/requests/new/it-request',
-    category: 'BIS forms',
-  },
-  {
-    id: 'add_user',
-    title: 'Add User',
-    description: 'Request to add a new user to the system',
-    icon: 'M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z',
-    color: 'success',
-    href: '/requests/new/add-user',
-    category: 'BIS forms',
-  },
-  {
-    id: 'remove_user',
-    title: 'Remove User',
-    description: 'Request to remove a user from the system',
-    icon: 'M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6',
-    color: 'rose',
-    href: '/requests/new/remove-user',
-    category: 'BIS forms',
-  },
+  // {
+  //   id: 'it_help',
+  //   title: 'IT Help Desk',
+  //   description: 'Report technical issues or requests',
+  //   icon: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z',
+  //   color: 'secondary',
+  //   href: '/requests/new/it-request',
+  //   category: 'BIS forms',
+  // },
+  // {
+  //   id: 'add_user',
+  //   title: 'Add User',
+  //   description: 'Request to add a new user to the system',
+  //   icon: 'M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z',
+  //   color: 'success',
+  //   href: '/requests/new/add-user',
+  //   category: 'BIS forms',
+  // },
+  // {
+  //   id: 'remove_user',
+  //   title: 'Remove User',
+  //   description: 'Request to remove a user from the system',
+  //   icon: 'M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6',
+  //   color: 'rose',
+  //   href: '/requests/new/remove-user',
+  //   category: 'BIS forms',
+  // },
 
   // --- System & Design ---
-  {
-    id: 'form',
-    title: 'Design New Form',
-    description: 'Create a custom form with fields',
-    icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
-    color: 'accent',
-    href: '/requests/new/form',
-    category: 'System & Design',
-  },
-  {
-    id: 'template',
-    title: 'Create Template',
-    description: 'Build reusable approval templates',
-    icon: 'M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z',
-    color: 'accent',
-    href: '/requests/new/template',
-    category: 'System & Design',
-  },
-  {
-    id: 'workflow',
-    title: 'Custom Workflow',
-    description: 'Design your own custom approval flow',
-    icon: 'M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2',
-    color: 'accent',
-    href: '/requests/new/workflow',
-    category: 'System & Design',
-  },
+  // {
+  //   id: 'form',
+  //   title: 'Design New Form',
+  //   description: 'Create a custom form with fields',
+  //   icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
+  //   color: 'accent',
+  //   href: '/requests/new/form',
+  //   category: 'System & Design',
+  // },
+  // {
+  //   id: 'template',
+  //   title: 'Create Template',
+  //   description: 'Build reusable approval templates',
+  //   icon: 'M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z',
+  //   color: 'accent',
+  //   href: '/requests/new/template',
+  //   category: 'System & Design',
+  // },
+  // {
+  //   id: 'workflow',
+  //   title: 'Custom Workflow',
+  //   description: 'Design your own custom approval flow',
+  //   icon: 'M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2',
+  //   color: 'accent',
+  //   href: '/requests/new/workflow',
+  //   category: 'System & Design',
+  // },
 ];
 
 const getColorClasses = (color: string) => {
@@ -177,19 +169,8 @@ export default function NewRequestPage() {
     );
   }, [searchQuery]);
 
-  const groupedItems = useMemo(() => {
-    const groups: Partial<Record<RequestCategory, RequestItem[]>> = {};
-    filteredItems.forEach((item) => {
-      if (!groups[item.category]) {
-        groups[item.category] = [];
-      }
-      groups[item.category]!.push(item);
-    });
-    return groups;
-  }, [filteredItems]);
-
-  // Order of categories
-  const categoryOrder: RequestCategory[] = ['System & Design', 'Finance', 'Travel & Events', 'BIS forms'];
+  // Order of categories - kept for reference if needed but not used in display
+  // const categoryOrder: RequestCategory[] = ['System & Design', 'Finance', 'Travel & Events', 'BIS forms'];
 
   if (status === 'loading') {
     return (
@@ -245,8 +226,8 @@ export default function NewRequestPage() {
         </div>
 
         {/* Content Section */}
-        <div className="space-y-12">
-          {Object.keys(groupedItems).length === 0 ? (
+        <div className="space-y-8">
+          {filteredItems.length === 0 ? (
             <div className="text-center py-20 bg-gray-50 rounded-3xl border border-dashed border-gray-300">
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 mb-4">
                 <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -262,78 +243,61 @@ export default function NewRequestPage() {
               </button>
             </div>
           ) : (
-            categoryOrder.map((category) => {
-              const items = groupedItems[category];
-              if (!items || items.length === 0) return null;
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-5xl mx-auto">
+              {filteredItems.map((item) => {
+                const colors = getColorClasses(item.color);
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => router.push(item.href)}
+                    className={`
+                      group relative overflow-hidden bg-white rounded-xl border border-gray-100 
+                      p-4 cursor-pointer transition-all duration-300
+                      hover:shadow-md hover:border-gray-200 ${colors.border} hover:border
+                    `}
+                  >
+                    {/* Background Decorative Blob - Smaller and more subtle */}
+                    <div className={`
+                       absolute -top-6 -right-6 w-24 h-24 rounded-full opacity-0 blur-2xl transition-opacity duration-500 group-hover:opacity-100
+                       ${colors.bg.replace('50', '200')}
+                     `} />
 
-              return (
-                <section key={category} className="space-y-4">
-                  <div className="flex items-center gap-3 border-b border-gray-100 pb-2">
-                    <h2 className="text-lg font-bold text-gray-800 tracking-tight font-heading">{category}</h2>
-                    <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 text-xs font-semibold">
-                      {items.length}
-                    </span>
-                  </div>
+                    <div className="flex items-center gap-4 relative z-10">
+                      <div className={`
+                        w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0
+                        ${colors.bg} transition-transform duration-300 group-hover:scale-105
+                      `}>
+                        <svg className={`w-6 h-6 ${colors.icon}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={item.icon} />
+                        </svg>
+                      </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {items.map((item) => {
-                      const colors = getColorClasses(item.color);
-                      return (
-                        <div
-                          key={item.id}
-                          onClick={() => router.push(item.href)}
-                          className={`
-                            group relative overflow-hidden bg-white rounded-2xl border border-gray-100 
-                            p-5 cursor-pointer transition-all duration-300
-                            hover:shadow-lg hover:-translate-y-1 ${colors.border} hover:border
-                          `}
-                        >
-                          {/* Background Decorative Blob */}
-                          <div className={`
-                             absolute -top-10 -right-10 w-32 h-32 rounded-full opacity-0 blur-3xl transition-opacity duration-500 group-hover:opacity-100
-                             ${colors.bg.replace('50', '200')}
-                           `} />
-
-                          <div className="flex items-start gap-4 relative z-10">
-                            <div className={`
-                              w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0
-                              ${colors.bg} transition-transform duration-300 group-hover:scale-105 group-hover:rotate-3
-                            `}>
-                              <svg className={`w-6 h-6 ${colors.icon}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={item.icon} />
-                              </svg>
-                            </div>
-
-                            <div className="flex-1 min-w-0 pt-0.5">
-                              <h3 className="font-semibold text-base text-gray-900 group-hover:text-primary-600 transition-colors leading-tight">
-                                {item.title}
-                              </h3>
-                              <p className="text-gray-500 text-sm mt-1 leading-relaxed line-clamp-2">
-                                {item.description}
-                              </p>
-                            </div>
-
-                            <div className="self-center opacity-0 -translate-x-2 transition-all duration-300 group-hover:opacity-100 group-hover:translate-x-0">
-                              <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                              </svg>
-                            </div>
-                          </div>
-
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <h3 className="font-semibold text-gray-900 group-hover:text-primary-600 transition-colors">
+                            {item.title}
+                          </h3>
                           {item.popular && (
-                            <div className="absolute top-3 right-3">
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-primary-50 text-primary-600 border border-primary-100 uppercase tracking-wide">
-                                Popular
-                              </span>
-                            </div>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-primary-50 text-primary-600 border border-primary-100 uppercase tracking-wide">
+                              Popular
+                            </span>
                           )}
                         </div>
-                      );
-                    })}
+                        <p className="text-gray-500 text-sm leading-snug line-clamp-1">
+                          {item.description}
+                        </p>
+                      </div>
+
+                      <div className="self-center opacity-0 -translate-x-2 transition-all duration-300 group-hover:opacity-100 group-hover:translate-x-0">
+                        <svg className="w-5 h-5 text-gray-300 group-hover:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </div>
+                    </div>
                   </div>
-                </section>
-              );
-            })
+                );
+              })}
+            </div>
           )}
         </div>
 

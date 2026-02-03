@@ -1,6 +1,6 @@
 import React from 'react';
 
-export type NotificationType = 'message' | 'task';
+export type NotificationType = 'message' | 'task' | 'approval' | 'system';
 
 export interface NotificationItemProps {
     id: string;

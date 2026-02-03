@@ -1,7 +1,6 @@
 import { ReactNode, useState } from 'react';
 import { useRouter } from 'next/router';
 import AppHeader from './AppHeader';
-import BottomNav from './BottomNav';
 import Sidebar from './Sidebar';
 import SignatureRequiredModal from '../SignatureRequiredModal';
 import ProfileSetupModal from '../ProfileSetupModal';
@@ -57,7 +56,6 @@ export default function AppLayout({
         />
       )}
 
-
       {/* Signature Required Modal - shown after profile is set up */}
       {shouldCheckSignature && !signatureLoading && !hasSignature && !needsProfileSetup && (
         <SignatureRequiredModal
@@ -72,21 +70,18 @@ export default function AppLayout({
       )}
 
       {/* Main content area */}
-      <div className={`flex flex-col min-h-screen ${!hideSidebar ? 'lg:pl-64' : ''}`}>
+      <div className={`flex flex-col min-h-screen ${!hideSidebar ? 'pl-16 lg:pl-64' : ''} transition-all duration-300`}>
         <AppHeader
           title={title}
           showBack={showBack}
           onBack={onBack}
-          onMenuClick={() => setSidebarOpen(true)}
+          onMenuClick={() => setSidebarOpen(!sidebarOpen)}
           showMenuButton={!hideSidebar}
         />
 
-        <main className={`flex-1 ${hideNav ? 'pb-4' : 'pb-20 lg:pb-4'} max-w-8xl mx-auto w-full`}>
+        <main className={`flex-1 pb-4 max-w-8xl mx-auto w-full`}>
           {children}
         </main>
-
-        {/* Mobile bottom nav - only show on mobile */}
-        {!hideNav && <div className="lg:hidden"><BottomNav /></div>}
       </div>
     </div>
   );

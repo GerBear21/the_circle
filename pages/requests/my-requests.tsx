@@ -8,84 +8,34 @@ interface Request {
   id: string;
   title: string;
   description: string;
-  status: 'pending' | 'approved' | 'rejected' | 'in_review' | 'withdrawn';
-  priority: 'low' | 'normal' | 'high' | 'urgent';
-  category: string;
+  status: 'pending' | 'approved' | 'rejected' | 'in_review' | 'withdrawn' | 'draft';
+  priority?: string;
+  category?: string;
   created_at: string;
   updated_at: string;
-  current_step: number;
-  total_steps: number;
-  type: 'approval' | 'capex' | 'leave' | 'expense';
+  current_step?: number;
+  total_steps?: number;
+  type?: string;
+  metadata?: {
+    priority?: string;
+    requestType?: string;
+    [key: string]: any;
+  };
+  current_approver?: {
+    id: string;
+    name: string;
+    email: string;
+  } | null;
+  attachments_count?: number;
 }
 
-// Mock data for demonstration
-const mockRequests: Request[] = [
-  {
-    id: '1',
-    title: 'New Laptop Purchase Request',
-    description: 'Request for MacBook Pro for development work',
-    status: 'pending',
-    priority: 'normal',
-    category: 'Equipment',
-    created_at: '2024-12-03T10:30:00Z',
-    updated_at: '2024-12-03T10:30:00Z',
-    current_step: 1,
-    total_steps: 3,
-    type: 'approval',
-  },
-  {
-    id: '2',
-    title: 'Software License - Adobe Creative Suite',
-    description: 'Annual subscription for design team',
-    status: 'in_review',
-    priority: 'high',
-    category: 'Software',
-    created_at: '2024-12-02T14:15:00Z',
-    updated_at: '2024-12-03T09:00:00Z',
-    current_step: 2,
-    total_steps: 3,
-    type: 'approval',
-  },
-  {
-    id: '3',
-    title: 'Office Renovation Project',
-    description: 'CAPEX request for office space renovation',
-    status: 'approved',
-    priority: 'normal',
-    category: 'Infrastructure',
-    created_at: '2024-11-28T08:00:00Z',
-    updated_at: '2024-12-01T16:30:00Z',
-    current_step: 3,
-    total_steps: 3,
-    type: 'capex',
-  },
-  {
-    id: '4',
-    title: 'Conference Travel Expenses',
-    description: 'Reimbursement for tech conference attendance',
-    status: 'rejected',
-    priority: 'low',
-    category: 'Travel',
-    created_at: '2024-11-25T11:45:00Z',
-    updated_at: '2024-11-27T14:20:00Z',
-    current_step: 2,
-    total_steps: 2,
-    type: 'expense',
-  },
-  {
-    id: '5',
-    title: 'Marketing Campaign Budget',
-    description: 'Q1 2025 digital marketing campaign',
-    status: 'pending',
-    priority: 'urgent',
-    category: 'Marketing',
-    created_at: '2024-12-04T09:00:00Z',
-    updated_at: '2024-12-04T09:00:00Z',
-    current_step: 1,
-    total_steps: 4,
-    type: 'approval',
-  },
-];
+interface Stats {
+  total: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+}
+
 
 const statusConfig: Record<string, { label: string; bg: string; text: string }> = {
   pending: { label: 'Pending', bg: 'bg-warning-100', text: 'text-warning-700' },
@@ -93,14 +43,20 @@ const statusConfig: Record<string, { label: string; bg: string; text: string }> 
   approved: { label: 'Approved', bg: 'bg-success-100', text: 'text-success-700' },
   rejected: { label: 'Rejected', bg: 'bg-danger-100', text: 'text-danger-700' },
   withdrawn: { label: 'Withdrawn', bg: 'bg-gray-100', text: 'text-gray-600' },
+  draft: { label: 'Draft', bg: 'bg-gray-100', text: 'text-gray-500' },
 };
 
 const priorityConfig: Record<string, { label: string; color: string }> = {
   low: { label: 'Low', color: 'text-gray-500' },
   normal: { label: 'Normal', color: 'text-primary-600' },
+  medium: { label: 'Medium', color: 'text-primary-600' },
   high: { label: 'High', color: 'text-warning-600' },
   urgent: { label: 'Urgent', color: 'text-danger-600' },
+  critical: { label: 'Critical', color: 'text-danger-600' },
 };
+
+const defaultPriority = { label: 'Normal', color: 'text-gray-500' };
+const defaultType = { label: 'Request', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' };
 
 const typeConfig: Record<string, { label: string; icon: string }> = {
   approval: { label: 'Approval', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' },
@@ -114,8 +70,10 @@ export default function MyRequestsPage() {
   const router = useRouter();
   const [requests, setRequests] = useState<Request[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [stats, setStats] = useState<Stats>({ total: 0, pending: 0, approved: 0, rejected: 0 });
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -124,28 +82,42 @@ export default function MyRequestsPage() {
   }, [status, router]);
 
   useEffect(() => {
-    // Simulate loading data
-    const timer = setTimeout(() => {
-      setRequests(mockRequests);
-      setLoading(false);
-    }, 500);
-    return () => clearTimeout(timer);
-  }, []);
+    async function fetchMyRequests() {
+      if (status !== 'authenticated') return;
+      
+      setLoading(true);
+      setError(null);
+      
+      try {
+        const response = await fetch('/api/requests/my-requests');
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to fetch requests');
+        }
+        
+        const data = await response.json();
+        setRequests(data.requests || []);
+        setStats(data.stats || { total: 0, pending: 0, approved: 0, rejected: 0 });
+      } catch (err: any) {
+        console.error('Error fetching requests:', err);
+        setError(err.message || 'Failed to load requests');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchMyRequests();
+  }, [status]);
 
   const filteredRequests = requests.filter((req) => {
-    const matchesFilter = filter === 'all' || req.status === filter || (filter === 'pending' && req.status === 'in_review');
+    const matchesFilter = filter === 'all' || req.status === filter || 
+      (filter === 'pending' && (req.status === 'in_review' || req.status === 'draft'));
     const matchesSearch = req.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      req.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      req.category.toLowerCase().includes(searchQuery.toLowerCase());
+      (req.description || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (req.category || '').toLowerCase().includes(searchQuery.toLowerCase());
     return matchesFilter && matchesSearch;
   });
-
-  const stats = {
-    total: requests.length,
-    pending: requests.filter(r => r.status === 'pending' || r.status === 'in_review').length,
-    approved: requests.filter(r => r.status === 'approved').length,
-    rejected: requests.filter(r => r.status === 'rejected').length,
-  };
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -175,6 +147,25 @@ export default function MyRequestsPage() {
   }
 
   if (!session) return null;
+
+  if (error) {
+    return (
+      <AppLayout title="My Requests">
+        <div className="p-4 sm:p-6 max-w-6xl mx-auto">
+          <Card className="text-center py-12">
+            <svg className="w-16 h-16 mx-auto text-danger-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <h3 className="text-lg font-medium text-gray-600 mb-1">Failed to load requests</h3>
+            <p className="text-gray-400 mb-4">{error}</p>
+            <Button variant="primary" onClick={() => window.location.reload()}>
+              Try Again
+            </Button>
+          </Card>
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout title="My Requests">
@@ -267,9 +258,12 @@ export default function MyRequestsPage() {
         ) : (
           <div className="space-y-3">
             {filteredRequests.map((request) => {
-              const statusInfo = statusConfig[request.status];
-              const priorityInfo = priorityConfig[request.priority];
-              const typeInfo = typeConfig[request.type];
+              const statusInfo = statusConfig[request.status] || statusConfig['pending'];
+              const priority = request.priority || request.metadata?.priority || 'normal';
+              const priorityInfo = priorityConfig[priority] || defaultPriority;
+              const requestType = request.type || request.metadata?.requestType || 'approval';
+              const typeInfo = typeConfig[requestType] || defaultType;
+              const category = request.category || request.metadata?.requestType || 'General';
 
               return (
                 <Card
@@ -304,7 +298,7 @@ export default function MyRequestsPage() {
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
                           </svg>
-                          {request.category}
+                          {category}
                         </span>
                         <span className={`flex items-center gap-1 ${priorityInfo.color}`}>
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -334,7 +328,7 @@ export default function MyRequestsPage() {
                           <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
                             <div
                               className="h-full bg-primary-500 rounded-full transition-all"
-                              style={{ width: `${(request.current_step / request.total_steps) * 100}%` }}
+                              style={{ width: `${((request.current_step || 0) / (request.total_steps || 1)) * 100}%` }}
                             />
                           </div>
                         </div>

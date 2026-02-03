@@ -1,6 +1,6 @@
 import { useSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabaseClient';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 
 export function useUserSignature() {
   const { data: session, status } = useSession();
@@ -23,6 +23,11 @@ export function useUserSignature() {
       setUserName(displayName || null);
 
       if (!userId) {
+        setLoading(false);
+        return;
+      }
+
+      if (!isSupabaseConfigured) {
         setLoading(false);
         return;
       }

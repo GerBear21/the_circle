@@ -1,12 +1,12 @@
-import { useSession, signOut } from 'next-auth/react';
+import { signOut } from 'next-auth/react';
 import { useRouter } from 'next/router';
-import { useEffect } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { AppLayout } from '../../components/layout';
 
-import { Card, Button, Input } from '../../components/ui';
+import { Card, Button } from '../../components/ui';
 import dynamic from 'next/dynamic';
-import { supabase } from '../../lib/supabaseClient';
-import { useState } from 'react';
+import { supabase, isSupabaseConfigured } from '../../lib/supabaseClient';
+import { useCurrentUser } from '../../hooks/useCurrentUser';
 
 const SignaturePad = dynamic(() => import('../../components/SignaturePad'), {
   ssr: false,
@@ -14,82 +14,55 @@ const SignaturePad = dynamic(() => import('../../components/SignaturePad'), {
 });
 
 export default function SettingsPage() {
-  const { data: session, status } = useSession();
+  const { user, session, loading: userLoading, updateProfilePicture } = useCurrentUser();
   const router = useRouter();
   const [signatureUrl, setSignatureUrl] = useState<string | undefined>(undefined);
-
-  // Profile State
-  const [profileData, setProfileData] = useState({
-    job_title: '',
-    department: '',
-    phone: '',
-    bio: ''
-  });
-  const [initialLoading, setInitialLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [profilePictureUrl, setProfilePictureUrl] = useState<string | undefined>(undefined);
+  const [uploadingPicture, setUploadingPicture] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (status === 'unauthenticated') {
+    if (!userLoading && !session) {
       router.push('/');
     }
-  }, [status, router]);
+  }, [userLoading, session, router]);
 
   useEffect(() => {
-    if (session?.user) {
-      const userId = (session.user as any).id;
-      if (userId && supabase) {
-        // Fetch signature
-        const { data } = supabase.storage.from('signatures').getPublicUrl(`${userId}.png`);
-        checkSignature(data.publicUrl);
+    if (user?.id && isSupabaseConfigured) {
+      // Fetch signature
+      const { data } = supabase.storage.from('signatures').getPublicUrl(`${user.id}.png`);
+      checkSignature(data.publicUrl);
 
-        // Fetch profile data
-        fetchProfile(userId);
+      // Set profile picture from user data (already fetched via useCurrentUser)
+      if (user.profile_picture_url) {
+        // Add cache-busting parameter to ensure fresh image
+        const url = user.profile_picture_url;
+        setProfilePictureUrl(url.includes('?') ? url : `${url}?t=${Date.now()}`);
+      } else {
+        // Fallback: check storage directly
+        fetchProfilePictureFromStorage(user.id);
       }
     }
-  }, [session]);
+  }, [user]);
 
-  const fetchProfile = async (userId: string) => {
-    setInitialLoading(true);
+  const fetchProfilePictureFromStorage = async (userId: string) => {
+    if (!isSupabaseConfigured) return;
     try {
-      const { data, error } = await supabase
-        .from('app_users')
-        .select('job_title, department, phone, bio')
-        .eq('id', userId)
-        .single();
-
-      if (data) {
-        setProfileData({
-          job_title: data.job_title || '',
-          department: data.department || '',
-          phone: data.phone || '',
-          bio: data.bio || ''
-        });
+      const extensions = ['png', 'jpg', 'jpeg', 'webp'];
+      for (const ext of extensions) {
+        const { data } = supabase.storage.from('profile_pictures').getPublicUrl(`${userId}.${ext}`);
+        try {
+          const res = await fetch(data.publicUrl, { method: 'HEAD' });
+          if (res.ok) {
+            setProfilePictureUrl(`${data.publicUrl}?t=${Date.now()}`);
+            return;
+          }
+        } catch (e) {
+          // Continue to next extension
+        }
       }
     } catch (err) {
-      console.error("Error fetching profile", err);
-    } finally {
-      setInitialLoading(false);
-    }
-  };
-
-  const updateProfile = async () => {
-    if (!session?.user) return;
-    const userId = (session.user as any).id;
-    setSaving(true);
-
-    try {
-      const { error } = await supabase
-        .from('app_users')
-        .update(profileData)
-        .eq('id', userId);
-
-      if (error) throw error;
-      alert('Profile updated successfully!');
-    } catch (err) {
-      console.error("Error updating profile", err);
-      alert('Failed to update profile. Please try again.');
-    } finally {
-      setSaving(false);
+      console.error("Error fetching profile picture from storage", err);
     }
   };
 
@@ -104,7 +77,54 @@ export default function SettingsPage() {
     }
   };
 
-  if (status === 'loading') {
+  const handleProfilePictureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file');
+      return;
+    }
+
+    // Validate file size (max 4MB)
+    if (file.size > 4 * 1024 * 1024) {
+      alert('Image size must be less than 4MB');
+      return;
+    }
+
+    setUploadingPicture(true);
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const base64 = event.target?.result as string;
+      try {
+        const res = await fetch('/api/user/profile-picture', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: base64 }),
+        });
+        const data = await res.json();
+        if (data.url) {
+          // Add cache-busting parameter to force browser to load new image
+          const urlWithCache = `${data.url}?t=${Date.now()}`;
+          setProfilePictureUrl(urlWithCache);
+          // Update the global user context so header/sidebar update immediately
+          updateProfilePicture(urlWithCache);
+        } else {
+          alert('Failed to upload profile picture');
+        }
+      } catch (err) {
+        console.error('Upload error', err);
+        alert('Failed to upload profile picture');
+      } finally {
+        setUploadingPicture(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  if (userLoading) {
     return (
       <AppLayout title="Settings">
         <div className="flex items-center justify-center min-h-[60vh]">
@@ -114,7 +134,7 @@ export default function SettingsPage() {
     );
   }
 
-  if (!session) {
+  if (!session || !user) {
     return null;
   }
 
@@ -124,15 +144,84 @@ export default function SettingsPage() {
         {/* Profile Section */}
         <Card>
           <h3 className="font-semibold text-gray-900 mb-4">Profile</h3>
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-full bg-brand-100 flex items-center justify-center text-brand-600 font-semibold text-xl">
-              {session.user?.name?.charAt(0) || session.user?.email?.charAt(0) || '?'}
+          <div className="flex items-start gap-4">
+            <div className="relative group">
+              <div className="w-20 h-20 rounded-full bg-brand-100 flex items-center justify-center text-brand-600 font-semibold text-2xl overflow-hidden">
+                {profilePictureUrl ? (
+                  <img 
+                    src={profilePictureUrl} 
+                    alt="Profile" 
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  user.display_name?.charAt(0) || user.email?.charAt(0) || '?'
+                )}
+              </div>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingPicture}
+                className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+              >
+                {uploadingPicture ? (
+                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                ) : (
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                )}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleProfilePictureUpload}
+                className="hidden"
+              />
+            </div>
+            <div className="flex-1">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingPicture}
+                className="text-xs text-brand-600 hover:text-brand-700 font-medium"
+              >
+                {uploadingPicture ? 'Uploading...' : 'Change photo'}
+              </button>
+            </div>
+          </div>
+
+          {/* User Information - Read Only */}
+          <div className="mt-6 space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-500 mb-1">Full Name</label>
+              <p className="text-gray-900 font-medium bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
+                {user.display_name || session.user?.name || 'Not set'}
+              </p>
             </div>
             <div>
-              <p className="font-medium text-gray-900">{session.user?.name || 'User'}</p>
-              <p className="text-sm text-gray-500">{session.user?.email}</p>
-              <p className="text-xs text-gray-400 mt-1">
-                Role: {(session.user as any)?.role || 'User'}
+              <label className="block text-sm font-medium text-gray-500 mb-1">Email</label>
+              <p className="text-gray-900 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
+                {user.email || session.user?.email || 'Not set'}
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-500 mb-1">Department</label>
+                <p className="text-gray-900 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
+                  {user.department?.name || 'Not assigned'}
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-500 mb-1">Business Unit</label>
+                <p className="text-gray-900 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
+                  {user.business_unit?.name || 'Not assigned'}
+                </p>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-500 mb-1">Role</label>
+              <p className="text-gray-900 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200 capitalize">
+                {user.role || 'User'}
               </p>
             </div>
           </div>
@@ -179,7 +268,7 @@ export default function SettingsPage() {
         </Card>
 
         {/* Admin Section (conditional) */}
-        {((session.user as any)?.role === 'admin' || (session.user as any)?.role === 'owner') && (
+        {(user.role === 'admin' || user.role === 'owner') && (
           <Card>
             <h3 className="font-semibold text-gray-900 mb-4">Administration</h3>
             <div className="space-y-2">

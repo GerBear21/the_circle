@@ -3,10 +3,8 @@
  * 
  * This service handles the execution of workflow steps including:
  * - Approval steps (managed by the approval system)
- * - Integration steps (n8n, Teams, Slack, Outlook, Webhook)
+ * - Integration steps (Teams, Slack, Outlook, Webhook)
  */
-
-import { triggerN8nWorkflow } from './n8n';
 
 // Types matching the workflow builder
 export interface WorkflowStep {
@@ -44,7 +42,7 @@ export interface WorkflowStep {
 
     // Integration specific
     integration?: {
-        provider: 'teams' | 'slack' | 'outlook' | 'n8n' | 'webhook';
+        provider: 'teams' | 'slack' | 'outlook' | 'webhook';
         action: string;
         config: Record<string, any>;
     };
@@ -156,9 +154,6 @@ export async function executeIntegrationStep(
         let result: any;
 
         switch (integration.provider) {
-            case 'n8n':
-                result = await executeN8nStep(integration, context);
-                break;
             case 'webhook':
                 result = await executeWebhookStep(integration, context);
                 break;
@@ -199,40 +194,6 @@ export async function executeIntegrationStep(
             error: error instanceof Error ? error.message : 'Unknown error',
         };
     }
-}
-
-/**
- * Execute n8n workflow step
- */
-async function executeN8nStep(
-    integration: NonNullable<WorkflowStep['integration']>,
-    context: ExecutionContext
-): Promise<any> {
-    const webhookSlug = integration.config.workflowId;
-
-    if (!webhookSlug) {
-        throw new Error('n8n workflow ID/webhook slug is required');
-    }
-
-    // Build the payload to send to n8n
-    const payload = {
-        // Include the raw payload if specified
-        ...(integration.config.payload ? tryParseJSON(integration.config.payload) : {}),
-        // Always include context data
-        _context: {
-            requestId: context.requestId,
-            userId: context.userId,
-            organizationId: context.organizationId,
-            stepIndex: context.currentStepIndex,
-            timestamp: new Date().toISOString(),
-        },
-        // Include request data
-        requestData: context.requestData,
-        // Include previous step results
-        previousResults: context.previousResults,
-    };
-
-    return await triggerN8nWorkflow(webhookSlug, 'POST', payload);
 }
 
 /**
@@ -368,7 +329,6 @@ async function executeOutlookStep(
 ): Promise<any> {
     // For now, this is a placeholder - full implementation would require
     // Microsoft Graph API authentication and setup
-    // This could also trigger an n8n workflow that handles Outlook
 
     console.log('Outlook integration triggered:', {
         action: integration.action,
@@ -376,7 +336,7 @@ async function executeOutlookStep(
         requestId: context.requestId,
     });
 
-    // Return pending - actual email would be sent via Graph API or n8n
+    // Return pending - actual email would be sent via Graph API
     return {
         queued: true,
         message: 'Outlook action queued. Configure Microsoft Graph API for full functionality.',

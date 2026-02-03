@@ -29,51 +29,138 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           title,
           description,
           status,
-          priority,
-          category,
-          request_type,
           metadata,
           created_at,
           updated_at,
+          creator_id,
           creator:app_users!requests_creator_id_fkey (
             id,
             display_name,
-            email
+            email,
+            profile_picture_url
+          ),
+          request_steps (
+            id,
+            status,
+            approver_user_id
           )
         `)
         .eq('organization_id', organizationId)
         .order('created_at', { ascending: false })
-        .limit(Number(limit));
+        .limit(100); // Fetch more to filter down
 
       if (statusFilter) {
         query = query.eq('status', statusFilter);
-      }
-      
-      if (type) {
-        query = query.eq('request_type', type);
+      } else {
+        // By default, exclude drafts unless explicitly requested
+        query = query.neq('status', 'draft');
       }
 
       const { data: requests, error } = await query;
-
+      
       if (error) throw error;
 
-      return res.status(200).json({ requests: requests || [] });
+      // SEQUENTIAL APPROVAL VISIBILITY: Filter requests user can see
+      // User can see if: creator, watcher, or approver with non-waiting step
+      const filteredRequests = (requests || []).filter((req: any) => {
+        // Filter out drafts that don't belong to the current user
+        if (req.status === 'draft') {
+          return req.creator_id === userId;
+        }
+        
+        // Creator can always see their own requests
+        if (req.creator_id === userId) return true;
+        
+        // Check if user is a watcher
+        const watcherIds = req.metadata?.watchers || [];
+        const isWatcher = Array.isArray(watcherIds) && watcherIds.some((w: any) => 
+          typeof w === 'string' ? w === userId : w?.id === userId
+        );
+        if (isWatcher) return true;
+        
+        // Check if user is an approver with non-waiting step
+        const userStep = req.request_steps?.find(
+          (step: any) => step.approver_user_id === userId
+        );
+        if (userStep && userStep.status !== 'waiting') return true;
+        
+        return false;
+      }).slice(0, Number(limit));
+
+      // Helper function to compute actual status based on step statuses
+      const computeActualStatus = (dbStatus: string, steps: any[]) => {
+        if (!steps || steps.length === 0) return dbStatus;
+        
+        // If any step is rejected, the request is rejected
+        if (steps.some((s: any) => s.status === 'rejected')) return 'rejected';
+        
+        // If all steps are approved, the request is approved
+        if (steps.every((s: any) => s.status === 'approved')) return 'approved';
+        
+        // If there are pending or waiting steps, the request is still in progress
+        if (steps.some((s: any) => s.status === 'pending' || s.status === 'waiting')) return 'pending';
+        
+        return dbStatus;
+      };
+
+      // Transform data to match frontend Request interface
+      const transformedRequests = filteredRequests.map((req: any) => ({
+        id: req.id,
+        title: req.title,
+        description: req.description || '',
+        status: computeActualStatus(req.status, req.request_steps),
+        priority: req.metadata?.priority || 'normal',
+        category: req.metadata?.category || req.metadata?.requestType || 'General',
+        department: req.creator?.department || req.metadata?.department || 'Unknown',
+        created_at: req.created_at,
+        updated_at: req.updated_at,
+        current_step: req.metadata?.current_step || 1,
+        total_steps: req.metadata?.total_steps || 1,
+        type: req.metadata?.requestType || 'approval',
+        amount: req.metadata?.amount,
+        currency: req.metadata?.currency || 'USD',
+        requester: {
+          id: req.creator?.id || '',
+          name: req.creator?.display_name || 'Unknown User',
+          email: req.creator?.email || '',
+          avatar: req.creator?.profile_picture_url || null,
+          department: req.creator?.department || req.metadata?.department || 'Unknown',
+          position: req.creator?.position || req.metadata?.position || '',
+        },
+        current_approver: req.metadata?.current_approver,
+        due_date: req.metadata?.due_date,
+        reference_number: req.metadata?.reference_number || `REQ-${req.id?.substring(0, 8)?.toUpperCase() || ''}`,
+        attachments_count: req.metadata?.attachments_count || 0,
+        comments_count: req.metadata?.comments_count || 0,
+      }));
+
+      return res.status(200).json({ requests: transformedRequests });
     }
 
     if (req.method === 'POST') {
       const { 
         title, 
         description, 
-        priority = 'normal', 
-        category,
+        priority = 'medium', 
         requestType,
         metadata = {},
-        templateId
+        status: requestStatus
       } = req.body;
 
       if (!title) {
         return res.status(400).json({ error: 'Title is required' });
       }
+
+      // Allow draft or pending status, default to draft
+      const validStatuses = ['draft', 'pending'];
+      const finalStatus = validStatuses.includes(requestStatus) ? requestStatus : 'draft';
+
+      // Store priority and requestType in metadata
+      const finalMetadata = { 
+        ...metadata, 
+        priority,
+        requestType: requestType || 'general'
+      };
 
       const { data, error } = await supabaseAdmin
         .from('requests')
@@ -82,17 +169,160 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           creator_id: userId,
           title,
           description: description || null,
-          priority,
-          category: category || null,
-          request_type: requestType || 'general',
-          metadata,
-          template_id: templateId || null,
-          status: 'pending',
+          metadata: finalMetadata,
+          status: finalStatus,
         })
         .select()
         .single();
 
       if (error) throw error;
+
+      // If this is a submission (not a draft) and there are approvers, create request_steps and notify
+      // Handle both array format and object format (for backward compatibility)
+      let approvers: string[] = [];
+      if (metadata?.approvers) {
+        if (Array.isArray(metadata.approvers)) {
+          // Already an array (new format)
+          approvers = metadata.approvers.filter((id: any) => typeof id === 'string' && id.length > 0);
+        } else if (typeof metadata.approvers === 'object') {
+          // Object format (legacy) - convert to array in a defined order
+          const approverObj = metadata.approvers as Record<string, string>;
+          // Combined ordered keys for all form types:
+          // CAPEX: finance_manager -> general_manager -> procurement_manager -> corporate_hod -> projects_manager -> operations_director -> finance_director -> ceo
+          // Hotel Booking: hod -> hr_director -> finance_director -> ceo
+          const orderedKeys = [
+            // CAPEX roles
+            'finance_manager', 'general_manager', 'procurement_manager', 'corporate_hod', 
+            'projects_manager', 'managing_director',
+            // Hotel Booking roles (some overlap with CAPEX)
+            'hod', 'hr_director', 'finance_director', 'ceo',
+            // Generic fallback roles
+            'manager', 'director'
+          ];
+          for (const key of orderedKeys) {
+            if (approverObj[key] && !approvers.includes(approverObj[key])) {
+              approvers.push(approverObj[key]);
+            }
+          }
+          // Add any remaining keys not in the predefined order
+          for (const [key, value] of Object.entries(approverObj)) {
+            if (value && !orderedKeys.includes(key) && !approvers.includes(value)) {
+              approvers.push(value);
+            }
+          }
+        }
+      }
+
+      if (finalStatus === 'pending' && approvers.length > 0) {
+        // Create request_steps for each approver in order
+        // SEQUENTIAL APPROVAL: First step is 'pending', all subsequent steps are 'waiting'
+        // Approvers will only see the request when their step becomes 'pending'
+        const requestSteps = approvers.map((approverId: string, index: number) => ({
+          request_id: data.id,
+          step_index: index + 1,
+          step_type: 'approval',
+          approver_user_id: approverId,
+          status: index === 0 ? 'pending' : 'waiting', // Only first step is pending
+        }));
+
+        const { error: stepsError } = await supabaseAdmin
+          .from('request_steps')
+          .insert(requestSteps);
+
+        if (stepsError) {
+          console.error('Failed to create request_steps:', stepsError);
+        }
+
+        // Get the requester's name for the notification
+        const { data: requesterData } = await supabaseAdmin
+          .from('app_users')
+          .select('display_name')
+          .eq('id', userId)
+          .single();
+
+        const requesterName = requesterData?.display_name || 'A user';
+        const firstApproverId = approvers[0];
+
+        // SEQUENTIAL NOTIFICATION: Only notify the FIRST approver initially
+        // Subsequent approvers will be notified when their step becomes pending (handled by ApprovalEngine)
+        try {
+          await supabaseAdmin
+            .from('notifications')
+            .insert({
+              organization_id: organizationId,
+              recipient_id: firstApproverId,
+              sender_id: userId,
+              type: 'task',
+              title: 'New Approval Request',
+              message: `${requesterName} has submitted a ${requestType?.toUpperCase() || 'CAPEX'} request "${title}" for your approval. (Step 1 of ${approvers.length})`,
+              metadata: {
+                request_id: data.id,
+                request_type: requestType,
+                action_label: 'Review Request',
+                action_url: `/requests/${data.id}`,
+                step_number: 1,
+                total_steps: approvers.length,
+              },
+              is_read: false,
+            });
+        } catch (notifError) {
+          console.error('Failed to create notification:', notifError);
+        }
+
+        // Update request metadata with total_steps for tracking
+        await supabaseAdmin
+          .from('requests')
+          .update({
+            metadata: {
+              ...finalMetadata,
+              total_steps: approvers.length,
+              current_step: 1,
+            }
+          })
+          .eq('id', data.id);
+      }
+
+      // Notify watchers if any (for both draft and pending status, but mainly useful for pending)
+      if (finalStatus === 'pending' && metadata?.watchers?.length > 0) {
+        const watchers = metadata.watchers as string[];
+        
+        // Get the requester's name for the notification (if not already fetched)
+        let requesterName = 'A user';
+        const { data: requesterData } = await supabaseAdmin
+          .from('app_users')
+          .select('display_name')
+          .eq('id', userId)
+          .single();
+        
+        if (requesterData?.display_name) {
+          requesterName = requesterData.display_name;
+        }
+
+        // Create notifications for all watchers
+        const watcherNotifications = watchers.map((watcherId: string) => ({
+          organization_id: organizationId,
+          recipient_id: watcherId,
+          sender_id: userId,
+          type: 'info',
+          title: 'Added as Watcher',
+          message: `${requesterName} has added you as a watcher on their ${requestType?.toUpperCase() || 'CAPEX'} request "${title}".`,
+          metadata: {
+            request_id: data.id,
+            request_type: requestType,
+            action_label: 'View Request',
+            action_url: `/requests/${data.id}`,
+          },
+          is_read: false,
+        }));
+
+        try {
+          await supabaseAdmin
+            .from('notifications')
+            .insert(watcherNotifications);
+        } catch (notifError) {
+          console.error('Failed to create watcher notifications:', notifError);
+        }
+      }
 
       return res.status(201).json({ request: data });
     }

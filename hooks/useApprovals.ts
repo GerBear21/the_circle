@@ -1,18 +1,7 @@
-import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabaseClient';
-import { useCurrentUser } from './useCurrentUser';
+import { useEffect, useState, useCallback } from 'react';
+import { useSession } from 'next-auth/react';
 
-interface Approval {
-  id: string;
-  request_id: string;
-  step_id: string;
-  approver_id: string;
-  decision: string;
-  comment: string | null;
-  signed_at: string;
-}
-
-interface Request {
+interface RequestWithSteps {
   id: string;
   organization_id: string;
   workspace_id: string | null;
@@ -23,9 +12,6 @@ interface Request {
   metadata: Record<string, any>;
   created_at: string;
   updated_at: string;
-}
-
-interface RequestWithSteps extends Request {
   request_steps: {
     id: string;
     step_index: number;
@@ -34,105 +20,168 @@ interface RequestWithSteps extends Request {
     approver_user_id: string | null;
     status: string;
     due_at: string | null;
+    completed_at?: string | null;
+    comment?: string | null;
   }[];
 }
 
+interface HistoryRequest extends RequestWithSteps {
+  user_action: string | null;
+  user_action_date: string | null;
+  user_comment: string | null;
+}
+
 export function useApprovals() {
-  const { user } = useCurrentUser();
+  const { data: session, status: sessionStatus } = useSession();
   const [pendingApprovals, setPendingApprovals] = useState<RequestWithSteps[]>([]);
+  const [watchingRequests, setWatchingRequests] = useState<RequestWithSteps[]>([]);
+  const [historyRequests, setHistoryRequests] = useState<HistoryRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [watchingLoading, setWatchingLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
-  useEffect(() => {
-    async function fetchPendingApprovals() {
-      if (!user?.id) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        // Fetch requests where user is an approver and step is pending
-        const { data, error: fetchError } = await supabase
-          .from('requests')
-          .select(`
-            *,
-            request_steps!inner (
-              id,
-              step_index,
-              step_type,
-              approver_role,
-              approver_user_id,
-              status,
-              due_at
-            )
-          `)
-          .eq('request_steps.approver_user_id', user.id)
-          .eq('request_steps.status', 'pending')
-          .eq('status', 'pending')
-          .order('created_at', { ascending: false });
-
-        if (fetchError) throw fetchError;
-        setPendingApprovals(data || []);
-      } catch (err) {
-        setError(err as Error);
-      } finally {
-        setLoading(false);
-      }
+  const fetchPendingApprovals = useCallback(async () => {
+    if (sessionStatus === 'loading') return;
+    
+    if (!session?.user?.id) {
+      setLoading(false);
+      return;
     }
 
+    try {
+      setLoading(true);
+      const response = await fetch('/api/approvals/pending');
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch pending approvals');
+      }
+
+      const data = await response.json();
+      setPendingApprovals(data || []);
+    } catch (err) {
+      console.error('Error fetching pending approvals:', err);
+      setError(err as Error);
+    } finally {
+      setLoading(false);
+    }
+  }, [session?.user?.id, sessionStatus]);
+
+  const fetchWatchingRequests = useCallback(async () => {
+    if (sessionStatus === 'loading') return;
+    
+    if (!session?.user?.id) {
+      setWatchingLoading(false);
+      return;
+    }
+
+    try {
+      setWatchingLoading(true);
+      const response = await fetch('/api/approvals/watching');
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch watching requests');
+      }
+
+      const data = await response.json();
+      setWatchingRequests(data || []);
+    } catch (err) {
+      console.error('Error fetching watching requests:', err);
+    } finally {
+      setWatchingLoading(false);
+    }
+  }, [session?.user?.id, sessionStatus]);
+
+  const fetchHistoryRequests = useCallback(async () => {
+    if (sessionStatus === 'loading') return;
+    
+    if (!session?.user?.id) {
+      setHistoryLoading(false);
+      return;
+    }
+
+    try {
+      setHistoryLoading(true);
+      const response = await fetch('/api/approvals/history');
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch approval history');
+      }
+
+      const data = await response.json();
+      setHistoryRequests(data || []);
+    } catch (err) {
+      console.error('Error fetching approval history:', err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [session?.user?.id, sessionStatus]);
+
+  useEffect(() => {
     fetchPendingApprovals();
-  }, [user?.id]);
+    fetchWatchingRequests();
+    fetchHistoryRequests();
+  }, [fetchPendingApprovals, fetchWatchingRequests, fetchHistoryRequests]);
 
   const approveRequest = async (requestId: string, stepId: string, comment?: string) => {
-    if (!user?.id) throw new Error('User not authenticated');
-
-    const { error } = await supabase.from('approvals').insert({
-      request_id: requestId,
-      step_id: stepId,
-      approver_id: user.id,
-      decision: 'approved',
-      comment,
+    const response = await fetch('/api/approvals/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requestId,
+        stepId,
+        action: 'approve',
+        comment,
+      }),
     });
 
-    if (error) throw error;
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to approve request');
+    }
 
-    // Update step status
-    await supabase
-      .from('request_steps')
-      .update({ status: 'approved' })
-      .eq('id', stepId);
+    return response.json();
   };
 
   const rejectRequest = async (requestId: string, stepId: string, comment: string) => {
-    if (!user?.id) throw new Error('User not authenticated');
-
-    const { error } = await supabase.from('approvals').insert({
-      request_id: requestId,
-      step_id: stepId,
-      approver_id: user.id,
-      decision: 'rejected',
-      comment,
+    const response = await fetch('/api/approvals/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requestId,
+        stepId,
+        action: 'reject',
+        comment,
+      }),
     });
 
-    if (error) throw error;
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to reject request');
+    }
 
-    // Update step and request status
-    await supabase
-      .from('request_steps')
-      .update({ status: 'rejected' })
-      .eq('id', stepId);
+    return response.json();
+  };
 
-    await supabase
-      .from('requests')
-      .update({ status: 'rejected' })
-      .eq('id', requestId);
+  const refetch = () => {
+    fetchPendingApprovals();
+    fetchWatchingRequests();
+    fetchHistoryRequests();
   };
 
   return {
     pendingApprovals,
-    loading,
+    watchingRequests,
+    historyRequests,
+    loading: loading || sessionStatus === 'loading',
+    watchingLoading,
+    historyLoading,
     error,
     approveRequest,
     rejectRequest,
+    refetch,
   };
 }
