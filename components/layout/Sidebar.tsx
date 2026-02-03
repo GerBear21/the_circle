@@ -1,8 +1,7 @@
-'use client';
-
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useState } from 'react';
+import { useCurrentUser } from '@/hooks';
 
 interface NavItem {
   href?: string;
@@ -33,15 +32,16 @@ const navSections: NavSection[] = [
   {
     title: 'Requests',
     items: [
-      {
-        href: '/requests',
-        label: 'All Requests',
-        icon: (
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-          </svg>
-        ),
-      },
+      // {
+      //   href: '/requests',
+      //   label: 'All Requests',
+      //   icon: (
+      //     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      //       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+      //     </svg>
+      //   ),
+      // },
+      
       {
         href: '/requests/new',
         label: 'Create New',
@@ -52,8 +52,17 @@ const navSections: NavSection[] = [
         ),
       },
       {
+        href: 'requests/my-requests',
+        label: 'My requests',
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+          </svg>
+        ),
+      },
+      {
         href: '/approvals',
-        label: 'Approvals',
+        label: 'My Approval Tasks',
         icon: (
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -86,6 +95,7 @@ interface SidebarProps {
 
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const router = useRouter();
+  const { user: appUser } = useCurrentUser();
   const [expandedSections, setExpandedSections] = useState<string[]>(['Requests', 'System']);
 
   const toggleSection = (title: string) => {
@@ -215,8 +225,16 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                  ${isOpen ? 'gap-3 px-3 py-2.5' : 'justify-center py-2 px-0'} lg:justify-start lg:gap-3 lg:px-3 lg:py-2.5
               `}
             >
-              <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-600 font-medium text-sm shrink-0">
-                U
+              <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-600 font-medium text-sm shrink-0 overflow-hidden">
+                {appUser?.profile_picture_url ? (
+                  <img 
+                    src={appUser.profile_picture_url} 
+                    alt={appUser.display_name || 'Profile'} 
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  appUser?.display_name?.charAt(0) || appUser?.email?.charAt(0) || 'U'
+                )}
               </div>
               <div className={`flex-1 min-w-0 ${isOpen ? 'block' : 'hidden lg:block'}`}>
                 <p className="text-sm font-medium text-gray-900 truncate">User Profile</p>

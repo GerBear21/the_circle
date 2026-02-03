@@ -50,21 +50,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'Only draft requests can be published' });
     }
 
-    // Get approvers from metadata
-    const approverIds: string[] = request.metadata?.approvers || [];
+    // Get approvers from metadata - handle both array and object formats
+    let approverIds: string[] = [];
+    const approversData = request.metadata?.approvers;
+    
+    if (Array.isArray(approversData)) {
+      // Format: ['user-id-1', 'user-id-2', ...]
+      approverIds = approversData.filter(Boolean);
+    } else if (approversData && typeof approversData === 'object') {
+      // Format: { hod: 'user-id', hr_director: 'user-id', ... }
+      approverIds = Object.values(approversData).filter(Boolean) as string[];
+    }
 
     if (approverIds.length === 0) {
       return res.status(400).json({ error: 'No approvers assigned. Please add approvers before publishing.' });
     }
 
     // Create request_steps for each approver
+    // SEQUENTIAL APPROVAL: Only first step is 'pending', rest are 'waiting'
     const requestSteps = approverIds.map((approverId, index) => ({
       request_id: id,
-      step_index: index,
+      step_index: index + 1,
       step_type: 'approval',
       approver_role: `Approver ${index + 1}`,
       approver_user_id: approverId,
-      status: 'pending',
+      status: index === 0 ? 'pending' : 'waiting',
     }));
 
     const { error: stepsError } = await supabaseAdmin
@@ -89,6 +99,70 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (updateError) {
       throw updateError;
+    }
+
+    // Get the requester's name for notifications
+    const { data: requesterData } = await supabaseAdmin
+      .from('app_users')
+      .select('display_name')
+      .eq('id', userId)
+      .single();
+
+    const requesterName = requesterData?.display_name || 'A user';
+    const requestType = request.metadata?.requestType || 'CAPEX';
+    const requestTitle = request.title;
+
+    // Notify the first approver
+    if (approverIds.length > 0) {
+      try {
+        await supabaseAdmin
+          .from('notifications')
+          .insert({
+            organization_id: organizationId,
+            recipient_id: approverIds[0],
+            sender_id: userId,
+            type: 'task',
+            title: 'New Approval Request',
+            message: `${requesterName} has submitted a ${requestType.toUpperCase()} request "${requestTitle}" for your approval.`,
+            metadata: {
+              request_id: id,
+              request_type: requestType,
+              action_label: 'Review Request',
+              action_url: `/requests/${id}`,
+            },
+            is_read: false,
+          });
+      } catch (notifError) {
+        console.error('Failed to create approver notification:', notifError);
+      }
+    }
+
+    // Notify watchers if any
+    const watcherIds: string[] = request.metadata?.watchers || [];
+    if (watcherIds.length > 0) {
+      const watcherNotifications = watcherIds.map((watcherId: string) => ({
+        organization_id: organizationId,
+        recipient_id: watcherId,
+        sender_id: userId,
+        type: 'info',
+        title: 'Added as Watcher',
+        message: `${requesterName} has added you as a watcher on their ${requestType.toUpperCase()} request "${requestTitle}".`,
+        metadata: {
+          request_id: id,
+          request_type: requestType,
+          action_label: 'View Request',
+          action_url: `/requests/${id}`,
+        },
+        is_read: false,
+      }));
+
+      try {
+        await supabaseAdmin
+          .from('notifications')
+          .insert(watcherNotifications);
+      } catch (notifError) {
+        console.error('Failed to create watcher notifications:', notifError);
+      }
     }
 
     return res.status(200).json({

@@ -1,16 +1,121 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 import { AppLayout } from '@/components/layout';
-import { Card, Input, Button } from '@/components/ui';
+import { Card, Button } from '@/components/ui';
 import { SettingsIllustration } from '@/components/illustrations/SettingsIllustration';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { supabase, isSupabaseConfigured } from '@/lib/supabaseClient';
+import dynamic from 'next/dynamic';
+
+const SignaturePad = dynamic(() => import('@/components/SignaturePad'), {
+  ssr: false,
+  loading: () => <div className="h-40 bg-gray-50 animate-pulse rounded-xl" />
+});
 
 export default function Settings() {
-    const [activeTab, setActiveTab] = useState('general');
+    const { user, session, loading: userLoading, updateProfilePicture } = useCurrentUser();
+    const [activeTab, setActiveTab] = useState('profile');
     const [isLoading, setIsLoading] = useState(false);
+    const [signatureUrl, setSignatureUrl] = useState<string | null>(null);
+    const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+    const [uploadingPicture, setUploadingPicture] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Load signature and profile picture when user data is available
+    useEffect(() => {
+        if (user?.id && isSupabaseConfigured) {
+            // Fetch signature from storage
+            const { data } = supabase.storage.from('signatures').getPublicUrl(`${user.id}.png`);
+            checkSignature(data.publicUrl);
+
+            // Set profile picture from user data
+            if (user.profile_picture_url) {
+                const url = user.profile_picture_url;
+                setProfilePhoto(url.includes('?') ? url : `${url}?t=${Date.now()}`);
+            } else {
+                fetchProfilePictureFromStorage(user.id);
+            }
+        }
+    }, [user]);
+
+    const checkSignature = async (url: string) => {
+        try {
+            const res = await fetch(url, { method: 'HEAD' });
+            if (res.ok) {
+                setSignatureUrl(`${url}?t=${Date.now()}`);
+            }
+        } catch (e) {
+            // No signature found
+        }
+    };
+
+    const fetchProfilePictureFromStorage = async (userId: string) => {
+        if (!isSupabaseConfigured) return;
+        try {
+            const extensions = ['png', 'jpg', 'jpeg', 'webp'];
+            for (const ext of extensions) {
+                const { data } = supabase.storage.from('profile_pictures').getPublicUrl(`${userId}.${ext}`);
+                try {
+                    const res = await fetch(data.publicUrl, { method: 'HEAD' });
+                    if (res.ok) {
+                        setProfilePhoto(`${data.publicUrl}?t=${Date.now()}`);
+                        return;
+                    }
+                } catch (e) {
+                    // Continue to next extension
+                }
+            }
+        } catch (err) {
+            console.error("Error fetching profile picture from storage", err);
+        }
+    };
+
+    const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        if (!file.type.startsWith('image/')) {
+            alert('Please select an image file');
+            return;
+        }
+
+        if (file.size > 4 * 1024 * 1024) {
+            alert('Image size must be less than 4MB');
+            return;
+        }
+
+        setUploadingPicture(true);
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            const base64 = event.target?.result as string;
+            try {
+                const res = await fetch('/api/user/profile-picture', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image: base64 }),
+                });
+                const data = await res.json();
+                if (data.url) {
+                    const urlWithCache = `${data.url}?t=${Date.now()}`;
+                    setProfilePhoto(urlWithCache);
+                    // Update the global user context so header/sidebar update immediately
+                    updateProfilePicture(urlWithCache);
+                } else {
+                    alert('Failed to upload profile picture');
+                }
+            } catch (err) {
+                console.error('Upload error', err);
+                alert('Failed to upload profile picture');
+            } finally {
+                setUploadingPicture(false);
+            }
+        };
+        reader.readAsDataURL(file);
+    };
 
     const handleSave = () => {
         setIsLoading(true);
-        // Simulate API call
         setTimeout(() => {
             setIsLoading(false);
             alert('Settings saved successfully!');
@@ -18,8 +123,7 @@ export default function Settings() {
     };
 
     const tabs = [
-        { id: 'general', label: 'General' },
-        { id: 'security', label: 'Security' },
+        { id: 'profile', label: 'Profile' },
         { id: 'notifications', label: 'Notifications' },
         { id: 'appearance', label: 'Appearance' },
         { id: 'integrations', label: 'Integrations' },
@@ -40,7 +144,7 @@ export default function Settings() {
                             <div>
                                 <h1 className="text-3xl font-bold text-gray-900 font-heading">System Settings</h1>
                                 <p className="text-gray-500 mt-2 text-lg">
-                                    Manage your application preferences, security configurations, and integration settings.
+                                    Manage your profile information, preferences, and integration settings.
                                 </p>
                             </div>
                         </div>
@@ -74,57 +178,97 @@ export default function Settings() {
 
                         {/* Main Content Area */}
                         <div className="flex-1 space-y-6">
-                            {activeTab === 'general' && (
+                            {activeTab === 'profile' && (
                                 <Card className="p-6 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                                     <div>
-                                        <h2 className="text-xl font-bold text-gray-900">General Settings</h2>
-                                        <p className="text-sm text-gray-500 mt-1">Configure basic site information.</p>
+                                        <h2 className="text-xl font-bold text-gray-900">Profile Settings</h2>
+                                        <p className="text-sm text-gray-500 mt-1">Manage your personal information and preferences.</p>
                                     </div>
-                                    <div className="grid grid-cols-1 gap-6">
-                                        <Input label="Site Name" defaultValue="The Circle" />
-                                        <Input label="Support Email" type="email" defaultValue="support@thecircle.app" />
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1">Language</label>
-                                                <select className="w-full px-4 py-2 rounded-xl border border-gray-300 bg-white focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-                                                    <option>English (US)</option>
-                                                    <option>Spanish</option>
-                                                    <option>French</option>
-                                                </select>
+
+                                    {/* Profile Photo Section */}
+                                    <div className="flex items-center gap-6 pb-6 border-b border-gray-100">
+                                        <div className="relative group">
+                                            <div className="w-24 h-24 rounded-full bg-brand-100 flex items-center justify-center text-brand-600 text-3xl font-bold overflow-hidden border-4 border-white shadow-md">
+                                                {profilePhoto ? (
+                                                    <img src={profilePhoto} alt="Profile" className="w-full h-full object-cover" />
+                                                ) : (
+                                                    <span>{user?.display_name?.charAt(0) || user?.email?.charAt(0) || 'U'}</span>
+                                                )}
                                             </div>
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1">Timezone</label>
-                                                <select className="w-full px-4 py-2 rounded-xl border border-gray-300 bg-white focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-                                                    <option>UTC</option>
-                                                    <option>EST</option>
-                                                    <option>PST</option>
-                                                </select>
-                                            </div>
+                                            <button 
+                                                onClick={() => fileInputRef.current?.click()}
+                                                disabled={uploadingPicture}
+                                                className="absolute bottom-0 right-0 bg-white rounded-full p-2 shadow-sm border border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors"
+                                            >
+                                                {uploadingPicture ? (
+                                                    <div className="w-4 h-4 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
+                                                ) : (
+                                                    <svg className="w-4 h-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                    </svg>
+                                                )}
+                                            </button>
+                                            <input 
+                                                ref={fileInputRef}
+                                                type="file" 
+                                                className="hidden" 
+                                                accept="image/*" 
+                                                onChange={handlePhotoUpload} 
+                                            />
+                                        </div>
+                                        <div>
+                                            <h3 className="font-medium text-gray-900">Profile Photo</h3>
+                                            <p className="text-sm text-gray-500 mt-1">
+                                                {uploadingPicture ? 'Uploading...' : 'Click the camera icon to update.'}
+                                            </p>
                                         </div>
                                     </div>
-                                </Card>
-                            )}
 
-                            {activeTab === 'security' && (
-                                <Card className="p-6 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                                    <div>
-                                        <h2 className="text-xl font-bold text-gray-900">Security Settings</h2>
-                                        <p className="text-sm text-gray-500 mt-1">Manage password policies and access controls.</p>
-                                    </div>
-                                    <div className="space-y-4">
-                                        <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-100">
-                                            <div>
-                                                <h3 className="font-medium text-gray-900">Two-Factor Authentication</h3>
-                                                <p className="text-sm text-gray-500">Enforce 2FA for all admin users.</p>
-                                            </div>
-                                            <div className="relative inline-block w-12 mr-2 align-middle select-none transition duration-200 ease-in">
-                                                <input type="checkbox" name="toggle" id="toggle-2fa" className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" />
-                                                <label htmlFor="toggle-2fa" className="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
-                                            </div>
+                                    {/* User Information - Read Only */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                                            <p className="text-gray-900 font-medium bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
+                                                {user?.display_name || session?.user?.name || 'Not set'}
+                                            </p>
                                         </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                                            <p className="text-gray-900 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200 capitalize">
+                                                {user?.role || 'User'}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
+                                            <p className="text-gray-900 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
+                                                {user?.department?.name || 'Not assigned'}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Business Unit</label>
+                                            <p className="text-gray-900 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
+                                                {user?.business_unit?.name || 'Not assigned'}
+                                            </p>
+                                        </div>
+                                        <div className="md:col-span-2">
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                                            <p className="text-gray-900 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
+                                                {user?.email || session?.user?.email || 'Not set'}
+                                            </p>
+                                        </div>
+                                    </div>
 
-                                        <Input label="Password Expiry (days)" type="number" defaultValue="90" />
-                                        <Input label="Session Timeout (minutes)" type="number" defaultValue="30" />
+                                    {/* Signature Section */}
+                                    <div className="pt-6 border-t border-gray-100">
+                                        <h3 className="font-medium text-gray-900 mb-2">Digital Signature</h3>
+                                        <p className="text-sm text-gray-500 mb-4">
+                                            Draw your signature, upload an image, or sign from your mobile device.
+                                        </p>
+                                        <SignaturePad
+                                            initialUrl={signatureUrl || undefined}
+                                            onSave={(url) => setSignatureUrl(url)}
+                                        />
                                     </div>
                                 </Card>
                             )}

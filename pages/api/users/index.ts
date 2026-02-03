@@ -25,7 +25,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Fetch all users in the organization (potential approvers)
     const { data: users, error } = await supabaseAdmin
       .from('app_users')
-      .select('id, display_name, email, role')
+      .select('id, display_name, email, role, profile_picture_url')
       .eq('organization_id', organizationId)
       .order('display_name', { ascending: true });
 

@@ -1,14 +1,18 @@
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
-import { useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
+import { GetServerSideProps } from 'next';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../api/auth/[...nextauth]';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { AppLayout } from '@/components/layout';
 import { motion } from 'framer-motion';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { useDashboardStats, useSignatureCheck } from '@/hooks';
+import { useSignatureCheck } from '@/hooks';
+import { useState, useEffect } from 'react';
 
 const Lottie = dynamic(() => import('lottie-react'), { ssr: false });
 import animationData from '../../Office illustration.json';
@@ -26,7 +30,55 @@ function getTimeAgo(dateString: string): string {
   if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
   if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
   if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d ago`;
-  return date.toLocaleDateString();
+  return date.toLocaleDateString('en-US');
+}
+
+function TimeAgo({ dateString }: { dateString: string }) {
+  const [timeAgo, setTimeAgo] = useState<string>('');
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    setTimeAgo(getTimeAgo(dateString));
+    
+    const interval = setInterval(() => {
+      setTimeAgo(getTimeAgo(dateString));
+    }, 60000);
+    
+    return () => clearInterval(interval);
+  }, [dateString]);
+
+  if (!mounted) return null;
+  
+  return <>{timeAgo}</>;
+}
+
+interface DashboardStats {
+  pending: number;
+  approved: number;
+  rejected: number;
+  total: number;
+  thisMonthRequests: number;
+  completionRate: number;
+}
+
+interface RecentActivity {
+  id: string;
+  title: string;
+  status: string;
+  created_at: string;
+  creator: {
+    display_name: string | null;
+    email: string;
+  } | null;
+  metadata: Record<string, any>;
+}
+
+interface DashboardProps {
+  initialStats: DashboardStats;
+  initialRecentActivity: RecentActivity[];
+  initialPendingForUser: number;
+  userName: string;
 }
 
 const container = {
@@ -44,35 +96,161 @@ const item = {
   show: { opacity: 1, y: 0 }
 };
 
-export default function Dashboard() {
-  const { data: session, status } = useSession();
-  const router = useRouter();
-  const { stats, recentActivity, teamMembers, pendingForUser, loading: statsLoading } = useDashboardStats();
-  const { signatureUrl, hasSignature } = useSignatureCheck();
+export const getServerSideProps: GetServerSideProps<DashboardProps> = async (context) => {
+  const session = await getServerSession(context.req, context.res, authOptions);
 
-  useEffect(() => {
-    if (status === 'unauthenticated') {
-      router.push('/');
-    }
-  }, [status, router]);
-
-  if (status === 'loading') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-3 border-brand-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-500 text-sm">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!session) {
-    return null;
+  if (!session?.user) {
+    return {
+      redirect: {
+        destination: '/',
+        permanent: false,
+      },
+    };
   }
 
   const user = session.user as any;
-  const firstName = user?.name?.split(' ')[0] || 'User';
+  const organizationId = user.org_id;
+  const userId = user.id;
+
+  let stats: DashboardStats = {
+    pending: 0,
+    approved: 0,
+    rejected: 0,
+    total: 0,
+    thisMonthRequests: 0,
+    completionRate: 0,
+  };
+  let recentActivity: RecentActivity[] = [];
+  let pendingForUser = 0;
+
+  try {
+    if (organizationId) {
+      // Fetch all requests for the organization (excluding other users' drafts)
+      const { data: requests } = await supabaseAdmin
+        .from('requests')
+        .select('id, status, created_at, creator_id')
+        .eq('organization_id', organizationId);
+
+      // Filter out drafts that don't belong to the current user
+      const allRequests = (requests || []).filter(r => {
+        if (r.status === 'draft') {
+          return r.creator_id === userId;
+        }
+        return true;
+      });
+      
+      // Calculate stats (drafts are NOT counted as pending - they are separate)
+      stats.pending = allRequests.filter(r => r.status === 'pending').length;
+      stats.approved = allRequests.filter(r => r.status === 'approved').length;
+      stats.rejected = allRequests.filter(r => r.status === 'rejected').length;
+      // Exclude drafts from total count for organization-wide stats
+      stats.total = allRequests.filter(r => r.status !== 'draft').length;
+
+      // This month's requests
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
+      stats.thisMonthRequests = allRequests.filter(
+        r => new Date(r.created_at) >= startOfMonth
+      ).length;
+
+      // Completion rate
+      const completed = stats.approved + stats.rejected;
+      stats.completionRate = completed > 0 ? Math.round((stats.approved / completed) * 100) : 0;
+
+      // Fetch pending approvals for the current user
+      if (userId) {
+        const { data: pendingSteps } = await supabaseAdmin
+          .from('request_steps')
+          .select('id')
+          .eq('approver_user_id', userId)
+          .eq('status', 'pending');
+        
+        pendingForUser = pendingSteps?.length || 0;
+      }
+
+      // Fetch recent activity with request_steps for visibility filtering
+      const { data: recentRequests } = await supabaseAdmin
+        .from('requests')
+        .select(`
+          id,
+          title,
+          status,
+          created_at,
+          metadata,
+          creator_id,
+          creator:app_users!requests_creator_id_fkey (
+            display_name,
+            email
+          ),
+          request_steps (
+            approver_user_id,
+            status
+          )
+        `)
+        .eq('organization_id', organizationId)
+        .neq('status', 'draft') // Exclude all drafts from recent activity
+        .order('created_at', { ascending: false })
+        .limit(50); // Fetch more to filter down
+
+      // SEQUENTIAL APPROVAL VISIBILITY: Filter requests user can see
+      // User can see if: creator, watcher, or approver with non-waiting step
+      const filteredRequests = (recentRequests || []).filter((req: any) => {
+        // Creator can always see
+        if (req.creator_id === userId) return true;
+        
+        // Check if user is a watcher
+        const watcherIds = req.metadata?.watchers || [];
+        const isWatcher = Array.isArray(watcherIds) && watcherIds.some((w: any) => 
+          typeof w === 'string' ? w === userId : w?.id === userId
+        );
+        if (isWatcher) return true;
+        
+        // Check if user is an approver with non-waiting step
+        const userStep = req.request_steps?.find(
+          (step: any) => step.approver_user_id === userId
+        );
+        if (userStep && userStep.status !== 'waiting') return true;
+        
+        return false;
+      }).slice(0, 10); // Take only first 10 after filtering
+
+      recentActivity = filteredRequests.map((req: any) => ({
+        ...req,
+        creator: Array.isArray(req.creator) ? req.creator[0] : req.creator,
+      })) as RecentActivity[];
+    }
+  } catch (error) {
+    console.error('Error fetching dashboard data:', error);
+  }
+
+  return {
+    props: {
+      initialStats: stats,
+      initialRecentActivity: recentActivity,
+      initialPendingForUser: pendingForUser,
+      userName: user.name || 'User',
+    },
+  };
+};
+
+export default function Dashboard({ 
+  initialStats, 
+  initialRecentActivity, 
+  initialPendingForUser,
+  userName 
+}: DashboardProps) {
+  const { data: session } = useSession();
+  const router = useRouter();
+  const { signatureUrl, hasSignature } = useSignatureCheck();
+
+  // Use SSR data directly - no loading state needed for initial render
+  const stats = initialStats;
+  const recentActivity = initialRecentActivity;
+  const pendingForUser = initialPendingForUser;
+  const statsLoading = false;
+
+  const firstName = userName?.split(' ')[0] || 'User';
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -136,7 +314,7 @@ export default function Dashboard() {
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
-                  onClick={() => router.push('/requests/approvals')}
+                  onClick={() => router.push('/approvals')}
                   className="group relative inline-flex items-center gap-3 bg-white text-blue-600 font-bold py-4 px-8 rounded-2xl shadow-xl hover:shadow-2xl hover:shadow-white/20 transition-all duration-300"
                 >
                   Review Now
@@ -229,7 +407,7 @@ export default function Dashboard() {
                   <h3 className="text-xl font-bold text-gray-900">Recent Activity</h3>
                   <p className="text-gray-500 text-sm">Your latest actions and updates</p>
                 </div>
-                <Link href="/requests/approvals" className="text-blue-600 hover:text-blue-700 font-semibold text-sm bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-xl transition-colors">
+                <Link href="/requests/all" className="text-blue-600 hover:text-blue-700 font-semibold text-sm bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-xl transition-colors">
                   View All
                 </Link>
               </div>
@@ -247,7 +425,6 @@ export default function Dashboard() {
                 ) : (
                   recentActivity.slice(0, 4).map((activity) => {
                     const creatorName = activity.creator?.display_name || activity.creator?.email?.split('@')[0] || 'Unknown';
-                    const timeAgo = getTimeAgo(activity.created_at);
                     const requestType = activity.metadata?.type || 'Request';
                     const statusDisplay = activity.status.charAt(0).toUpperCase() + activity.status.slice(1);
                     
@@ -265,7 +442,7 @@ export default function Dashboard() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between mb-1">
                             <h4 className="font-bold text-gray-900 truncate group-hover:text-blue-600 transition-colors">{activity.title}</h4>
-                            <span className="text-xs text-gray-400 font-medium">{timeAgo}</span>
+                            <span className="text-xs text-gray-400 font-medium"><TimeAgo dateString={activity.created_at} /></span>
                           </div>
                           <div className="flex items-center gap-3 text-sm text-gray-500">
                             <span>{creatorName}</span>

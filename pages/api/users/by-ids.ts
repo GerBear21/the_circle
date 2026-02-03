@@ -29,7 +29,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const { data: users, error } = await supabaseAdmin
       .from('app_users')
-      .select('id, display_name, email')
+      .select('id, display_name, email, profile_picture_url')
       .in('id', userIds);
 
     if (error) {

@@ -1,6 +1,10 @@
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { GetServerSideProps } from 'next';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../api/auth/[...nextauth]';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { AppLayout } from '../../components/layout';
 import { Card, Button } from '../../components/ui';
 
@@ -8,7 +12,7 @@ interface Request {
   id: string;
   title: string;
   description: string;
-  status: 'pending' | 'approved' | 'rejected' | 'in_review' | 'withdrawn' | 'cancelled';
+  status: 'pending' | 'approved' | 'rejected' | 'in_review' | 'withdrawn' | 'cancelled' | 'draft';
   priority: 'low' | 'normal' | 'high' | 'urgent';
   category: string;
   department: string;
@@ -16,7 +20,7 @@ interface Request {
   updated_at: string;
   current_step: number;
   total_steps: number;
-  type: 'approval' | 'capex' | 'leave' | 'expense' | 'procurement' | 'it_request';
+  type: 'approval' | 'capex' | 'leave' | 'expense' | 'procurement' | 'it_request' | 'hotel_booking';
   amount?: number;
   currency?: string;
   requester: {
@@ -357,6 +361,7 @@ const statusConfig: Record<string, { label: string; bg: string; text: string; do
   rejected: { label: 'Rejected', bg: 'bg-red-100', text: 'text-red-800', dot: 'bg-red-500' },
   withdrawn: { label: 'Withdrawn', bg: 'bg-gray-100', text: 'text-gray-600', dot: 'bg-gray-400' },
   cancelled: { label: 'Cancelled', bg: 'bg-gray-100', text: 'text-gray-600', dot: 'bg-gray-400' },
+  draft: { label: 'Draft', bg: 'bg-purple-100', text: 'text-purple-800', dot: 'bg-purple-500' },
 };
 
 const priorityConfig: Record<string, { label: string; color: string; bg: string }> = {
@@ -373,6 +378,7 @@ const typeConfig: Record<string, { label: string; icon: string; color: string; b
   expense: { label: 'Expense', icon: 'M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z', color: 'text-green-600', bg: 'bg-green-100' },
   procurement: { label: 'Procurement', icon: 'M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z', color: 'text-indigo-600', bg: 'bg-indigo-100' },
   it_request: { label: 'IT Request', icon: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', color: 'text-cyan-600', bg: 'bg-cyan-100' },
+  hotel_booking: { label: 'Hotel Booking', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4', color: 'text-amber-600', bg: 'bg-amber-100' },
 };
 
 const departmentColors: Record<string, string> = {
@@ -386,57 +392,151 @@ const departmentColors: Record<string, string> = {
   Finance: 'bg-emerald-100 text-emerald-700',
 };
 
-type StatusFilter = 'all' | 'pending' | 'in_review' | 'approved' | 'rejected' | 'withdrawn';
-type TypeFilter = 'all' | 'approval' | 'capex' | 'leave' | 'expense' | 'procurement' | 'it_request';
+type StatusFilter = 'all' | 'pending' | 'in_review' | 'approved' | 'rejected' | 'withdrawn' | 'draft';
+type TypeFilter = 'all' | 'approval' | 'capex' | 'leave' | 'expense' | 'procurement' | 'it_request' | 'hotel_booking';
 type SortOption = 'newest' | 'oldest' | 'amount_high' | 'amount_low' | 'priority';
 
-export default function AllRequestsPage() {
+interface AllRequestsPageProps {
+  initialRequests: Request[];
+}
+
+// Helper function to compute actual status based on step statuses
+const computeActualStatus = (dbStatus: string, steps: any[]) => {
+  if (!steps || steps.length === 0) return dbStatus;
+  if (steps.some((s: any) => s.status === 'rejected')) return 'rejected';
+  if (steps.every((s: any) => s.status === 'approved')) return 'approved';
+  if (steps.some((s: any) => s.status === 'pending' || s.status === 'waiting')) return 'pending';
+  return dbStatus;
+};
+
+export const getServerSideProps: GetServerSideProps<AllRequestsPageProps> = async (context) => {
+  const session = await getServerSession(context.req, context.res, authOptions);
+
+  if (!session?.user) {
+    return {
+      redirect: {
+        destination: '/',
+        permanent: false,
+      },
+    };
+  }
+
+  const user = session.user as any;
+  const organizationId = user.org_id;
+  const userId = user.id;
+
+  let initialRequests: Request[] = [];
+
+  try {
+    if (organizationId) {
+      const { data: requests } = await supabaseAdmin
+        .from('requests')
+        .select(`
+          id,
+          title,
+          description,
+          status,
+          metadata,
+          created_at,
+          updated_at,
+          creator_id,
+          creator:app_users!requests_creator_id_fkey (
+            id,
+            display_name,
+            email,
+            profile_picture_url
+          ),
+          request_steps (
+            id,
+            status,
+            approver_user_id
+          )
+        `)
+        .eq('organization_id', organizationId)
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      // SEQUENTIAL APPROVAL VISIBILITY: Filter requests user can see
+      // User can see if: creator, watcher, or approver with non-waiting step
+      const filteredRequests = (requests || []).filter((req: any) => {
+        // Filter out drafts that don't belong to the current user
+        if (req.status === 'draft') {
+          return req.creator_id === userId;
+        }
+        
+        // Creator can always see their own requests
+        if (req.creator_id === userId) return true;
+        
+        // Check if user is a watcher
+        const watcherIds = req.metadata?.watchers || [];
+        const isWatcher = Array.isArray(watcherIds) && watcherIds.some((w: any) => 
+          typeof w === 'string' ? w === userId : w?.id === userId
+        );
+        if (isWatcher) return true;
+        
+        // Check if user is an approver with non-waiting step
+        const userStep = req.request_steps?.find(
+          (step: any) => step.approver_user_id === userId
+        );
+        if (userStep && userStep.status !== 'waiting') return true;
+        
+        return false;
+      });
+
+      initialRequests = filteredRequests.map((req: any) => ({
+        id: req.id,
+        title: req.title,
+        description: req.description || '',
+        status: computeActualStatus(req.status, req.request_steps) as Request['status'],
+        priority: (req.metadata?.priority || 'normal') as Request['priority'],
+        category: req.metadata?.category || req.metadata?.requestType || 'General',
+        department: req.creator?.department || req.metadata?.department || 'Unknown',
+        created_at: req.created_at,
+        updated_at: req.updated_at,
+        current_step: req.metadata?.current_step || 1,
+        total_steps: req.metadata?.total_steps || 1,
+        type: (req.metadata?.requestType || 'approval') as Request['type'],
+        amount: req.metadata?.amount ?? null,
+        currency: req.metadata?.currency || 'USD',
+        requester: {
+          id: req.creator?.id || '',
+          name: req.creator?.display_name || 'Unknown User',
+          email: req.creator?.email || '',
+          avatar: req.creator?.profile_picture_url || null,
+          department: req.creator?.department || req.metadata?.department || 'Unknown',
+          position: req.creator?.position || req.metadata?.position || '',
+        },
+        current_approver: req.metadata?.current_approver || null,
+        due_date: req.metadata?.due_date || null,
+        reference_number: req.metadata?.reference_number || `REQ-${req.id?.substring(0, 8)?.toUpperCase() || ''}`,
+        attachments_count: req.metadata?.attachments_count || 0,
+        comments_count: req.metadata?.comments_count || 0,
+      }));
+    }
+  } catch (error) {
+    console.error('Error fetching requests:', error);
+    // Return empty array on error, client can retry
+  }
+
+  return {
+    props: {
+      initialRequests,
+    },
+  };
+};
+
+export default function AllRequestsPage({ initialRequests }: AllRequestsPageProps) {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [requests, setRequests] = useState<Request[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [requests, setRequests] = useState<Request[]>(initialRequests);
+  const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('newest');
   const [showFilters, setShowFilters] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'compact'>('list');
-
-  useEffect(() => {
-    if (status === 'unauthenticated') {
-      router.push('/');
-    }
-  }, [status, router]);
-
   const [error, setError] = useState<string | null>(null);
-
-  // Fetch requests from API
-  useEffect(() => {
-    const loadRequests = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const { requests: data } = await fetchRequests({
-          status: statusFilter,
-          type: typeFilter,
-          search: searchQuery,
-          sort: sortBy,
-        });
-        setRequests(data);
-      } catch (err) {
-        console.error('Error fetching requests:', err);
-        setError('Failed to load requests. Using demo data.');
-        // Fallback to mock data if API fails
-        setRequests(mockRequests);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    // Debounce search queries
-    const debounceTimer = setTimeout(loadRequests, searchQuery ? 300 : 0);
-    return () => clearTimeout(debounceTimer);
-  }, [statusFilter, typeFilter, searchQuery, sortBy]);
 
   const filteredRequests = requests
     .filter((req) => {
@@ -672,7 +772,7 @@ export default function AllRequestsPage() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
                   <div className="flex flex-wrap gap-2">
-                    {(['all', 'pending', 'in_review', 'approved', 'rejected', 'withdrawn'] as StatusFilter[]).map((s) => (
+                    {(['all', 'pending', 'in_review', 'approved', 'rejected', 'withdrawn', 'draft'] as StatusFilter[]).map((s) => (
                       <button
                         key={s}
                         onClick={() => setStatusFilter(s)}
@@ -774,7 +874,14 @@ export default function AllRequestsPage() {
                   key={request.id}
                   variant="outlined"
                   className="cursor-pointer hover:shadow-card-hover transition-shadow"
-                  onClick={() => router.push(`/requests/${request.id}`)}
+                  onClick={() => {
+                    // Route hotel booking requests to the comp detail page
+                    if (request.type === 'hotel_booking') {
+                      router.push(`/requests/comp/${request.id}`);
+                    } else {
+                      router.push(`/requests/${request.id}`);
+                    }
+                  }}
                 >
                   <div className="flex items-start gap-4">
                     {/* Type Icon */}
@@ -811,9 +918,17 @@ export default function AllRequestsPage() {
                       {/* Requester Info */}
                       <div className="flex items-center gap-3 mt-3">
                         <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-xs font-medium text-gray-600">
-                            {getInitials(request.requester.name)}
-                          </div>
+                          {request.requester.avatar ? (
+                            <img 
+                              src={request.requester.avatar} 
+                              alt={request.requester.name}
+                              className="w-6 h-6 rounded-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-xs font-medium text-gray-600">
+                              {getInitials(request.requester.name)}
+                            </div>
+                          )}
                           <span className="text-sm text-gray-700">{request.requester.name}</span>
                           <span className="text-xs text-gray-400">•</span>
                           <span className="text-xs text-gray-500">{request.requester.position}</span>

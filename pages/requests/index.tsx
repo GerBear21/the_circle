@@ -1,12 +1,14 @@
-import { useEffect } from 'react';
-import { useRouter } from 'next/router';
+import { GetServerSideProps } from 'next';
+
+export const getServerSideProps: GetServerSideProps = async () => {
+    return {
+        redirect: {
+            destination: '/requests/all',
+            permanent: true,
+        },
+    };
+};
 
 export default function RequestsIndex() {
-    const router = useRouter();
-
-    useEffect(() => {
-        router.replace('/requests/all');
-    }, [router]);
-
     return null;
 }

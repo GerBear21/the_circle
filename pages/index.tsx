@@ -1,42 +1,33 @@
-import { signIn, useSession } from "next-auth/react";
-import { useRouter } from "next/router";
-import { useEffect, useState } from "react";
+import { signIn } from "next-auth/react";
 import Head from "next/head";
 import dynamic from "next/dynamic";
+import { GetServerSideProps } from "next";
+import { getServerSession } from "next-auth";
+import { authOptions } from "./api/auth/[...nextauth]";
 import { motion } from "framer-motion";
 
 // Dynamically import Lottie to avoid SSR issues
 const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
-// Dynamically import Loader to avoid styled-components hydration mismatch
-const Loader = dynamic(() => import("../components/Loader"), { ssr: false });
 import heroAnimation from "../Girl doing remote job using laptop.json";
 
-export default function Home() {
-  const { data: session, status } = useSession();
-  const router = useRouter();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-    if (session) {
-      router.push("/dashboard");
-    }
-  }, [session, router]);
-
-  if (status === "loading") {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="flex flex-col items-center gap-6">
-          <Loader />
-          <p className="text-gray-500 text-sm animate-pulse">Initializing The Circle...</p>
-        </div>
-      </div>
-    );
-  }
+export const getServerSideProps: GetServerSideProps = async (context) => {
+  const session = await getServerSession(context.req, context.res, authOptions);
 
   if (session) {
-    return null;
+    return {
+      redirect: {
+        destination: "/dashboard",
+        permanent: false,
+      },
+    };
   }
+
+  return {
+    props: {},
+  };
+};
+
+export default function Home() {
 
   return (
     <>

@@ -27,6 +27,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'Request ID is required' });
     }
 
+    const userId = user.id;
+    
     // Fetch the request with all related data
     const { data: request, error } = await supabaseAdmin
       .from('requests')
@@ -38,6 +40,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         metadata,
         created_at,
         updated_at,
+        creator_id,
         creator:app_users!requests_creator_id_fkey (
           id,
           display_name,
@@ -52,6 +55,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           step_index,
           step_type,
           approver_role,
+          approver_user_id,
           status,
           due_at,
           created_at,
@@ -82,6 +86,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(404).json({ error: 'Request not found' });
       }
       throw error;
+    }
+
+    // SEQUENTIAL APPROVAL VISIBILITY CHECK
+    const isCreator = request.creator_id === userId;
+    
+    const watcherIds = request.metadata?.watchers || [];
+    const isWatcher = Array.isArray(watcherIds) && watcherIds.some((w: any) => 
+      typeof w === 'string' ? w === userId : w?.id === userId
+    );
+    
+    const userStep = request.request_steps?.find(
+      (step: any) => step.approver_user_id === userId
+    );
+    const canApproverView = userStep && userStep.status !== 'waiting';
+    
+    if (!isCreator && !isWatcher && !canApproverView) {
+      if (userStep && userStep.status === 'waiting') {
+        return res.status(403).json({ 
+          error: 'This request is not yet ready for your review.',
+          code: 'APPROVAL_NOT_YOUR_TURN'
+        });
+      }
+      return res.status(403).json({ error: 'You do not have permission to view this request' });
     }
 
     // Sort request_steps by step_index

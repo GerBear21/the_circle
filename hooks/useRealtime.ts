@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 
-type TableName = 'requests' | 'approvals' | 'request_steps' | 'documents';
+type TableName = 'requests' | 'approvals' | 'request_steps' | 'documents' | 'notifications';
 type EventType = 'INSERT' | 'UPDATE' | 'DELETE' | '*';
 
 interface UseRealtimeOptions {
@@ -25,6 +25,18 @@ export function useRealtime({
   const [channel, setChannel] = useState<RealtimeChannel | null>(null);
   const [isConnected, setIsConnected] = useState(false);
 
+  // Use refs to store the latest callbacks to avoid re-subscribing on every render
+  const onInsertRef = useRef(onInsert);
+  const onUpdateRef = useRef(onUpdate);
+  const onDeleteRef = useRef(onDelete);
+
+  // Keep refs up to date
+  useEffect(() => {
+    onInsertRef.current = onInsert;
+    onUpdateRef.current = onUpdate;
+    onDeleteRef.current = onDelete;
+  });
+
   useEffect(() => {
     if (!isSupabaseConfigured) {
       return;
@@ -45,13 +57,13 @@ export function useRealtime({
         (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => {
           switch (payload.eventType) {
             case 'INSERT':
-              onInsert?.(payload.new);
+              onInsertRef.current?.(payload.new);
               break;
             case 'UPDATE':
-              onUpdate?.(payload.new);
+              onUpdateRef.current?.(payload.new);
               break;
             case 'DELETE':
-              onDelete?.(payload.old);
+              onDeleteRef.current?.(payload.old);
               break;
           }
         }
@@ -65,7 +77,7 @@ export function useRealtime({
     return () => {
       newChannel.unsubscribe();
     };
-  }, [table, event, filter, onInsert, onUpdate, onDelete]);
+  }, [table, event, filter]);
 
   return { channel, isConnected };
 }

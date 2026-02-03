@@ -3,7 +3,7 @@ import NotificationPanel from '../ui/NotificationPanel';
 import { useSession, signOut } from 'next-auth/react';
 import Link from 'next/link';
 import { useState, useRef, useEffect } from 'react';
-import { useCurrentUser } from '@/hooks';
+import { useCurrentUser, useRealtime } from '@/hooks';
 
 interface AppHeaderProps {
   title?: string;
@@ -45,6 +45,25 @@ export default function AppHeader({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const playNotificationSound = () => {
+    try {
+      const audio = new Audio('/notification.wav');
+      audio.play().catch(e => console.log('Audio play failed', e));
+    } catch (e) {
+      console.error('Error playing notification sound', e);
+    }
+  };
+
+  useRealtime({
+    table: 'notifications',
+    event: 'INSERT',
+    filter: appUser?.id ? `recipient_id=eq.${appUser.id}` : 'recipient_id=eq.00000000-0000-0000-0000-000000000000',
+    onInsert: (_payload) => {
+      setHasUnreadNotifications(true);
+      playNotificationSound();
+    },
+  });
 
   const sessionUser = session?.user as any;
 
@@ -105,10 +124,13 @@ export default function AppHeader({
                   onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
                   className={`relative p-2 rounded-lg transition-colors ${isNotificationsOpen ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
                 >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className={`w-5 h-5 ${hasUnreadNotifications ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                   </svg>
                   {/* Notification badge - Show if there are unread items */}
+                  {hasUnreadNotifications && (
+                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-danger rounded-full ring-2 ring-white animate-ping"></span>
+                  )}
                   {hasUnreadNotifications && (
                     <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-danger rounded-full ring-2 ring-white"></span>
                   )}
@@ -127,8 +149,16 @@ export default function AppHeader({
                   onClick={() => setIsProfileOpen(!isProfileOpen)}
                   className="flex items-center gap-2 p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
                 >
-                  <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center text-primary-600 font-medium text-sm">
-                    {sessionUser?.name?.charAt(0) || sessionUser?.email?.charAt(0) || '?'}
+                  <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center text-primary-600 font-medium text-sm overflow-hidden">
+                    {appUser?.profile_picture_url ? (
+                      <img
+                        src={appUser.profile_picture_url}
+                        alt={appUser.display_name || 'Profile'}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      appUser?.display_name?.charAt(0) || sessionUser?.name?.charAt(0) || sessionUser?.email?.charAt(0) || '?'
+                    )}
                   </div>
                   <svg className="w-4 h-4 text-gray-400 hidden sm:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />

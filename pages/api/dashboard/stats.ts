@@ -63,7 +63,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       pendingForUser = pendingSteps?.length || 0;
     }
 
-    // Fetch recent activity (last 10 requests with creator info)
+    // Fetch recent activity with request_steps for visibility filtering
     const { data: recentRequests, error: recentError } = await supabaseAdmin
       .from('requests')
       .select(`
@@ -72,16 +72,40 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         status,
         created_at,
         metadata,
+        creator_id,
         creator:app_users!requests_creator_id_fkey (
           display_name,
           email
+        ),
+        request_steps (
+          approver_user_id,
+          status
         )
       `)
       .eq('organization_id', organizationId)
+      .neq('status', 'draft')
       .order('created_at', { ascending: false })
-      .limit(10);
+      .limit(50);
 
     if (recentError) throw recentError;
+
+    // SEQUENTIAL APPROVAL VISIBILITY: Filter requests user can see
+    const filteredRecentRequests = (recentRequests || []).filter((req: any) => {
+      if (req.creator_id === userId) return true;
+      
+      const watcherIds = req.metadata?.watchers || [];
+      const isWatcher = Array.isArray(watcherIds) && watcherIds.some((w: any) => 
+        typeof w === 'string' ? w === userId : w?.id === userId
+      );
+      if (isWatcher) return true;
+      
+      const userStep = req.request_steps?.find(
+        (step: any) => step.approver_user_id === userId
+      );
+      if (userStep && userStep.status !== 'waiting') return true;
+      
+      return false;
+    }).slice(0, 10);
 
     // Fetch team members in the same organization
     const { data: members, error: membersError } = await supabaseAdmin
@@ -101,7 +125,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         thisMonthRequests,
         completionRate,
       },
-      recentActivity: recentRequests || [],
+      recentActivity: filteredRecentRequests || [],
       teamMembers: members || [],
       pendingForUser,
     });

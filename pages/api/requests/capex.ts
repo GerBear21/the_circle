@@ -13,6 +13,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         const user = session.user as any;
         const organizationId = user.org_id;
+        const userId = user.id;
 
         if (!organizationId) {
             return res.status(400).json({ error: 'Organization ID not found' });
@@ -28,9 +29,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           status,
           metadata,
           created_at,
+          creator_id,
           request_steps (
             step_index,
             status,
+            approver_user_id,
             approver:app_users!request_steps_approver_user_id_fkey (
               id,
               display_name,
@@ -49,8 +52,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
             if (error) throw error;
 
+            // SEQUENTIAL APPROVAL VISIBILITY: Filter requests user can see
+            const visibleRequests = (requests || []).filter((req: any) => {
+                // Creator can always see
+                if (req.creator_id === userId) return true;
+                
+                // Check if user is a watcher
+                const watcherIds = req.metadata?.watchers || [];
+                const isWatcher = Array.isArray(watcherIds) && watcherIds.some((w: any) => 
+                    typeof w === 'string' ? w === userId : w?.id === userId
+                );
+                if (isWatcher) return true;
+                
+                // Check if user is an approver with non-waiting step
+                const userStep = req.request_steps?.find(
+                    (step: any) => step.approver_user_id === userId
+                );
+                if (userStep && userStep.status !== 'waiting') return true;
+                
+                return false;
+            });
+
             // Process requests to find current approver
-            const requestsWithApprover = requests.map((req: any) => {
+            const requestsWithApprover = visibleRequests.map((req: any) => {
                 // Sort steps
                 const steps = req.request_steps?.sort((a: any, b: any) => a.step_index - b.step_index) || [];
                 // Find first pending step

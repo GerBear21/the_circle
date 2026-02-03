@@ -24,6 +24,12 @@ export const authOptions: NextAuthOptions = {
       clientId: process.env.AZURE_CLIENT_ID || "",
       clientSecret: process.env.AZURE_CLIENT_SECRET || "",
       tenantId: process.env.AZURE_TENANT || "common",
+      authorization: {
+        params: {
+          scope: "openid profile email User.Read",
+          prompt: "select_account",
+        },
+      },
     }),
   ],
   secret: process.env.NEXTAUTH_SECRET || "fallback-secret-for-build-only",
@@ -96,18 +102,71 @@ export const authOptions: NextAuthOptions = {
             token.azure_oid = oid;
             token.email = email;
 
+            // Check if user already exists
+            const { data: existingUser } = await supabaseAdmin
+              .from("app_users")
+              .select("id, role, profile_picture_url")
+              .eq("organization_id", org.id)
+              .eq("azure_oid", oid)
+              .single();
+
+            let profilePictureUrl = existingUser?.profile_picture_url || null;
+
+            // If user doesn't have a profile picture, try to fetch from Microsoft Graph
+            if (!profilePictureUrl && account?.access_token) {
+              try {
+                const photoResponse = await fetch(
+                  "https://graph.microsoft.com/v1.0/me/photo/$value",
+                  {
+                    headers: {
+                      Authorization: `Bearer ${account.access_token}`,
+                    },
+                  }
+                );
+
+                if (photoResponse.ok) {
+                  const photoBuffer = await photoResponse.arrayBuffer();
+                  const buffer = Buffer.from(photoBuffer);
+                  
+                  // Upload to Supabase storage
+                  const filePath = `${existingUser?.id || oid}.png`;
+                  const { error: uploadError } = await supabaseAdmin.storage
+                    .from("profile_pictures")
+                    .upload(filePath, buffer, {
+                      contentType: "image/png",
+                      upsert: true,
+                    });
+
+                  if (!uploadError) {
+                    const { data: { publicUrl } } = supabaseAdmin.storage
+                      .from("profile_pictures")
+                      .getPublicUrl(filePath);
+                    profilePictureUrl = publicUrl;
+                  } else {
+                    console.error("Error uploading MS profile picture:", uploadError.message);
+                  }
+                }
+              } catch (photoErr) {
+                console.error("Error fetching MS profile picture:", photoErr);
+              }
+            }
+
             // Upsert user record in app_users
+            const upsertData: any = {
+              organization_id: org.id,
+              azure_oid: oid,
+              email: email,
+              display_name: token.name || user?.name || null,
+            };
+
+            // Only set profile_picture_url if we fetched one and user doesn't have one
+            if (profilePictureUrl && !existingUser?.profile_picture_url) {
+              upsertData.profile_picture_url = profilePictureUrl;
+            }
+
             const { data: appUser, error: userError } = await supabaseAdmin
               .from("app_users")
-              .upsert(
-                {
-                  organization_id: org.id,
-                  azure_oid: oid,
-                  email: email,
-                  display_name: token.name || user?.name || null,
-                },
-                { onConflict: "organization_id,azure_oid" }
-              )
+              .upsert(upsertData, { onConflict: "organization_id,azure_oid" })
               .select("id, role")
               .single();
 

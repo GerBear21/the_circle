@@ -38,13 +38,45 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Verify the request exists and belongs to the organization
     const { data: request, error: requestError } = await supabaseAdmin
       .from('requests')
-      .select('id, creator_id')
+      .select(`
+        id, 
+        creator_id,
+        metadata,
+        request_steps (
+          id,
+          approver_user_id,
+          status
+        )
+      `)
       .eq('id', requestId)
       .eq('organization_id', organizationId)
       .single();
 
     if (requestError || !request) {
       return res.status(404).json({ error: 'Request not found' });
+    }
+
+    // SEQUENTIAL APPROVAL VISIBILITY CHECK
+    const isCreator = request.creator_id === userId;
+    
+    const watcherIds = request.metadata?.watchers || [];
+    const isWatcher = Array.isArray(watcherIds) && watcherIds.some((w: any) => 
+      typeof w === 'string' ? w === userId : w?.id === userId
+    );
+    
+    const userStep = request.request_steps?.find(
+      (step: any) => step.approver_user_id === userId
+    );
+    const canApproverView = userStep && userStep.status !== 'waiting';
+    
+    if (!isCreator && !isWatcher && !canApproverView) {
+      if (userStep && userStep.status === 'waiting') {
+        return res.status(403).json({ 
+          error: 'This request is not yet ready for your review.',
+          code: 'APPROVAL_NOT_YOUR_TURN'
+        });
+      }
+      return res.status(403).json({ error: 'You do not have permission to access this request' });
     }
 
     if (req.method === 'GET') {

@@ -9,9 +9,11 @@
   .pb-safe {
     padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
   }
+
   .pt-safe {
     padding-top: max(0.5rem, env(safe-area-inset-top));
   }
+
   .px-safe {
     padding-left: max(1rem, env(safe-area-inset-left));
     padding-right: max(1rem, env(safe-area-inset-right));
@@ -55,36 +57,83 @@ body {
   color: var(--text-primary);
 }
 
-h1, h2, h3, h4, h5, h6 {
+@media (min-width: 1024px) {
+  html {
+    zoom: 0.9;
+  }
+
+  html,
+  body {
+    max-width: none;
+  }
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 /* Animated floating circles for hero banner */
 @keyframes float-slow {
-  0%, 100% { transform: translate(0, 0); }
-  50% { transform: translate(10px, -15px); }
+
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+
+  50% {
+    transform: translate(10px, -15px);
+  }
 }
 
 @keyframes float-medium {
-  0%, 100% { transform: translate(0, 0); }
-  50% { transform: translate(-15px, 10px); }
+
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+
+  50% {
+    transform: translate(-15px, 10px);
+  }
 }
 
 @keyframes float-fast {
-  0%, 100% { transform: translate(0, 0); }
-  50% { transform: translate(8px, 12px); }
+
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+
+  50% {
+    transform: translate(8px, 12px);
+  }
 }
 
 @keyframes float-reverse {
-  0%, 100% { transform: translate(0, 0); }
-  50% { transform: translate(-10px, -8px); }
+
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+
+  50% {
+    transform: translate(-10px, -8px);
+  }
 }
 
 @keyframes gradient-x {
-  0%, 100% {
+
+  0%,
+  100% {
     background-size: 200% 200%;
     background-position: left center;
   }
+
   50% {
     background-size: 200% 200%;
     background-position: right center;
@@ -121,8 +170,10 @@ a {
   button {
     @apply min-h-[44px] min-w-[44px];
   }
-  
-  input, select, textarea {
+
+  input,
+  select,
+  textarea {
     @apply min-h-[44px];
   }
 }
@@ -132,25 +183,20 @@ a {
   .card {
     @apply bg-surface rounded-2xl shadow-sm border border-border p-4;
   }
-  
+
   .btn-primary {
-    @apply bg-primary text-white px-4 py-2 rounded-xl font-medium 
-           hover:bg-primary-hover active:bg-primary-700 transition-colors
-           disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply bg-primary text-white px-4 py-2 rounded-xl font-medium hover:bg-primary-hover active:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
   }
-  
+
   .btn-secondary {
-    @apply bg-background text-text-primary px-4 py-2 rounded-xl font-medium
-           hover:bg-border active:bg-border transition-colors border border-border;
+    @apply bg-background text-text-primary px-4 py-2 rounded-xl font-medium hover:bg-border active:bg-border transition-colors border border-border;
   }
-  
+
   .btn-danger {
-    @apply bg-danger text-white px-4 py-2 rounded-xl font-medium
-           hover:bg-danger-600 active:bg-danger-600 transition-colors;
+    @apply bg-danger text-white px-4 py-2 rounded-xl font-medium hover:bg-danger-600 active:bg-danger-600 transition-colors;
   }
 
   .btn-success {
-    @apply bg-success text-white px-4 py-2 rounded-xl font-medium
-           hover:bg-success-600 active:bg-success-600 transition-colors;
+    @apply bg-success text-white px-4 py-2 rounded-xl font-medium hover:bg-success-600 active:bg-success-600 transition-colors;
   }
 }

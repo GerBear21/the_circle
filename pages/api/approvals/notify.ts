@@ -58,7 +58,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // IDEMPOTENCY GUARD: Check if a pending approval already exists for this (requestId, approver)
-    // This protects against n8n retries, double submissions, and workflow restarts
+    // This protects against double submissions and workflow restarts
     const { data: existingStep } = await supabaseAdmin
       .from('request_steps')
       .select('id, status')
@@ -119,7 +119,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         metadata: {
           request_id: requestId,
           action_label: 'Review Request',
-          action_url: `/requests/${requestId}`,
+          action_url: `/approvals`,
         },
         is_read: false,
       });

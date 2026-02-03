@@ -29,7 +29,8 @@ export default function ExternalHotelBookingPage() {
         allocationType: 'marketing_domestic',
         percentageDiscount: '',
         specialArrangements: 'N/A',
-        reason: 'To attend the group preventative maintenance program for the group.',
+        reason: '',
+        processTravelDocument: false,
     });
 
     useEffect(() => {
@@ -131,9 +132,15 @@ export default function ExternalHotelBookingPage() {
                                     value={formData.hotelUnit}
                                     onChange={(e) => setFormData({ ...formData, hotelUnit: e.target.value })}
                                 >
-                                    <option value="Zambezi River Lodge">Zambezi River Lodge</option>
-                                    <option value="Victoria Falls Hotel">Victoria Falls Hotel</option>
-                                    <option value="Elephant Hills Resort">Elephant Hills Resort</option>
+                                    <option value="Corporate Office">Corporate Office</option>
+                                    <option value="Rainbow Towers Hotel">Rainbow Towers Hotel</option>
+                                    <option value="New Ambassador Hotel">New Ambassador Hotel</option>
+                                    <option value="Kadoma Hotel and Conferencing Centre">Kadoma Hotel and Conferencing Centre</option>
+                                    <option value="Bulawayo Rainbow Hotel">Bulawayo Rainbow Hotel</option>
+                                    <option value="Montclair Hotel and Conferencing">Montclair Hotel and Conferencing</option>
+                                    <option value="Victoria Falls Rainbow Hotel">Corporate Office</option>
+                                    <option value="Azambezi River Lodge">Azambezi River Lodge</option>
+                                    {/* <option value="Elephant Hills Resort">Elephant Hills Resort</option>  */}
                                 </select>
                             </div>
                             <div>
@@ -333,6 +340,25 @@ export default function ExternalHotelBookingPage() {
                                 value={formData.reason}
                                 onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
                             />
+                        </div>
+                    </Card>
+
+                    {/* Travel Document Processing */}
+                    <Card className="p-6">
+                        <div className="flex items-start gap-4">
+                            <input
+                                type="checkbox"
+                                id="processTravelDocument"
+                                checked={formData.processTravelDocument}
+                                onChange={(e) => setFormData({ ...formData, processTravelDocument: e.target.checked })}
+                                className="mt-1 w-5 h-5 text-primary-600 focus:ring-primary-500 border-gray-300 rounded cursor-pointer"
+                            />
+                            <label htmlFor="processTravelDocument" className="cursor-pointer">
+                                <span className="font-semibold text-gray-900 block">Process Travel Document</span>
+                                <span className="text-sm text-gray-500 mt-1 block">
+                                    Check this box if you would like to process your travel authorization document along with this booking request.
+                                </span>
+                            </label>
                         </div>
                     </Card>
 
