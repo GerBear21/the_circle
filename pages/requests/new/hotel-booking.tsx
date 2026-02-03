@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input } from '../../../components/ui';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
-import { useOrganizationData } from '../../../hooks/useOrganizationData';
 
 interface SelectedBusinessUnit {
     id: string;
@@ -22,7 +21,8 @@ export default function HotelBookingPage() {
     const { data: session, status } = useSession();
     const router = useRouter();
     const { user } = useCurrentUser();
-    const { businessUnits, loading: businessUnitsLoading } = useOrganizationData(user?.organization_id);
+    const [businessUnits, setBusinessUnits] = useState<Array<{ id: string; name: string }>>([]);
+    const [businessUnitsLoading, setBusinessUnitsLoading] = useState(true);
     const [loading, setLoading] = useState(false);
     const [savingDraft, setSavingDraft] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -154,6 +154,27 @@ export default function HotelBookingPage() {
             router.push('/');
         }
     }, [status, router]);
+
+    // Fetch business units
+    useEffect(() => {
+        const fetchBusinessUnits = async () => {
+            try {
+                const response = await fetch('/api/business-units');
+                if (response.ok) {
+                    const data = await response.json();
+                    setBusinessUnits(data.businessUnits || []);
+                }
+            } catch (err) {
+                console.error('Failed to fetch business units:', err);
+            } finally {
+                setBusinessUnitsLoading(false);
+            }
+        };
+
+        if (status === 'authenticated') {
+            fetchBusinessUnits();
+        }
+    }, [status]);
 
     // Fetch users for approver selection
     useEffect(() => {
