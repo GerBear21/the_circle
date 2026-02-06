@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { AppLayout } from '../../components/layout';
 import { Card, Button, Input } from '../../components/ui';
+import DynamicFormDetails from '../../components/DynamicFormDetails';
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
 import criticalAnimation from '../../lotties/red critical.json';
@@ -195,6 +196,79 @@ function getFormData(metadata: Record<string, any> | undefined): Record<string, 
 // Get friendly label for a field
 function getFieldLabel(key: string): string {
     return fieldLabels[key] || key.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').replace(/^./, str => str.toUpperCase());
+}
+
+// Format modification value for display (handles complex objects like budget)
+function formatModificationValue(fieldName: string, value: any): string {
+    if (value === null || value === undefined) return 'N/A';
+    
+    // If it's a string that looks like JSON, try to parse it
+    let parsedValue = value;
+    if (typeof value === 'string') {
+        try {
+            parsedValue = JSON.parse(value);
+        } catch {
+            // Not JSON, use as-is
+            return value;
+        }
+    }
+    
+    // Handle budget object specially
+    if (fieldName === 'budget' && typeof parsedValue === 'object') {
+        const budgetLabels: Record<string, string> = {
+            fuel: 'Fuel',
+            aaRates: 'AA Rates',
+            airBusTickets: 'Air/Bus Tickets',
+            conferencingCost: 'Conferencing',
+            tollgates: 'Tollgates',
+            other: 'Other',
+        };
+        
+        const items: string[] = [];
+        for (const [key, item] of Object.entries(parsedValue)) {
+            const budgetItem = item as { quantity?: string; unitCost?: string; totalCost?: string };
+            if (budgetItem.totalCost && parseFloat(budgetItem.totalCost) > 0) {
+                const label = budgetLabels[key] || key;
+                items.push(`${label}: $${budgetItem.totalCost}`);
+            }
+        }
+        return items.length > 0 ? items.join(', ') : 'No items';
+    }
+    
+    // Handle itinerary array
+    if (fieldName === 'itinerary' && Array.isArray(parsedValue)) {
+        const legs = parsedValue.filter((leg: any) => leg.from || leg.to);
+        if (legs.length === 0) return 'No itinerary';
+        return `${legs.length} leg${legs.length !== 1 ? 's' : ''}: ${legs.map((leg: any) => `${leg.from || '?'} → ${leg.to || '?'}`).join(', ')}`;
+    }
+    
+    // Handle selectedBusinessUnits array
+    if (fieldName === 'selectedBusinessUnits' && Array.isArray(parsedValue)) {
+        return parsedValue.map((bu: any) => bu.name || 'Unknown').join(', ') || 'None';
+    }
+    
+    // Handle other objects - show a summary
+    if (typeof parsedValue === 'object' && !Array.isArray(parsedValue)) {
+        const keys = Object.keys(parsedValue);
+        if (keys.length === 0) return 'Empty';
+        // Show first few meaningful values
+        const summary: string[] = [];
+        for (const key of keys.slice(0, 3)) {
+            const val = parsedValue[key];
+            if (val && typeof val !== 'object') {
+                summary.push(`${getFieldLabel(key)}: ${val}`);
+            }
+        }
+        if (summary.length > 0) return summary.join(', ');
+        return `${keys.length} field${keys.length !== 1 ? 's' : ''}`;
+    }
+    
+    // Handle arrays
+    if (Array.isArray(parsedValue)) {
+        return `${parsedValue.length} item${parsedValue.length !== 1 ? 's' : ''}`;
+    }
+    
+    return String(value);
 }
 
 // Interface for metadata documents
@@ -1546,9 +1620,15 @@ export default function RequestDetailsPage() {
                                 variant="outline"
                                 className="gap-2 bg-white text-text-secondary border-gray-200 hover:bg-gray-50 hover:text-text-primary"
                                 onClick={() => {
-                                    // Navigate to the appropriate form with edit mode
+                                    // Map request type to route (underscores to hyphens)
                                     const requestType = request.metadata?.type || request.metadata?.requestType || 'capex';
-                                    router.push(`/requests/new/${requestType}?edit=${id}`);
+                                    const routeMap: Record<string, string> = {
+                                        'hotel_booking': 'hotel-booking',
+                                        'travel_authorization': 'travel-auth',
+                                        'external_hotel_booking': 'external-hotel-booking',
+                                    };
+                                    const route = routeMap[requestType] || requestType;
+                                    router.push(`/requests/new/${route}?edit=${id}`);
                                 }}
                             >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1572,15 +1652,21 @@ export default function RequestDetailsPage() {
                                 {publishing ? 'Publishing...' : 'Publish Request'}
                             </Button>
                         )}
-                        {/* Edit button for current approver (not watchers) - navigates to capex form */}
+                        {/* Edit button for current approver (not watchers) - navigates to form */}
                         {canApproverEdit && (
                             <Button
                                 variant="outline"
                                 className="gap-2 bg-white text-text-secondary border-gray-200 hover:bg-gray-50 hover:text-text-primary"
                                 onClick={() => {
-                                    // Navigate to the capex form with edit mode
+                                    // Map request type to route (underscores to hyphens)
                                     const requestType = request.metadata?.type || 'capex';
-                                    router.push(`/requests/new/${requestType}?edit=${id}&approver=true`);
+                                    const routeMap: Record<string, string> = {
+                                        'hotel_booking': 'hotel-booking',
+                                        'travel_authorization': 'travel-auth',
+                                        'external_hotel_booking': 'external-hotel-booking',
+                                    };
+                                    const route = routeMap[requestType] || requestType;
+                                    router.push(`/requests/new/${route}?edit=${id}&approver=true`);
                                 }}
                             >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1632,267 +1718,49 @@ export default function RequestDetailsPage() {
                         </div>
 
                         <div className="min-h-[400px]">
-                            {activeTab === 'details' && (() => {
-                                // Get the form-specific data (handles nested capex, leave, etc.)
-                                // Determine which metadata to use based on editing mode
-                                const activeMetadata = isEditing && editedRequest 
-                                    ? editedRequest.metadata 
-                                    : (isApproverEditing && approverEditedRequest 
-                                        ? approverEditedRequest.metadata 
-                                        : request.metadata);
-                                const formData = getFormData(activeMetadata);
-                                const requestType = request.metadata?.type || 'approval';
-                                const isAnyEditing = isEditing || isApproverEditing;
-                                const handleFieldChange = isApproverEditing ? handleApproverMetadataChange : handleMetadataChange;
-
-                                return (
-                                    <div className="space-y-6">
-                                        {/* Approver Editing Notice */}
-                                        {isApproverEditing && (
-                                            <Card className="!p-4 border-primary-200 bg-primary-50/50 shadow-sm">
-                                                <div className="flex items-center gap-3">
-                                                    <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
-                                                        <svg className="w-5 h-5 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                                                        </svg>
-                                                    </div>
-                                                    <div>
-                                                        <p className="font-semibold text-primary-800">Editing as Approver</p>
-                                                        <p className="text-sm text-primary-600">Your changes will be tracked and visible to the requester and other viewers.</p>
-                                                    </div>
-                                                </div>
-                                            </Card>
-                                        )}
-
-                                        {/* Watcher View Notice */}
-                                        {isWatcher && !isCreator && !canApproverEdit && (
-                                            <Card className="!p-4 border-gray-200 bg-gray-50 shadow-sm">
-                                                <div className="flex items-center gap-3 text-gray-500">
-                                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            {activeTab === 'details' && (
+                                <div className="space-y-6">
+                                    {/* Approver Editing Notice */}
+                                    {isApproverEditing && (
+                                        <Card className="!p-4 border-primary-200 bg-primary-50/50 shadow-sm">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
+                                                    <svg className="w-5 h-5 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                                                     </svg>
-                                                    <div>
-                                                        <p className="font-medium text-gray-600">Viewing as Watcher</p>
-                                                        <p className="text-sm">You can track this request but cannot make changes.</p>
-                                                    </div>
                                                 </div>
-                                            </Card>
-                                        )}
-
-                                        {/* Project Overview Card */}
-                                        {formData.projectName && (
-                                            <Card className="!p-0 overflow-hidden border-primary-100 shadow-sm bg-gradient-to-br from-primary-50 via-white to-accent/5">
-                                                <div className="p-6">
-                                                    <div className="flex items-start justify-between">
-                                                        <div>
-                                                            <span className="text-xs font-semibold text-primary-600 uppercase tracking-wider">Project</span>
-                                                            <h2 className="text-2xl font-bold text-text-primary mt-1 font-heading">
-                                                                {isAnyEditing ? (
-                                                                    <Input
-                                                                        value={formData.projectName || ''}
-                                                                        onChange={e => handleFieldChange('projectName', e.target.value)}
-                                                                        className="mt-1"
-                                                                    />
-                                                                ) : formData.projectName}
-                                                            </h2>
-                                                            {formData.unit && (
-                                                                <p className="text-text-secondary mt-1">
-                                                                    {isAnyEditing ? (
-                                                                        <Input
-                                                                            value={formData.unit || ''}
-                                                                            onChange={e => handleFieldChange('unit', e.target.value)}
-                                                                            className="mt-1"
-                                                                        />
-                                                                    ) : formData.unit}
-                                                                </p>
-                                                            )}
-                                                        </div>
-                                                        {formData.amount && (
-                                                            <div className="text-right">
-                                                                <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Amount</span>
-                                                                <div className="text-2xl font-bold text-text-primary mt-1">
-                                                                    {isAnyEditing ? (
-                                                                        <div className="flex items-center gap-2">
-                                                                            <select
-                                                                                value={formData.currency || 'USD'}
-                                                                                onChange={(e) => handleFieldChange('currency', e.target.value)}
-                                                                                className="text-lg font-bold bg-transparent border-b border-gray-300 focus:border-primary-500 focus:outline-none py-1 w-20"
-                                                                            >
-                                                                                <option value="USD">USD</option>
-                                                                                <option value="ZIG">ZIG</option>
-                                                                            </select>
-                                                                            <Input
-                                                                                type="number"
-                                                                                value={formData.amount}
-                                                                                onChange={e => handleFieldChange('amount', e.target.value === '' ? '' : parseFloat(e.target.value))}
-                                                                                className="!py-1"
-                                                                            />
-                                                                        </div>
-                                                                    ) : (
-                                                                        <>{formData.currency || 'USD'} {formatFieldValue('amount', formData.amount)}</>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        )}
-                                                    </div>
+                                                <div>
+                                                    <p className="font-semibold text-primary-800">Editing as Approver</p>
+                                                    <p className="text-sm text-primary-600">Your changes will be tracked and visible to the requester and other viewers.</p>
                                                 </div>
-                                            </Card>
-                                        )}
-
-                                        {/* Financial Metrics Card (for CAPEX) */}
-                                        {(formData.npv || formData.irr || formData.paybackPeriod || formData.budgetType || formData.fundingSource || formData.evaluation) && (
-                                            <Card className="!p-0 overflow-hidden border-gray-200 shadow-sm">
-                                                <div className="bg-gray-50/50 px-6 py-4 border-b border-gray-100">
-                                                    <h3 className="font-semibold text-text-primary font-heading">Financial Information</h3>
-                                                </div>
-                                                <div className="p-6">
-                                                    {/* Key Metrics Row */}
-                                                    {(formData.npv || formData.irr || formData.paybackPeriod) && (
-                                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                                                            {formData.npv && (
-                                                                <div className="text-center p-4 bg-success-50 rounded-lg">
-                                                                    <div className="text-xs font-semibold text-success-600 uppercase tracking-wider">NPV</div>
-                                                                    <div className="text-2xl font-bold text-success-700 mt-1">
-                                                                        {formData.currency || 'USD'} {formatFieldValue('npv', formData.npv)}
-                                                                    </div>
-                                                                </div>
-                                                            )}
-                                                            {formData.irr && (
-                                                                <div className="text-center p-4 bg-primary-50 rounded-lg">
-                                                                    <div className="text-xs font-semibold text-primary-600 uppercase tracking-wider">IRR</div>
-                                                                    <div className="text-2xl font-bold text-primary-700 mt-1">{formData.irr}%</div>
-                                                                </div>
-                                                            )}
-                                                            {formData.paybackPeriod && (
-                                                                <div className="text-center p-4 bg-accent/10 rounded-lg">
-                                                                    <div className="text-xs font-semibold text-accent uppercase tracking-wider">Payback Period</div>
-                                                                    <div className="text-2xl font-bold text-accent mt-1">{formatFieldValue('paybackPeriod', formData.paybackPeriod)}</div>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    )}
-                                                    {/* Additional Financial Details */}
-                                                    {(formData.budgetType || formData.fundingSource || formData.evaluation) && (
-                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-gray-100">
-                                                            {formData.budgetType && (
-                                                                <div className="group">
-                                                                    <label className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1 block">
-                                                                        Budget Type
-                                                                    </label>
-                                                                    <div className="text-text-primary font-medium text-base">
-                                                                        {formatFieldValue('budgetType', formData.budgetType)}
-                                                                    </div>
-                                                                </div>
-                                                            )}
-                                                            {formData.fundingSource && (
-                                                                <div className="group">
-                                                                    <label className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1 block">
-                                                                        Funding Source
-                                                                    </label>
-                                                                    <div className="text-text-primary font-medium text-base">
-                                                                        {formData.fundingSource}
-                                                                    </div>
-                                                                </div>
-                                                            )}
-                                                            {formData.evaluation && (
-                                                                <div className="group md:col-span-2">
-                                                                    <label className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1 block">
-                                                                        Financial Evaluation
-                                                                    </label>
-                                                                    <div className="text-text-primary font-medium text-base whitespace-pre-wrap">
-                                                                        {formData.evaluation}
-                                                                    </div>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </Card>
-                                        )}
-
-                                        {/* Request Details Card */}
-                                        <Card className="!p-0 overflow-hidden border-gray-200 shadow-sm">
-                                            <div className="bg-gray-50/50 px-6 py-4 border-b border-gray-100">
-                                                <h3 className="font-semibold text-text-primary font-heading">Request Details</h3>
-                                            </div>
-                                            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-                                                {/* Request Type */}
-                                                <div className="group">
-                                                    <label className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1 block">
-                                                        Request Type
-                                                    </label>
-                                                    <div className="text-text-primary font-medium text-base border-b border-gray-100 pb-2 capitalize">
-                                                        {requestType}
-                                                    </div>
-                                                </div>
-                                                {/* Priority */}
-                                                {request.metadata?.priority && (
-                                                    <div className="group">
-                                                        <label className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1 block">
-                                                            Priority
-                                                        </label>
-                                                        <div className="text-text-primary font-medium text-base border-b border-gray-100 pb-2">
-                                                            {formatFieldValue('priority', request.metadata.priority)}
-                                                        </div>
-                                                    </div>
-                                                )}
-                                                {/* Form-specific fields */}
-                                                {Object.entries(formData)
-                                                    .filter(([key]) => !['projectName', 'npv', 'irr', 'paybackPeriod', 'amount', 'currency', 'unit', 'justification', 'description', 'budgetType', 'fundingSource', 'evaluation'].includes(key))
-                                                    .filter(([, value]) => {
-                                                        if (value === null || value === undefined || typeof value === 'object') return false;
-                                                        if (!isAnyEditing && value === '') return false;
-                                                        return true;
-                                                    })
-                                                    .map(([key, value]) => (
-                                                        <div key={key} className="group">
-                                                            <label className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1 block group-hover:text-primary-600 transition-colors">
-                                                                {getFieldLabel(key)}
-                                                            </label>
-                                                            <div className="text-text-primary font-medium text-base border-b border-gray-100 pb-2">
-                                                                {isAnyEditing ? (
-                                                                    <Input
-                                                                        value={formData[key] || ''}
-                                                                        onChange={(e) => handleFieldChange(key, e.target.value)}
-                                                                        className="!py-1 !text-base"
-                                                                    />
-                                                                ) : (
-                                                                    formatFieldValue(key, value)
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    ))
-                                                }
-                                                {/* Document Justification from top-level metadata */}
-                                                {request.metadata?.documentJustification && (
-                                                    <div className="group md:col-span-2">
-                                                        <label className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1 block">
-                                                            Document Justification
-                                                        </label>
-                                                        <div className="text-text-primary font-medium text-base border-b border-gray-100 pb-2">
-                                                            {request.metadata.documentJustification}
-                                                        </div>
-                                                    </div>
-                                                )}
                                             </div>
                                         </Card>
+                                    )}
 
-                                        {/* Justification Card */}
-                                        {(formData.justification || request.description) && (
-                                            <Card className="!p-0 overflow-hidden border-gray-200 shadow-sm">
-                                                <div className="bg-gray-50/50 px-6 py-4 border-b border-gray-100">
-                                                    <h3 className="font-semibold text-text-primary font-heading">Justification & Notes</h3>
+                                    {/* Watcher View Notice */}
+                                    {isWatcher && !isCreator && !canApproverEdit && (
+                                        <Card className="!p-4 border-gray-200 bg-gray-50 shadow-sm">
+                                            <div className="flex items-center gap-3 text-gray-500">
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                </svg>
+                                                <div>
+                                                    <p className="font-medium text-gray-600">Viewing as Watcher</p>
+                                                    <p className="text-sm">You can track this request but cannot make changes.</p>
                                                 </div>
-                                                <div className="p-6 text-text-primary leading-relaxed whitespace-pre-wrap">
-                                                    {formData.justification || request.description || 'No justification provided.'}
-                                                </div>
-                                            </Card>
-                                        )}
+                                            </div>
+                                        </Card>
+                                    )}
 
-                                    </div>
-                                );
-                            })()}
+                                    {/* Dynamic Form Details - renders all form fields based on configuration */}
+                                    <DynamicFormDetails 
+                                        metadata={request.metadata || {}}
+                                        requestType={request.metadata?.type || 'approval'}
+                                        description={request.description}
+                                    />
+                                </div>
+                            )}
 
                             {activeTab === 'timeline' && (
                                 <div className="space-y-6">
@@ -1952,10 +1820,10 @@ export default function RequestDetailsPage() {
                                                                     <>
                                                                         Changed <span className="font-medium text-gray-800">{getFieldLabel(mod.field_name)}</span>
                                                                         {mod.old_value && (
-                                                                            <> from <span className="text-gray-500 line-through">{mod.old_value}</span></>
+                                                                            <> from <span className="text-gray-500 line-through">{formatModificationValue(mod.field_name, mod.old_value)}</span></>
                                                                         )}
                                                                         {mod.new_value && (
-                                                                            <> to <span className="font-medium text-gray-800">{mod.new_value}</span></>
+                                                                            <> to <span className="font-medium text-gray-800">{formatModificationValue(mod.field_name, mod.new_value)}</span></>
                                                                         )}
                                                                     </>
                                                                 )}

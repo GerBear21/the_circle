@@ -11,6 +11,7 @@
  */
 
 import { supabaseAdmin } from './supabaseAdmin';
+import { generateAndStoreArchive } from '@/pages/api/archives/generate-pdf';
 
 // ============================================================================
 // Types
@@ -251,6 +252,9 @@ export class ApprovalEngine {
     const approvalSteps = workflow.steps.filter(s => s.type === 'approval');
     const stepsToCreate: any[] = [];
     
+    // Check if parallel approvals mode is enabled
+    const useParallelApprovals = formData?.useParallelApprovals === true;
+    
     for (let i = 0; i < approvalSteps.length; i++) {
       const stepDef = approvalSteps[i];
       
@@ -291,7 +295,8 @@ export class ApprovalEngine {
         step_type: stepDef.type,
         approver_user_id: approverId,
         approver_role: stepDef.approverType === 'role' ? stepDef.approverValue : null,
-        status: stepsToCreate.length === 0 ? 'pending' : 'waiting', // First step is pending
+        // PARALLEL: All steps are pending; SEQUENTIAL: Only first step is pending
+        status: useParallelApprovals ? 'pending' : (stepsToCreate.length === 0 ? 'pending' : 'waiting'),
         due_at: dueAt,
         step_definition: stepDef, // Store the step config snapshot
       });
@@ -311,14 +316,27 @@ export class ApprovalEngine {
       return { success: false, error: 'Failed to create approval steps' };
     }
     
-    // Notify the first approver
-    await this.notifyApprover(
-      requestId,
-      stepsToCreate[0].approver_user_id,
-      organizationId,
-      creatorId,
-      'New approval request requires your attention'
-    );
+    if (useParallelApprovals) {
+      // PARALLEL: Notify ALL approvers immediately
+      for (const step of stepsToCreate) {
+        await this.notifyApprover(
+          requestId,
+          step.approver_user_id,
+          organizationId,
+          creatorId,
+          `New approval request requires your attention (Parallel approval - ${stepsToCreate.length} approvers)`
+        );
+      }
+    } else {
+      // SEQUENTIAL: Notify only the first approver
+      await this.notifyApprover(
+        requestId,
+        stepsToCreate[0].approver_user_id,
+        organizationId,
+        creatorId,
+        'New approval request requires your attention'
+      );
+    }
     
     return { success: true };
   }
@@ -562,18 +580,10 @@ export class ApprovalEngine {
     approverId: string
   ): Promise<{ success: boolean; message?: string }> {
     
-    // Get the next step
-    const { data: nextStep } = await supabaseAdmin
-      .from('request_steps')
-      .select('id, approver_user_id, status')
-      .eq('request_id', requestId)
-      .eq('step_index', currentStep.step_index + 1)
-      .single();
-    
-    // Get request details for notification
+    // Get request details for notification and to check parallel mode
     const { data: request } = await supabaseAdmin
       .from('requests')
-      .select('title, organization_id, creator_id')
+      .select('title, organization_id, creator_id, metadata')
       .eq('id', requestId)
       .single();
     
@@ -585,6 +595,67 @@ export class ApprovalEngine {
       .single();
     
     const approverName = approver?.display_name || 'an approver';
+    const isParallelApproval = request?.metadata?.useParallelApprovals === true;
+    
+    if (isParallelApproval) {
+      // PARALLEL APPROVAL MODE: Check if all steps are now approved
+      const { data: allSteps } = await supabaseAdmin
+        .from('request_steps')
+        .select('id, status')
+        .eq('request_id', requestId);
+      
+      const pendingSteps = allSteps?.filter(s => s.status === 'pending') || [];
+      const approvedSteps = allSteps?.filter(s => s.status === 'approved') || [];
+      const totalSteps = allSteps?.length || 0;
+      
+      // Notify the requestor about this approval
+      if (request) {
+        await this.notifyRequester(
+          requestId,
+          request.creator_id,
+          request.organization_id,
+          `Your request "${request.title}" was approved by ${approverName} (${approvedSteps.length} of ${totalSteps} approvals received).`
+        );
+      }
+      
+      if (pendingSteps.length === 0) {
+        // All approvers have approved - complete the workflow
+        await supabaseAdmin
+          .from('requests')
+          .update({ status: 'approved' })
+          .eq('id', requestId);
+        
+        if (request) {
+          await this.notifyRequester(
+            requestId,
+            request.creator_id,
+            request.organization_id,
+            `Your request "${request.title}" has been fully approved! All ${totalSteps} approvers have approved.`
+          );
+          
+          // Auto-generate and store PDF archive
+          try {
+            await generateAndStoreArchive(requestId, request.organization_id, approverId);
+            console.log(`Archive generated for request ${requestId}`);
+          } catch (archiveError) {
+            console.error('Failed to generate archive:', archiveError);
+          }
+        }
+        
+        return { success: true, message: 'Request fully approved (parallel)' };
+      }
+      
+      return { success: true, message: `Approved (${approvedSteps.length}/${totalSteps} approvals)` };
+    }
+    
+    // SEQUENTIAL APPROVAL MODE (original logic)
+    // Get the next step
+    const { data: nextStep } = await supabaseAdmin
+      .from('request_steps')
+      .select('id, approver_user_id, status')
+      .eq('request_id', requestId)
+      .eq('step_index', currentStep.step_index + 1)
+      .single();
     
     if (nextStep && nextStep.status === 'waiting') {
       // Activate the next step - SEQUENTIAL APPROVAL
@@ -665,6 +736,14 @@ export class ApprovalEngine {
           request.organization_id,
           `Your request "${request.title}" has been fully approved by ${approverName}!`
         );
+        
+        // Auto-generate and store PDF archive
+        try {
+          await generateAndStoreArchive(requestId, request.organization_id, approverId);
+          console.log(`Archive generated for request ${requestId}`);
+        } catch (archiveError) {
+          console.error('Failed to generate archive:', archiveError);
+        }
       }
       
       return { success: true, message: 'Request fully approved' };
