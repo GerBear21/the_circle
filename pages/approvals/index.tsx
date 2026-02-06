@@ -38,6 +38,14 @@ const pulseKeyframes = `
 const CRITICAL_ANIMATION_DURATION = 1.4;
 const HIGH_ANIMATION_DURATION = 4.17;
 
+function getRequestDetailPath(request: any): string {
+  const requestType = request.metadata?.type || request.metadata?.requestType;
+  if (requestType === 'hotel_booking') {
+    return `/requests/comp/${request.id}`;
+  }
+  return `/requests/${request.id}`;
+}
+
 const statusConfig: Record<string, { label: string; bg: string; text: string }> = {
   pending: { label: 'Pending', bg: 'bg-yellow-100', text: 'text-yellow-800' },
   pending_approval: { label: 'Pending', bg: 'bg-yellow-100', text: 'text-yellow-800' },
@@ -493,7 +501,7 @@ export default function ApprovalsPage() {
                 return (
                   <div
                     key={request.id}
-                    onClick={() => router.push(`/requests/${request.id}`)}
+                    onClick={() => router.push(getRequestDetailPath(request))}
                     className={`relative bg-white rounded-2xl border-2 p-5 cursor-pointer transition-all duration-300 hover:-translate-y-1 ${
                       isCritical 
                         ? 'border-red-300' 

@@ -61,6 +61,7 @@ export default function NewCapexRequestPage() {
     ceo: '',
   });
   const [showApproverDropdown, setShowApproverDropdown] = useState<string | null>(null);
+  const [useParallelApprovals, setUseParallelApprovals] = useState(false);
   const [selectedWatchers, setSelectedWatchers] = useState<Array<{ id: string; addedBy?: { id: string; name: string; isApprover: boolean }; addedAt?: string }>>([]);
   const [watcherSearch, setWatcherSearch] = useState('');
   const [showWatcherDropdown, setShowWatcherDropdown] = useState(false);
@@ -577,6 +578,7 @@ export default function NewCapexRequestPage() {
               priority: formData.priority,
               approvers: approversArray,
               approverRoles: selectedApprovers,
+              useParallelApprovals: useParallelApprovals,
               watchers: Array.isArray(selectedWatchers) ? selectedWatchers.map(w => typeof w === 'string' ? w : w.id) : [],
               quotations: [
                 ...(Array.isArray(existingQuotations) ? existingQuotations : []),
@@ -745,6 +747,7 @@ export default function NewCapexRequestPage() {
             priority: formData.priority,
             approvers: approversArray, // Sequential array of approver IDs
             approverRoles: selectedApprovers, // Keep original object for reference
+            useParallelApprovals: useParallelApprovals, // Parallel or sequential approval mode
             watchers: selectedWatchers,
             quotations: quotationDocuments.map(doc => ({
               name: doc.file.name,
@@ -930,6 +933,7 @@ export default function NewCapexRequestPage() {
             priority: formData.priority,
             approvers: approversArray,
             approverRoles: selectedApprovers,
+            useParallelApprovals: useParallelApprovals,
             watchers: selectedWatchers.map(w => typeof w === 'string' ? w : w.id),
             quotations: [
               ...existingQuotations,
@@ -1795,8 +1799,28 @@ export default function NewCapexRequestPage() {
             Select Approvers <span className="text-red-500">*</span>
           </h3>
           <p className="text-sm text-text-secondary mb-4">
-            Select users for each approval role. <span className="text-red-500 font-medium">All 8 approvers are required.</span> Approvals will be processed sequentially in the order shown below.
+            Select users for each approval role. <span className="text-red-500 font-medium">All 8 approvers are required.</span>
           </p>
+
+          {/* Parallel vs Sequential Approval Toggle */}
+          <div className="mb-6 p-4 bg-gray-50 rounded-xl border border-gray-200">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={useParallelApprovals}
+                onChange={(e) => setUseParallelApprovals(e.target.checked)}
+                className="mt-1 w-5 h-5 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+              />
+              <div>
+                <span className="font-semibold text-gray-900 block">Use Parallel Approvals</span>
+                <span className="text-sm text-gray-500 mt-1 block">
+                  {useParallelApprovals 
+                    ? 'All approvers will be notified immediately and can review the request simultaneously. Any approver can approve or reject at any time.'
+                    : 'Approvals will be processed sequentially in the order shown below. Each approver must complete their review before the next approver is notified.'}
+                </span>
+              </div>
+            </label>
+          </div>
 
           {/* Role-based Approver Selection */}
           <div className="space-y-4">

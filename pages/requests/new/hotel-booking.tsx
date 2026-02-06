@@ -28,6 +28,18 @@ export default function HotelBookingPage() {
     const [error, setError] = useState<string | null>(null);
     const [selectedBusinessUnits, setSelectedBusinessUnits] = useState<SelectedBusinessUnit[]>([]);
 
+    // Edit mode state
+    const { edit: editRequestId, approver: isApproverEdit } = router.query;
+    const isEditMode = !!editRequestId;
+    const isApproverEditing = isApproverEdit === 'true';
+    const [loadingRequest, setLoadingRequest] = useState(false);
+    const [originalFormData, setOriginalFormData] = useState<any>(null);
+    const [originalTravelData, setOriginalTravelData] = useState<any>(null);
+    const [originalBusinessUnits, setOriginalBusinessUnits] = useState<SelectedBusinessUnit[]>([]);
+    const [originalApprovers, setOriginalApprovers] = useState<Record<string, string> | null>(null);
+    const [originalUseParallelApprovals, setOriginalUseParallelApprovals] = useState<boolean | null>(null);
+    const [requestStatus, setRequestStatus] = useState<string>('draft');
+
     // Initial date for display
     const today = new Date().toLocaleDateString('en-GB', {
         day: 'numeric',
@@ -69,6 +81,7 @@ export default function HotelBookingPage() {
         ceo: '',
     });
     const [showApproverDropdown, setShowApproverDropdown] = useState<string | null>(null);
+    const [useParallelApprovals, setUseParallelApprovals] = useState(false);
 
     // Travel document state
     const [travelData, setTravelData] = useState({
@@ -154,6 +167,77 @@ export default function HotelBookingPage() {
             router.push('/');
         }
     }, [status, router]);
+
+    // Fetch existing request data when in edit mode
+    useEffect(() => {
+        const fetchExistingRequest = async () => {
+            if (!editRequestId || typeof editRequestId !== 'string') return;
+            
+            setLoadingRequest(true);
+            try {
+                const response = await fetch(`/api/requests/${editRequestId}`);
+                if (!response.ok) throw new Error('Failed to fetch request');
+                const data = await response.json();
+                const request = data.request;
+                const metadata = request.metadata || {};
+
+                setRequestStatus(request.status || 'draft');
+
+                // Store original data for comparison
+                setOriginalFormData({
+                    guestNames: metadata.guestNames || '',
+                    isExternalGuest: metadata.isExternalGuest || false,
+                    allocationType: metadata.allocationType || 'marketing_domestic',
+                    percentageDiscount: metadata.percentageDiscount || '',
+                    reason: metadata.reason || request.description || '',
+                    processTravelDocument: metadata.processTravelDocument || false,
+                });
+
+                // Pre-fill form with existing data
+                setFormData({
+                    guestNames: metadata.guestNames || '',
+                    isExternalGuest: metadata.isExternalGuest || false,
+                    allocationType: metadata.allocationType || 'marketing_domestic',
+                    percentageDiscount: metadata.percentageDiscount || '',
+                    reason: metadata.reason || request.description || '',
+                    processTravelDocument: metadata.processTravelDocument || false,
+                });
+
+                // Set business units
+                if (metadata.selectedBusinessUnits && Array.isArray(metadata.selectedBusinessUnits)) {
+                    setSelectedBusinessUnits(metadata.selectedBusinessUnits);
+                    setOriginalBusinessUnits(metadata.selectedBusinessUnits);
+                }
+
+                // Set travel data if present
+                if (metadata.travelDocument) {
+                    setTravelData(metadata.travelDocument);
+                    setOriginalTravelData(metadata.travelDocument);
+                }
+
+                // Set approvers and store original for change tracking
+                const approverRolesData = metadata.approverRoles || {};
+                if (approverRolesData && typeof approverRolesData === 'object') {
+                    setSelectedApprovers(prev => ({ ...prev, ...approverRolesData }));
+                    setOriginalApprovers({ hod: '', hr_director: '', finance_director: '', ceo: '', ...approverRolesData });
+                }
+
+                // Set parallel approvals and store original
+                const parallelApprovals = metadata.useParallelApprovals || false;
+                setUseParallelApprovals(parallelApprovals);
+                setOriginalUseParallelApprovals(parallelApprovals);
+            } catch (err: any) {
+                console.error('Error fetching request:', err);
+                setError('Failed to load request data');
+            } finally {
+                setLoadingRequest(false);
+            }
+        };
+
+        if (status === 'authenticated' && editRequestId) {
+            fetchExistingRequest();
+        }
+    }, [editRequestId, status]);
 
     // Fetch business units
     useEffect(() => {
@@ -259,8 +343,185 @@ export default function HotelBookingPage() {
         );
     };
 
+    // Helper to get approver display name
+    const getApproverName = (approverId: string) => {
+        const user = users.find(u => u.id === approverId);
+        return user ? user.display_name : approverId || 'None';
+    };
+
+    // Helper to collect field changes for approver edit tracking
+    const collectFieldChanges = () => {
+        if (!originalFormData) return [];
+        const changes: { fieldName: string; oldValue: any; newValue: any }[] = [];
+
+        if (formData.guestNames !== originalFormData.guestNames) {
+            changes.push({ fieldName: 'guestNames', oldValue: originalFormData.guestNames, newValue: formData.guestNames });
+        }
+        if (formData.isExternalGuest !== originalFormData.isExternalGuest) {
+            changes.push({ fieldName: 'isExternalGuest', oldValue: originalFormData.isExternalGuest, newValue: formData.isExternalGuest });
+        }
+        if (formData.allocationType !== originalFormData.allocationType) {
+            changes.push({ fieldName: 'allocationType', oldValue: originalFormData.allocationType, newValue: formData.allocationType });
+        }
+        if (formData.percentageDiscount !== originalFormData.percentageDiscount) {
+            changes.push({ fieldName: 'percentageDiscount', oldValue: originalFormData.percentageDiscount, newValue: formData.percentageDiscount });
+        }
+        if (formData.reason !== originalFormData.reason) {
+            changes.push({ fieldName: 'reason', oldValue: originalFormData.reason, newValue: formData.reason });
+        }
+        if (JSON.stringify(selectedBusinessUnits) !== JSON.stringify(originalBusinessUnits)) {
+            changes.push({ fieldName: 'selectedBusinessUnits', oldValue: JSON.stringify(originalBusinessUnits), newValue: JSON.stringify(selectedBusinessUnits) });
+        }
+        if (formData.processTravelDocument && originalTravelData && JSON.stringify(travelData) !== JSON.stringify(originalTravelData)) {
+            changes.push({ fieldName: 'travelDocument', oldValue: JSON.stringify(originalTravelData), newValue: JSON.stringify(travelData) });
+        }
+
+        // Track approval workflow changes
+        if (originalApprovers) {
+            const roleLabels: Record<string, string> = {
+                hod: 'HOD Approver',
+                hr_director: 'HR Director Approver',
+                finance_director: 'Finance Director Approver',
+                ceo: 'CEO Approver',
+            };
+            for (const role of Object.keys(roleLabels)) {
+                const oldApprover = originalApprovers[role] || '';
+                const newApprover = selectedApprovers[role] || '';
+                if (oldApprover !== newApprover) {
+                    changes.push({
+                        fieldName: roleLabels[role],
+                        oldValue: getApproverName(oldApprover),
+                        newValue: getApproverName(newApprover),
+                    });
+                }
+            }
+        }
+
+        // Track parallel approvals change
+        if (originalUseParallelApprovals !== null && useParallelApprovals !== originalUseParallelApprovals) {
+            changes.push({
+                fieldName: 'Parallel Approvals',
+                oldValue: originalUseParallelApprovals ? 'Enabled' : 'Disabled',
+                newValue: useParallelApprovals ? 'Enabled' : 'Disabled',
+            });
+        }
+
+        return changes;
+    };
+
+    // Handle approver save (edit mode with change tracking)
+    const handleApproverSave = async () => {
+        setLoading(true);
+        setError(null);
+
+        try {
+            const fieldChanges = collectFieldChanges();
+            const approversArray = [selectedApprovers.hod, selectedApprovers.hr_director, selectedApprovers.finance_director, selectedApprovers.ceo].filter(Boolean);
+
+            const response = await fetch(`/api/requests/${editRequestId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: `Hotel Booking: ${formData.guestNames}`,
+                    description: formData.reason,
+                    metadata: {
+                        type: 'hotel_booking',
+                        guestNames: formData.guestNames,
+                        isExternalGuest: formData.isExternalGuest,
+                        selectedBusinessUnits: selectedBusinessUnits,
+                        allocationType: formData.allocationType,
+                        percentageDiscount: formData.percentageDiscount,
+                        reason: formData.reason,
+                        processTravelDocument: formData.processTravelDocument,
+                        ...(formData.processTravelDocument && { travelDocument: travelData }),
+                        approvers: approversArray,
+                        approverRoles: selectedApprovers,
+                        useParallelApprovals: useParallelApprovals,
+                    },
+                }),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to save changes');
+            }
+
+            // Record modifications if there are changes
+            if (fieldChanges.length > 0) {
+                await fetch(`/api/requests/${editRequestId}/approver-edit`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fieldChanges }),
+                });
+            }
+
+            router.push(`/requests/${editRequestId}`);
+        } catch (err: any) {
+            setError(err.message || 'Failed to save changes');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Handle draft owner save (edit mode)
+    const handleDraftSave = async () => {
+        setSavingDraft(true);
+        setError(null);
+
+        try {
+            const approversArray = [selectedApprovers.hod, selectedApprovers.hr_director, selectedApprovers.finance_director, selectedApprovers.ceo].filter(Boolean);
+
+            const response = await fetch(`/api/requests/${editRequestId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: `Hotel Booking: ${formData.guestNames || 'Draft'}`,
+                    description: formData.reason || 'Draft request',
+                    metadata: {
+                        type: 'hotel_booking',
+                        guestNames: formData.guestNames,
+                        isExternalGuest: formData.isExternalGuest,
+                        selectedBusinessUnits: selectedBusinessUnits,
+                        allocationType: formData.allocationType,
+                        percentageDiscount: formData.percentageDiscount,
+                        reason: formData.reason,
+                        processTravelDocument: formData.processTravelDocument,
+                        ...(formData.processTravelDocument && { travelDocument: travelData }),
+                        approvers: approversArray,
+                        approverRoles: selectedApprovers,
+                        useParallelApprovals: useParallelApprovals,
+                    },
+                }),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to save draft');
+            }
+
+            router.push(`/requests/${editRequestId}`);
+        } catch (err: any) {
+            setError(err.message || 'Failed to save draft');
+        } finally {
+            setSavingDraft(false);
+        }
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        // If approver editing, use approver save
+        if (isApproverEditing && isEditMode) {
+            await handleApproverSave();
+            return;
+        }
+
+        // If editing a draft, use draft save
+        if (isEditMode && !isApproverEditing) {
+            await handleDraftSave();
+            return;
+        }
+
         setLoading(true);
         setError(null);
 
@@ -396,6 +657,7 @@ export default function HotelBookingPage() {
                     priority: 'normal',
                     category: 'hotel',
                     requestType: 'hotel_booking',
+                    status: 'pending', // Submit for approval immediately
                     metadata: {
                         guestNames: formData.guestNames,
                         isExternalGuest: formData.isExternalGuest,
@@ -407,6 +669,7 @@ export default function HotelBookingPage() {
                         ...(formData.processTravelDocument && { travelDocument: travelData }),
                         approvers: approversArray, // Sequential array of approver IDs
                         approverRoles: selectedApprovers, // Keep original object for reference
+                        useParallelApprovals: useParallelApprovals, // Parallel or sequential approval mode
                     },
                 }),
             });
@@ -461,6 +724,7 @@ export default function HotelBookingPage() {
                         ...(formData.processTravelDocument && { travelDocument: travelData }),
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
+                        useParallelApprovals: useParallelApprovals,
                     },
                 }),
             });
@@ -479,7 +743,7 @@ export default function HotelBookingPage() {
         }
     };
 
-    if (status === 'loading') {
+    if (status === 'loading' || loadingRequest) {
         return (
             <AppLayout title="Hotel Booking" showBack onBack={() => router.back()}>
                 <div className="flex items-center justify-center min-h-[60vh]">
@@ -491,13 +755,23 @@ export default function HotelBookingPage() {
 
     if (!session) return null;
 
+    const pageTitle = isApproverEditing ? 'Edit Hotel Booking (Approver)' : isEditMode ? 'Edit Hotel Booking' : 'Hotel Booking';
+
     return (
-        <AppLayout title="Hotel Booking" showBack onBack={() => router.back()} hideNav>
+        <AppLayout title={pageTitle} showBack onBack={() => router.back()} hideNav>
             <form onSubmit={handleSubmit} className="p-4 sm:p-6 max-w-5xl mx-auto pb-32">
                 <div className="mb-6 text-center">
                     <h1 className="text-2xl font-bold text-text-primary font-heading uppercase tracking-wide">
-                        Complimentary Hotel Guest Booking Form
+                        {isApproverEditing ? 'Edit Hotel Booking' : 'Complimentary Hotel Guest Booking Form'}
                     </h1>
+                    {isApproverEditing && (
+                        <div className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-primary-50 border border-primary-200 rounded-xl">
+                            <svg className="w-4 h-4 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            </svg>
+                            <span className="text-sm font-medium text-primary-700">Editing as Approver - Changes will be tracked</span>
+                        </div>
+                    )}
                 </div>
 
                 {error && (
@@ -1192,9 +1466,29 @@ export default function HotelBookingPage() {
                             </svg>
                             Select Approvers <span className="text-danger-500">*</span>
                         </h3>
-                        <p className="text-sm text-text-secondary mb-6">
+                        <p className="text-sm text-text-secondary mb-4">
                             Select a user to act as each approver role. All 4 approvers are required.
                         </p>
+
+                        {/* Parallel vs Sequential Approval Toggle */}
+                        <div className="mb-6 p-4 bg-gray-50 rounded-xl border border-gray-200">
+                            <label className="flex items-start gap-3 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={useParallelApprovals}
+                                    onChange={(e) => setUseParallelApprovals(e.target.checked)}
+                                    className="mt-1 w-5 h-5 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                                />
+                                <div>
+                                    <span className="font-semibold text-gray-900 block">Use Parallel Approvals</span>
+                                    <span className="text-sm text-gray-500 mt-1 block">
+                                        {useParallelApprovals 
+                                            ? 'All approvers will be notified immediately and can review the request simultaneously. Any approver can approve or reject at any time.'
+                                            : 'Approvals will be processed sequentially in the order shown below. Each approver must complete their review before the next approver is notified.'}
+                                    </span>
+                                </div>
+                            </label>
+                        </div>
 
                         {/* Click outside to close any dropdown */}
                         {showApproverDropdown && (
@@ -1320,33 +1614,23 @@ export default function HotelBookingPage() {
                 {/* Footer Action Bar */}
                 <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-sm border-t border-gray-100 pb-safe lg:left-64 z-10 shadow-lg">
                     <div className="flex gap-3 max-w-5xl mx-auto">
-                        <Button
-                            type="button"
-                            variant="secondary"
-                            className="flex-1"
-                            onClick={() => router.back()}
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            type="button"
-                            variant="secondary"
-                            className="flex-1 border-primary-300 text-primary-600 hover:bg-primary-50"
-                            onClick={handleSaveDraft}
-                            isLoading={savingDraft}
-                            disabled={loading}
-                        >
-                            Save as Draft
-                        </Button>
-                        <Button
-                            type="submit"
-                            variant="primary"
-                            className="flex-1 shadow-primary-500/25 shadow-lg"
-                            isLoading={loading}
-                            disabled={savingDraft}
-                        >
-                            Submit Request
-                        </Button>
+                        {isApproverEditing ? (
+                            <>
+                                <Button type="button" variant="secondary" className="flex-1" onClick={() => router.back()}>Cancel</Button>
+                                <Button type="submit" variant="primary" className="flex-1 shadow-primary-500/25 shadow-lg" isLoading={loading}>Save Changes</Button>
+                            </>
+                        ) : isEditMode ? (
+                            <>
+                                <Button type="button" variant="secondary" className="flex-1" onClick={() => router.back()}>Cancel</Button>
+                                <Button type="submit" variant="primary" className="flex-1 shadow-primary-500/25 shadow-lg" isLoading={loading || savingDraft}>Save Changes</Button>
+                            </>
+                        ) : (
+                            <>
+                                <Button type="button" variant="secondary" className="flex-1" onClick={() => router.back()}>Cancel</Button>
+                                <Button type="button" variant="secondary" className="flex-1 border-primary-300 text-primary-600 hover:bg-primary-50" onClick={handleSaveDraft} isLoading={savingDraft} disabled={loading}>Save as Draft</Button>
+                                <Button type="submit" variant="primary" className="flex-1 shadow-primary-500/25 shadow-lg" isLoading={loading} disabled={savingDraft}>Submit Request</Button>
+                            </>
+                        )}
                     </div>
                 </div>
             </form>

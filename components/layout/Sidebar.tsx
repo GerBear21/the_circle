@@ -41,7 +41,7 @@ const navSections: NavSection[] = [
       //     </svg>
       //   ),
       // },
-      
+
       {
         href: '/requests/new',
         label: 'Create New',
@@ -66,6 +66,38 @@ const navSections: NavSection[] = [
         icon: (
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        ),
+      }
+    ],
+  },
+  {
+    title: 'Reporting and Archives',
+    items: [
+      {
+        href: '/archive',
+        label: 'Archives',
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+          </svg>
+        ),
+      },
+      {
+        href: '/archive/audit',
+        label: 'Audit Trail and Compliance',
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+          </svg>
+        ),
+      },
+      {
+        href: '/reports',
+        label: 'Reports',
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
           </svg>
         ),
       },
@@ -227,9 +259,9 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             >
               <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-600 font-medium text-sm shrink-0 overflow-hidden">
                 {appUser?.profile_picture_url ? (
-                  <img 
-                    src={appUser.profile_picture_url} 
-                    alt={appUser.display_name || 'Profile'} 
+                  <img
+                    src={appUser.profile_picture_url}
+                    alt={appUser.display_name || 'Profile'}
                     className="w-full h-full object-cover"
                   />
                 ) : (

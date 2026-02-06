@@ -301,7 +301,7 @@ export default function NewRequestPage() {
           )}
         </div>
 
-        {/* Footer Support Card */}
+        {/* Footer Support Card
         <div className="mt-12 rounded-2xl bg-blue-50 border border-blue-100 p-6 flex flex-col sm:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm text-blue-500">
@@ -320,7 +320,7 @@ export default function NewRequestPage() {
           >
             Contact Support
           </button>
-        </div>
+        </div> */}
       </div>
     </AppLayout>
   );

@@ -11,8 +11,8 @@ export const Logo = () => {
         >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-                src="/images/RTG_LOGO.png"
-                alt="RTG Logo"
+                src="logo.svg"
+                alt="The Circle Logo"
                 className="h-20 object-contain"
             />
         </div>

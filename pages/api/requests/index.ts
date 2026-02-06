@@ -60,8 +60,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       
       if (error) throw error;
 
-      // SEQUENTIAL APPROVAL VISIBILITY: Filter requests user can see
-      // User can see if: creator, watcher, or approver with non-waiting step
+      // APPROVAL VISIBILITY: Filter requests user can see
+      // User can see if: creator, watcher, or approver with non-waiting step (or any step in parallel mode)
       const filteredRequests = (requests || []).filter((req: any) => {
         // Filter out drafts that don't belong to the current user
         if (req.status === 'draft') {
@@ -78,11 +78,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         );
         if (isWatcher) return true;
         
-        // Check if user is an approver with non-waiting step
+        // Check if user is an approver
         const userStep = req.request_steps?.find(
           (step: any) => step.approver_user_id === userId
         );
-        if (userStep && userStep.status !== 'waiting') return true;
+        
+        if (userStep) {
+          // PARALLEL MODE: All approvers can see the request immediately (all steps are pending)
+          // SEQUENTIAL MODE: Only approvers with non-waiting steps can see
+          const isParallelApproval = req.metadata?.useParallelApprovals === true;
+          if (isParallelApproval || userStep.status !== 'waiting') return true;
+        }
         
         return false;
       }).slice(0, Number(limit));
@@ -214,15 +220,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       if (finalStatus === 'pending' && approvers.length > 0) {
+        // Check if parallel approvals mode is enabled
+        const useParallelApprovals = metadata?.useParallelApprovals === true;
+
         // Create request_steps for each approver in order
+        // PARALLEL APPROVAL: All steps are 'pending' - all approvers can review immediately
         // SEQUENTIAL APPROVAL: First step is 'pending', all subsequent steps are 'waiting'
-        // Approvers will only see the request when their step becomes 'pending'
         const requestSteps = approvers.map((approverId: string, index: number) => ({
           request_id: data.id,
           step_index: index + 1,
           step_type: 'approval',
           approver_user_id: approverId,
-          status: index === 0 ? 'pending' : 'waiting', // Only first step is pending
+          status: useParallelApprovals ? 'pending' : (index === 0 ? 'pending' : 'waiting'),
         }));
 
         const { error: stepsError } = await supabaseAdmin
@@ -241,32 +250,62 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .single();
 
         const requesterName = requesterData?.display_name || 'A user';
-        const firstApproverId = approvers[0];
 
-        // SEQUENTIAL NOTIFICATION: Only notify the FIRST approver initially
-        // Subsequent approvers will be notified when their step becomes pending (handled by ApprovalEngine)
-        try {
-          await supabaseAdmin
-            .from('notifications')
-            .insert({
-              organization_id: organizationId,
-              recipient_id: firstApproverId,
-              sender_id: userId,
-              type: 'task',
-              title: 'New Approval Request',
-              message: `${requesterName} has submitted a ${requestType?.toUpperCase() || 'CAPEX'} request "${title}" for your approval. (Step 1 of ${approvers.length})`,
-              metadata: {
-                request_id: data.id,
-                request_type: requestType,
-                action_label: 'Review Request',
-                action_url: `/requests/${data.id}`,
-                step_number: 1,
-                total_steps: approvers.length,
-              },
-              is_read: false,
-            });
-        } catch (notifError) {
-          console.error('Failed to create notification:', notifError);
+        if (useParallelApprovals) {
+          // PARALLEL NOTIFICATION: Notify ALL approvers immediately
+          const approverNotifications = approvers.map((approverId: string, index: number) => ({
+            organization_id: organizationId,
+            recipient_id: approverId,
+            sender_id: userId,
+            type: 'task',
+            title: 'New Approval Request',
+            message: `${requesterName} has submitted a ${requestType?.toUpperCase() || 'CAPEX'} request "${title}" for your approval. (Parallel approval - ${approvers.length} approvers)`,
+            metadata: {
+              request_id: data.id,
+              request_type: requestType,
+              action_label: 'Review Request',
+              action_url: `/requests/${data.id}`,
+              step_number: index + 1,
+              total_steps: approvers.length,
+              is_parallel: true,
+            },
+            is_read: false,
+          }));
+
+          try {
+            await supabaseAdmin
+              .from('notifications')
+              .insert(approverNotifications);
+          } catch (notifError) {
+            console.error('Failed to create parallel notifications:', notifError);
+          }
+        } else {
+          // SEQUENTIAL NOTIFICATION: Only notify the FIRST approver initially
+          // Subsequent approvers will be notified when their step becomes pending (handled by ApprovalEngine)
+          const firstApproverId = approvers[0];
+          try {
+            await supabaseAdmin
+              .from('notifications')
+              .insert({
+                organization_id: organizationId,
+                recipient_id: firstApproverId,
+                sender_id: userId,
+                type: 'task',
+                title: 'New Approval Request',
+                message: `${requesterName} has submitted a ${requestType?.toUpperCase() || 'CAPEX'} request "${title}" for your approval. (Step 1 of ${approvers.length})`,
+                metadata: {
+                  request_id: data.id,
+                  request_type: requestType,
+                  action_label: 'Review Request',
+                  action_url: `/requests/${data.id}`,
+                  step_number: 1,
+                  total_steps: approvers.length,
+                },
+                is_read: false,
+              });
+          } catch (notifError) {
+            console.error('Failed to create notification:', notifError);
+          }
         }
 
         // Update request metadata with total_steps for tracking
@@ -276,7 +315,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             metadata: {
               ...finalMetadata,
               total_steps: approvers.length,
-              current_step: 1,
+              current_step: useParallelApprovals ? null : 1, // null for parallel since all are active
+              useParallelApprovals: useParallelApprovals,
             }
           })
           .eq('id', data.id);
