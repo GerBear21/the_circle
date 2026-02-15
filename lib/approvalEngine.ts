@@ -12,6 +12,10 @@
 
 import { supabaseAdmin } from './supabaseAdmin';
 import { generateAndStoreArchive } from '@/pages/api/archives/generate-pdf';
+import {
+  resolveApprovalChainFromOrganogram,
+  findEmployeeByPositionTitle,
+} from './hrimsClient';
 
 // ============================================================================
 // Types
@@ -24,7 +28,7 @@ export interface WorkflowStepDefinition {
   type: 'approval' | 'notification' | 'integration' | 'condition';
   
   // Approver configuration
-  approverType: 'specific_user' | 'role' | 'department_head' | 'manager' | 'dynamic_field';
+  approverType: 'specific_user' | 'role' | 'department_head' | 'manager' | 'dynamic_field' | 'organogram_position' | 'organogram_supervisor';
   approverValue?: string; // user_id, role_name, or field_name depending on approverType
   
   // Conditions for when this step should execute
@@ -403,6 +407,66 @@ export class ApprovalEngine {
           return formData[fieldName];
         }
         return null;
+      
+      case 'organogram_position':
+        // Resolve by position title from HRIMS organogram
+        // approverValue = position title (e.g. "Human Resources Director", "Finance Director")
+        try {
+          const positionTitle = stepDef.approverValue;
+          if (!positionTitle) return null;
+          
+          const result = await findEmployeeByPositionTitle(
+            positionTitle,
+            formData?.business_unit_id // optional: scope to a specific business unit
+          );
+          
+          if (result?.employee?.email) {
+            // Match HRIMS employee email to the_circle app_users
+            const { data: matchedUser } = await supabaseAdmin
+              .from('app_users')
+              .select('id')
+              .eq('email', result.employee.email)
+              .limit(1)
+              .single();
+            return matchedUser?.id || null;
+          }
+          return null;
+        } catch (err) {
+          console.error('Failed to resolve organogram_position approver:', err);
+          return null;
+        }
+      
+      case 'organogram_supervisor':
+        // Walk up the organogram from the requester to find their Nth supervisor
+        // approverValue = supervisor level (e.g. "1" for direct supervisor, "2" for their supervisor's supervisor)
+        try {
+          // Get the requester's email from app_users
+          const { data: requester } = await supabaseAdmin
+            .from('app_users')
+            .select('email')
+            .eq('id', creatorId)
+            .single();
+          
+          if (!requester?.email) return null;
+          
+          const chain = await resolveApprovalChainFromOrganogram(requester.email);
+          const supervisorLevel = parseInt(stepDef.approverValue || '1', 10) - 1;
+          
+          if (chain.length > supervisorLevel && chain[supervisorLevel]?.employee?.email) {
+            // Match HRIMS employee email to the_circle app_users
+            const { data: supervisorUser } = await supabaseAdmin
+              .from('app_users')
+              .select('id')
+              .eq('email', chain[supervisorLevel].employee.email)
+              .limit(1)
+              .single();
+            return supervisorUser?.id || null;
+          }
+          return null;
+        } catch (err) {
+          console.error('Failed to resolve organogram_supervisor approver:', err);
+          return null;
+        }
       
       default:
         return null;

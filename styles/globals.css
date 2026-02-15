@@ -199,4 +199,17 @@ a {
   .btn-success {
     @apply bg-success text-white px-4 py-2 rounded-xl font-medium hover:bg-success-600 active:bg-success-600 transition-colors;
   }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-gray-200 rounded-full hover:bg-gray-300;
+  }
 }

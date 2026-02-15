@@ -6,17 +6,6 @@ interface Organization {
   name: string;
 }
 
-interface Department {
-  id: string;
-  name: string;
-  code: string;
-}
-
-interface BusinessUnit {
-  id: string;
-  name: string;
-}
-
 interface AppUser {
   id: string;
   organization_id: string;
@@ -29,9 +18,12 @@ interface AppUser {
   department_id: string | null;
   business_unit_id: string | null;
   profile_picture_url: string | null;
+  // HRIMS-sourced fields
+  hrims_employee_id?: string | null;
+  job_title?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
   organization?: Organization;
-  department?: Department;
-  business_unit?: BusinessUnit;
 }
 
 interface UserContextType {

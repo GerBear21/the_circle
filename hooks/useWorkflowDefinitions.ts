@@ -6,7 +6,7 @@ export interface WorkflowStepDefinition {
   name: string;
   order: number;
   type: 'approval' | 'notification' | 'integration' | 'condition';
-  approverType: 'specific_user' | 'role' | 'department_head' | 'manager' | 'dynamic_field';
+  approverType: 'specific_user' | 'role' | 'department_head' | 'manager' | 'dynamic_field' | 'organogram_position' | 'organogram_supervisor';
   approverValue?: string;
   conditions?: StepCondition[];
   settings?: {

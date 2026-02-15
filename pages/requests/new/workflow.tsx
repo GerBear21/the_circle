@@ -1,23 +1,45 @@
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { AppLayout } from '../../../components/layout';
-import { Card, Button, Input } from '../../../components/ui';
+import { Card, Button, Input, Modal } from '../../../components/ui';
+import {
+  useHrimsOrganogram,
+  useHrimsEmployees,
+  useHrimsBusinessUnits,
+  useHrimsDepartments,
+  OrganogramPosition,
+  OrganogramEmployee,
+  OrganogramBusinessUnit,
+  OrganogramDepartment,
+} from '../../../hooks/useHrimsOrganogram';
+
+// ============================================================================
+// Types
+// ============================================================================
+
+type ApproverSourceType = 'organogram' | 'manual' | 'dynamic';
+type ApproverType =
+  | 'organogram_position' // Specific Position from Org Chart
+  | 'organogram_supervisor' // Supervisor Level
+  | 'department_head' // HOD
+  | 'role' // Job Title (Manual)
+  | 'specific_user' // Specific Employee (Manual)
+  | 'manager' // Direct Manager (Organogram)
+  | 'dynamic_field'; // Form Field
 
 interface ApprovalStep {
   id: string;
   name: string;
-  approverType: 'user' | 'role' | 'department' | 'manager' | 'skip_level';
+  type: 'approval';
+  approverSource: ApproverSourceType;
+  approverType: ApproverType;
   approverValue: string;
+  approverLabel?: string;
   order: number;
   isParallel: boolean;
-  parallelWith?: string;
   conditions: StepCondition[];
-  escalation: EscalationConfig;
-  notifications: NotificationConfig;
-  allowDelegation: boolean;
-  requireComment: boolean;
-  autoApprove: AutoApproveConfig;
+  settings: StepSettings;
 }
 
 interface StepCondition {
@@ -28,26 +50,11 @@ interface StepCondition {
   value2?: string;
 }
 
-interface EscalationConfig {
-  enabled: boolean;
-  hours: number;
-  escalateTo: string;
-  reminder: boolean;
-  reminderHours: number;
-}
-
-interface NotificationConfig {
-  onAssignment: boolean;
-  onApproval: boolean;
-  onRejection: boolean;
-  onEscalation: boolean;
-  channels: ('email' | 'push' | 'sms')[];
-}
-
-interface AutoApproveConfig {
-  enabled: boolean;
-  condition: 'amount_below' | 'same_approver' | 'time_elapsed';
-  value: string;
+interface StepSettings {
+  requireComment: boolean;
+  allowDelegation: boolean;
+  escalation: { enabled: boolean; hours: number; escalateTo: string };
+  notifications: { onAssignment: boolean; onApproval: boolean; onRejection: boolean };
 }
 
 interface WorkflowSettings {
@@ -62,26 +69,69 @@ interface WorkflowSettings {
   requireAttachments: boolean;
 }
 
-const defaultStepConfig = (): Partial<ApprovalStep> => ({
-  isParallel: false,
-  conditions: [],
-  escalation: { enabled: false, hours: 24, escalateTo: '', reminder: true, reminderHours: 12 },
-  notifications: { onAssignment: true, onApproval: true, onRejection: true, onEscalation: true, channels: ['email'] },
-  allowDelegation: true,
+interface SavedWorkflow {
+  id: string;
+  name: string;
+  description?: string;
+  category?: string;
+  steps: any[];
+  settings: any;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  creator?: { display_name: string; email: string };
+}
+
+const defaultStepSettings = (): StepSettings => ({
   requireComment: false,
-  autoApprove: { enabled: false, condition: 'amount_below', value: '' },
+  allowDelegation: true,
+  escalation: { enabled: false, hours: 24, escalateTo: '' },
+  notifications: { onAssignment: true, onApproval: true, onRejection: true },
 });
+
+type WorkflowCategory = 'departmental' | 'multi_departmental' | 'business_unit' | 'inter_business_unit' | 'hotel_group';
+
+const WORKFLOW_CATEGORIES: { value: WorkflowCategory; label: string; icon: string; color: string; description: string }[] = [
+  { value: 'departmental', label: 'Departmental', icon: '🏢', color: 'bg-blue-100 text-blue-700', description: 'Within a single department' },
+  { value: 'multi_departmental', label: 'Multi-Departmental', icon: '🏗️', color: 'bg-indigo-100 text-indigo-700', description: 'Across departments in same business unit' },
+  { value: 'business_unit', label: 'Business Unit', icon: '🏨', color: 'bg-emerald-100 text-emerald-700', description: 'Entire business unit scope' },
+  { value: 'inter_business_unit', label: 'Inter Business Unit', icon: '🔄', color: 'bg-amber-100 text-amber-700', description: 'Across multiple business units' },
+  { value: 'hotel_group', label: 'Hotel Group', icon: '🌐', color: 'bg-purple-100 text-purple-700', description: 'Organization-wide (all business units)' },
+];
 
 export default function CustomizeWorkflowPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+
+  // Workflow form state
   const [workflowName, setWorkflowName] = useState('');
   const [workflowDescription, setWorkflowDescription] = useState('');
+  const [workflowCategory, setWorkflowCategory] = useState<WorkflowCategory>('departmental');
   const [steps, setSteps] = useState<ApprovalStep[]>([]);
   const [expandedStep, setExpandedStep] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'steps' | 'settings' | 'rules'>('steps');
+  const [activeTab, setActiveTab] = useState<'design' | 'settings' | 'saved'>('design');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Pickers State
+  const [selectedBusinessUnit, setSelectedBusinessUnit] = useState<string>('');
+  const [positionSearch, setPositionSearch] = useState('');
+  const [showPositionPicker, setShowPositionPicker] = useState<string | null>(null); // stepId
+  const [showEmployeePicker, setShowEmployeePicker] = useState<string | null>(null); // stepId
+  const [employeeSearch, setEmployeeSearch] = useState('');
+  const [selectedDepartment, setSelectedDepartment] = useState<string>('');
+
+  // HRIMS profile auto-detection
+  const [hrimsProfile, setHrimsProfile] = useState<OrganogramEmployee | null>(null);
+  const [hrimsBusinessUnit, setHrimsBusinessUnit] = useState<OrganogramBusinessUnit | null>(null);
+  const [hrimsDetected, setHrimsDetected] = useState<boolean | null>(null);
+
+  // Saved workflows
+  const [savedWorkflows, setSavedWorkflows] = useState<SavedWorkflow[]>([]);
+  const [loadingSaved, setLoadingSaved] = useState(false);
+  const [editingWorkflowId, setEditingWorkflowId] = useState<string | null>(null);
+
   const [workflowSettings, setWorkflowSettings] = useState<WorkflowSettings>({
     allowParallelApprovals: false,
     requireAllParallel: true,
@@ -94,45 +144,197 @@ export default function CustomizeWorkflowPage() {
     requireAttachments: false,
   });
 
+  // HRIMS data hooks
+  const { businessUnits } = useHrimsBusinessUnits();
+  const isWideScope = workflowCategory === 'hotel_group' || workflowCategory === 'inter_business_unit';
+  const { employees: hrimsEmployees, loading: loadingEmployees } = useHrimsEmployees(
+    isWideScope ? undefined : (selectedBusinessUnit || undefined)
+  );
+  const { positions: organogramPositions, loading: loadingPositions } = useHrimsOrganogram({
+    businessUnitId: isWideScope ? undefined : (selectedBusinessUnit || undefined),
+  });
+  const { departments } = useHrimsDepartments(isWideScope ? undefined : (selectedBusinessUnit || undefined));
+
+  // Computed data for pickers
+  const filteredPositions = useMemo(() => {
+    if (!positionSearch.trim()) return organogramPositions;
+    const q = positionSearch.toLowerCase();
+    return organogramPositions.filter(p =>
+      p.position_title.toLowerCase().includes(q) ||
+      p.employee?.first_name?.toLowerCase().includes(q) ||
+      p.employee?.last_name?.toLowerCase().includes(q) ||
+      p.department?.name?.toLowerCase().includes(q)
+    );
+  }, [organogramPositions, positionSearch]);
+
+  const filteredEmployees = useMemo(() => {
+    let list = hrimsEmployees;
+    if (selectedDepartment) list = list.filter(e => e.department_id === selectedDepartment);
+    if (!employeeSearch.trim()) return list;
+    const q = employeeSearch.toLowerCase();
+    return list.filter(e =>
+      e.first_name.toLowerCase().includes(q) ||
+      e.last_name.toLowerCase().includes(q) ||
+      e.email.toLowerCase().includes(q) ||
+      e.job_title?.toLowerCase().includes(q)
+    );
+  }, [hrimsEmployees, employeeSearch, selectedDepartment]);
+
+  const uniqueJobTitles = useMemo(() => {
+    const titles = new Set<string>();
+    hrimsEmployees.forEach(e => {
+      if (e.job_title) titles.add(e.job_title);
+    });
+    return Array.from(titles).sort();
+  }, [hrimsEmployees]);
+
+  const departmentHeadOptions = useMemo(() => {
+    return departments
+      .filter(d => d.department_head_id)
+      .map(d => {
+        const head = hrimsEmployees.find(e => e.id === d.department_head_id);
+        return {
+          departmentId: d.id,
+          departmentName: d.name,
+          headName: head ? `${head.first_name} ${head.last_name}` : 'Unknown',
+        };
+      });
+  }, [departments, hrimsEmployees]);
+
+  // Auth check
   useEffect(() => {
-    if (status === 'unauthenticated') {
-      router.push('/');
-    }
+    if (status === 'unauthenticated') router.push('/');
   }, [status, router]);
 
+  // Fetch HRIMS profile
+  useEffect(() => {
+    async function fetchHrims() {
+      if (!session?.user?.email) return;
+      try {
+        const response = await fetch(`/api/hrims/employee-by-email?email=${encodeURIComponent(session.user.email)}`);
+        const data = await response.json();
+        if (response.ok && data.found) {
+          setHrimsDetected(true);
+          setHrimsProfile(data.employee);
+          setHrimsBusinessUnit(data.businessUnit);
+          if (data.businessUnit?.id) setSelectedBusinessUnit(data.businessUnit.id);
+        } else {
+          setHrimsDetected(false);
+        }
+      } catch (err) {
+        console.error('Error fetching HRIMS profile:', err);
+        setHrimsDetected(false);
+      }
+    }
+    fetchHrims();
+  }, [session?.user?.email]);
+
+  // Fetch Saved Workflows
+  const fetchSavedWorkflows = useCallback(async () => {
+    setLoadingSaved(true);
+    try {
+      const res = await fetch('/api/workflow-definitions');
+      if (res.ok) {
+        const data = await res.json();
+        setSavedWorkflows(data.definitions || []);
+      }
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoadingSaved(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (session?.user) fetchSavedWorkflows();
+  }, [session?.user, fetchSavedWorkflows]);
+
+  // Actions
+  const loadWorkflow = (wf: SavedWorkflow) => {
+    setWorkflowName(wf.name);
+    setWorkflowDescription(wf.description || '');
+    setWorkflowCategory((wf.category || 'departmental') as WorkflowCategory);
+    setEditingWorkflowId(wf.id);
+    setSteps(
+      (wf.steps || []).map((s: any, i: number) => ({
+        id: s.id || `step_${i}`,
+        name: s.name || `Step ${i + 1}`,
+        type: 'approval',
+        approverSource: s.approverSource || 'organogram',
+        approverType: s.approverType || 'organogram_position',
+        approverValue: s.approverValue || '',
+        approverLabel: s.approverLabel || '',
+        order: i + 1,
+        isParallel: s.isParallel || false,
+        conditions: s.conditions || [],
+        settings: s.settings || defaultStepSettings(),
+      }))
+    );
+    if (wf.settings) setWorkflowSettings({ ...workflowSettings, ...wf.settings });
+    setActiveTab('design');
+    setSuccessMsg(null);
+    setError(null);
+  };
+
+  const resetForm = () => {
+    setWorkflowName('');
+    setWorkflowDescription('');
+    setWorkflowCategory('departmental');
+    setSteps([]);
+    setEditingWorkflowId(null);
+    setExpandedStep(null);
+    setError(null);
+    setSuccessMsg(null);
+  };
+
   const handleSubmit = async () => {
-    if (!workflowName || steps.length === 0) {
-      setError('Workflow name and at least one approval step are required');
+    if (!workflowName.trim()) {
+      setError('Workflow name is required');
       return;
+    }
+    if (steps.length === 0) {
+      setError('Add at least one approval step');
+      return;
+    }
+    for (const step of steps) {
+      // Cast to string to avoid potential type narrowing issues with 'manager'
+      const type = step.approverType as string;
+      if (!step.approverValue && type !== 'manager' && type !== 'department_head') {
+        if (type === 'manager') continue;
+        setError(`Step "${step.name}" needs an approver selected`);
+        return;
+      }
     }
 
     setLoading(true);
     setError(null);
-
     try {
-      const response = await fetch('/api/templates', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: workflowName,
-          description: workflowDescription,
-          formFields: [],
-          workflowSteps: steps,
-          workflowSettings: workflowSettings,
-        }),
+      const payload = {
+        name: workflowName.trim(),
+        description: workflowDescription.trim() || null,
+        category: workflowCategory,
+        steps: steps.map((s, i) => ({
+          ...s,
+          order: i + 1,
+        })),
+        settings: workflowSettings,
+      };
+
+      const url = editingWorkflowId ? `/api/workflow-definitions/${editingWorkflowId}` : '/api/workflow-definitions';
+      const res = await fetch(url, {
+        method: editingWorkflowId ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save workflow');
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to create workflow');
-      }
-
-      router.push('/admin/document-templates');
+      setSuccessMsg(editingWorkflowId ? 'Workflow updated successfully!' : 'Workflow created successfully!');
+      fetchSavedWorkflows();
+      if (!editingWorkflowId) setEditingWorkflowId(data.definition?.id);
     } catch (err: any) {
-      setError(err.message || 'Failed to create workflow');
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -142,11 +344,16 @@ export default function CustomizeWorkflowPage() {
     const newStep: ApprovalStep = {
       id: `step_${Date.now()}`,
       name: `Step ${steps.length + 1}`,
-      approverType: 'role',
-      approverValue: '',
+      type: 'approval',
+      approverSource: 'organogram',
+      approverType: 'organogram_supervisor',
+      approverValue: '1',
+      approverLabel: 'Direct Supervisor',
       order: steps.length + 1,
-      ...defaultStepConfig(),
-    } as ApprovalStep;
+      isParallel: false,
+      conditions: [],
+      settings: defaultStepSettings(),
+    };
     setSteps([...steps, newStep]);
     setExpandedStep(newStep.id);
   };
@@ -169,765 +376,792 @@ export default function CustomizeWorkflowPage() {
     setSteps(newSteps.map((s, i) => ({ ...s, order: i + 1 })));
   };
 
-  const addCondition = (stepId: string) => {
-    const step = steps.find(s => s.id === stepId);
-    if (!step) return;
-    const newCondition: StepCondition = {
-      id: `cond_${Date.now()}`,
-      field: '',
-      operator: 'equals',
-      value: '',
-    };
-    updateStep(stepId, { conditions: [...step.conditions, newCondition] });
-  };
+  // Scoped positions for departmental category (only user's department)
+  const departmentPositions = useMemo(() => {
+    if (!hrimsProfile?.department_id) return [];
+    return organogramPositions
+      .filter(p => p.department_id === hrimsProfile.department_id)
+      .sort((a, b) => a.level - b.level);
+  }, [organogramPositions, hrimsProfile?.department_id]);
 
-  const updateCondition = (stepId: string, conditionId: string, updates: Partial<StepCondition>) => {
-    const step = steps.find(s => s.id === stepId);
-    if (!step) return;
-    updateStep(stepId, {
-      conditions: step.conditions.map(c => c.id === conditionId ? { ...c, ...updates } : c),
-    });
-  };
+  // Auto-generate steps from organogram based on category
+  const autoGenerateFromOrganogram = useCallback(() => {
+    let positionsToUse: typeof organogramPositions = [];
 
-  const removeCondition = (stepId: string, conditionId: string) => {
-    const step = steps.find(s => s.id === stepId);
-    if (!step) return;
-    updateStep(stepId, { conditions: step.conditions.filter(c => c.id !== conditionId) });
-  };
+    if (workflowCategory === 'departmental') {
+      positionsToUse = departmentPositions;
+    } else if (workflowCategory === 'multi_departmental' || workflowCategory === 'business_unit') {
+      positionsToUse = organogramPositions
+        .filter(p => p.business_unit_id === selectedBusinessUnit)
+        .sort((a, b) => a.level - b.level);
+    } else if (workflowCategory === 'hotel_group' || workflowCategory === 'inter_business_unit') {
+      // For wide-scope categories, only show high-level positions (level 1)
+      positionsToUse = organogramPositions
+        .filter(p => p.level === 1)
+        .sort((a, b) => a.level - b.level);
+    } else {
+      positionsToUse = [...organogramPositions].sort((a, b) => a.level - b.level);
+    }
 
-  if (status === 'loading') {
-    return (
-      <AppLayout title="Customize Workflow" showBack onBack={() => router.back()}>
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500" />
-        </div>
-      </AppLayout>
+    if (positionsToUse.length === 0) {
+      setError('No organogram positions found for the selected scope. Make sure your HRIMS profile is connected.');
+      return;
+    }
+
+    // Build steps from top (lowest level number = highest rank) down
+    const generatedSteps: ApprovalStep[] = positionsToUse.map((pos, i) => ({
+      id: `step_${Date.now()}_${i}`,
+      name: pos.position_title,
+      type: 'approval',
+      approverSource: 'organogram',
+      approverType: 'organogram_position',
+      approverValue: pos.position_title,
+      approverLabel: pos.employee
+        ? `${pos.position_title} (${pos.employee.first_name} ${pos.employee.last_name})`
+        : `${pos.position_title} (Vacant)`,
+      order: i + 1,
+      isParallel: false,
+      conditions: [],
+      settings: defaultStepSettings(),
+    }));
+
+    setSteps(generatedSteps);
+    setSuccessMsg(`Auto-generated ${generatedSteps.length} approval steps from organogram`);
+    setTimeout(() => setSuccessMsg(null), 3000);
+  }, [workflowCategory, departmentPositions, organogramPositions, selectedBusinessUnit]);
+
+  // Determine which organogram sub-options to show based on category
+  const organogramSubOptions = useMemo(() => {
+    const base = [
+      { id: 'organogram_position', label: 'Specific Position' },
+    ];
+    if (workflowCategory === 'departmental' || workflowCategory === 'multi_departmental') {
+      return [
+        { id: 'manager', label: 'Supervisor' },
+        { id: 'department_head', label: 'Dept. Head' },
+        ...base,
+      ];
+    }
+    if (workflowCategory === 'business_unit') {
+      return [
+        { id: 'manager', label: 'Supervisor' },
+        { id: 'department_head', label: 'Dept. Head' },
+        ...base,
+      ];
+    }
+    // hotel_group / inter_business_unit: any position
+    return base;
+  }, [workflowCategory]);
+
+  // Helper Renderers
+  const renderIcon = (type: ApproverSourceType) => {
+    if (type === 'organogram') return (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
     );
-  }
-
-  if (!session) return null;
-
-  const renderStepConfig = (step: ApprovalStep) => {
-    if (expandedStep !== step.id) return null;
-
+    if (type === 'manual') return (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+    );
     return (
-      <div className="mt-4 pt-4 border-t border-gray-100 space-y-4">
-        {/* Conditions */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Conditions</label>
-            <button
-              type="button"
-              onClick={() => addCondition(step.id)}
-              className="text-xs text-primary-600 hover:text-primary-700 font-medium"
-            >
-              + Add Condition
-            </button>
-          </div>
-          {step.conditions.length === 0 ? (
-            <p className="text-xs text-gray-400 italic">No conditions - step will always be included</p>
-          ) : (
-            <div className="space-y-2">
-              {step.conditions.map((cond) => (
-                <div key={cond.id} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
-                  <select
-                    className="flex-1 px-2 py-1.5 text-xs rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-primary-500"
-                    value={cond.field}
-                    onChange={(e) => updateCondition(step.id, cond.id, { field: e.target.value })}
-                  >
-                    <option value="">Select field...</option>
-                    <option value="amount">Amount</option>
-                    <option value="category">Category</option>
-                    <option value="department">Department</option>
-                    <option value="priority">Priority</option>
-                    <option value="request_type">Request Type</option>
-                  </select>
-                  <select
-                    className="px-2 py-1.5 text-xs rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-primary-500"
-                    value={cond.operator}
-                    onChange={(e) => updateCondition(step.id, cond.id, { operator: e.target.value as any })}
-                  >
-                    <option value="equals">equals</option>
-                    <option value="not_equals">not equals</option>
-                    <option value="greater_than">greater than</option>
-                    <option value="less_than">less than</option>
-                    <option value="contains">contains</option>
-                    <option value="between">between</option>
-                  </select>
-                  <input
-                    type="text"
-                    className="w-24 px-2 py-1.5 text-xs rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-primary-500"
-                    placeholder="Value"
-                    value={cond.value}
-                    onChange={(e) => updateCondition(step.id, cond.id, { value: e.target.value })}
-                  />
-                  {cond.operator === 'between' && (
-                    <input
-                      type="text"
-                      className="w-24 px-2 py-1.5 text-xs rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-primary-500"
-                      placeholder="Value 2"
-                      value={cond.value2 || ''}
-                      onChange={(e) => updateCondition(step.id, cond.id, { value2: e.target.value })}
-                    />
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => removeCondition(step.id, cond.id)}
-                    className="p-1 text-gray-400 hover:text-danger-500"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Escalation */}
-        <div>
-          <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 block">Escalation</label>
-          <div className="p-3 bg-warning-50/50 rounded-lg border border-warning-100">
-            <label className="flex items-center gap-2 mb-3">
-              <input
-                type="checkbox"
-                checked={step.escalation.enabled}
-                onChange={(e) => updateStep(step.id, { escalation: { ...step.escalation, enabled: e.target.checked } })}
-                className="rounded border-gray-300 text-warning-500 focus:ring-warning-500"
-              />
-              <span className="text-sm text-gray-700">Enable auto-escalation</span>
-            </label>
-            {step.escalation.enabled && (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Escalate after (hours)</label>
-                  <input
-                    type="number"
-                    className="w-full px-2 py-1.5 text-sm rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-warning-500"
-                    value={step.escalation.hours}
-                    onChange={(e) => updateStep(step.id, { escalation: { ...step.escalation, hours: parseInt(e.target.value) || 0 } })}
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Escalate to</label>
-                  <select
-                    className="w-full px-2 py-1.5 text-sm rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-warning-500"
-                    value={step.escalation.escalateTo}
-                    onChange={(e) => updateStep(step.id, { escalation: { ...step.escalation, escalateTo: e.target.value } })}
-                  >
-                    <option value="">Select...</option>
-                    <option value="skip_level">Skip-level Manager</option>
-                    <option value="department_head">Department Head</option>
-                    <option value="admin">System Admin</option>
-                  </select>
-                </div>
-                <label className="flex items-center gap-2 col-span-2">
-                  <input
-                    type="checkbox"
-                    checked={step.escalation.reminder}
-                    onChange={(e) => updateStep(step.id, { escalation: { ...step.escalation, reminder: e.target.checked } })}
-                    className="rounded border-gray-300 text-warning-500 focus:ring-warning-500"
-                  />
-                  <span className="text-xs text-gray-600">Send reminder {step.escalation.reminderHours}h before escalation</span>
-                </label>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Notifications */}
-        <div>
-          <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 block">Notifications</label>
-          <div className="p-3 bg-primary-50/50 rounded-lg border border-primary-100">
-            <div className="grid grid-cols-2 gap-2 mb-3">
-              {[
-                { key: 'onAssignment', label: 'On assignment' },
-                { key: 'onApproval', label: 'On approval' },
-                { key: 'onRejection', label: 'On rejection' },
-                { key: 'onEscalation', label: 'On escalation' },
-              ].map(({ key, label }) => (
-                <label key={key} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={step.notifications[key as keyof NotificationConfig] as boolean}
-                    onChange={(e) => updateStep(step.id, { notifications: { ...step.notifications, [key]: e.target.checked } })}
-                    className="rounded border-gray-300 text-primary-500 focus:ring-primary-500"
-                  />
-                  <span className="text-xs text-gray-600">{label}</span>
-                </label>
-              ))}
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Channels</label>
-              <div className="flex gap-3">
-                {['email', 'push', 'sms'].map((channel) => (
-                  <label key={channel} className="flex items-center gap-1.5">
-                    <input
-                      type="checkbox"
-                      checked={step.notifications.channels.includes(channel as any)}
-                      onChange={(e) => {
-                        const channels = e.target.checked
-                          ? [...step.notifications.channels, channel as any]
-                          : step.notifications.channels.filter(c => c !== channel);
-                        updateStep(step.id, { notifications: { ...step.notifications, channels } });
-                      }}
-                      className="rounded border-gray-300 text-primary-500 focus:ring-primary-500"
-                    />
-                    <span className="text-xs text-gray-600 capitalize">{channel}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Additional Options */}
-        <div>
-          <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 block">Options</label>
-          <div className="grid grid-cols-2 gap-2">
-            <label className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
-              <input
-                type="checkbox"
-                checked={step.allowDelegation}
-                onChange={(e) => updateStep(step.id, { allowDelegation: e.target.checked })}
-                className="rounded border-gray-300 text-primary-500 focus:ring-primary-500"
-              />
-              <span className="text-xs text-gray-600">Allow delegation</span>
-            </label>
-            <label className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
-              <input
-                type="checkbox"
-                checked={step.requireComment}
-                onChange={(e) => updateStep(step.id, { requireComment: e.target.checked })}
-                className="rounded border-gray-300 text-primary-500 focus:ring-primary-500"
-              />
-              <span className="text-xs text-gray-600">Require comment</span>
-            </label>
-          </div>
-        </div>
-
-        {/* Auto-Approve */}
-        <div>
-          <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 block">Auto-Approve</label>
-          <div className="p-3 bg-success-50/50 rounded-lg border border-success-100">
-            <label className="flex items-center gap-2 mb-3">
-              <input
-                type="checkbox"
-                checked={step.autoApprove.enabled}
-                onChange={(e) => updateStep(step.id, { autoApprove: { ...step.autoApprove, enabled: e.target.checked } })}
-                className="rounded border-gray-300 text-success-500 focus:ring-success-500"
-              />
-              <span className="text-sm text-gray-700">Enable auto-approve</span>
-            </label>
-            {step.autoApprove.enabled && (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Condition</label>
-                  <select
-                    className="w-full px-2 py-1.5 text-sm rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-success-500"
-                    value={step.autoApprove.condition}
-                    onChange={(e) => updateStep(step.id, { autoApprove: { ...step.autoApprove, condition: e.target.value as any } })}
-                  >
-                    <option value="amount_below">Amount below</option>
-                    <option value="same_approver">Same as previous approver</option>
-                    <option value="time_elapsed">Time elapsed (hours)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Value</label>
-                  <input
-                    type="text"
-                    className="w-full px-2 py-1.5 text-sm rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-success-500"
-                    placeholder={step.autoApprove.condition === 'amount_below' ? 'e.g., 1000' : 'e.g., 48'}
-                    value={step.autoApprove.value}
-                    onChange={(e) => updateStep(step.id, { autoApprove: { ...step.autoApprove, value: e.target.value } })}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
     );
   };
 
-  const renderWorkflowSettings = () => (
-    <Card className="mb-4">
-      <h3 className="font-semibold text-text-primary mb-4 flex items-center gap-2">
-        <svg className="w-5 h-5 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-        </svg>
-        Workflow Settings
-      </h3>
-
-      <div className="space-y-4">
-        {/* Parallel Approvals */}
-        <div className="p-4 bg-primary-50/50 rounded-xl border border-primary-100">
-          <label className="flex items-center gap-3 mb-3">
-            <input
-              type="checkbox"
-              checked={workflowSettings.allowParallelApprovals}
-              onChange={(e) => setWorkflowSettings({ ...workflowSettings, allowParallelApprovals: e.target.checked })}
-              className="rounded border-gray-300 text-primary-500 focus:ring-primary-500 w-5 h-5"
-            />
-            <div>
-              <span className="font-medium text-gray-800">Allow Parallel Approvals</span>
-              <p className="text-xs text-gray-500">Multiple approvers can review simultaneously</p>
-            </div>
-          </label>
-          {workflowSettings.allowParallelApprovals && (
-            <div className="ml-8 mt-2">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={workflowSettings.requireAllParallel}
-                  onChange={(e) => setWorkflowSettings({ ...workflowSettings, requireAllParallel: e.target.checked })}
-                  className="rounded border-gray-300 text-primary-500 focus:ring-primary-500"
-                />
-                <span className="text-sm text-gray-600">Require all parallel approvers (vs. any one)</span>
-              </label>
-            </div>
-          )}
-        </div>
-
-        {/* Permissions Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
-            <input
-              type="checkbox"
-              checked={workflowSettings.allowSkipSteps}
-              onChange={(e) => setWorkflowSettings({ ...workflowSettings, allowSkipSteps: e.target.checked })}
-              className="rounded border-gray-300 text-primary-500 focus:ring-primary-500"
-            />
-            <div>
-              <span className="text-sm font-medium text-gray-700">Allow Skip Steps</span>
-              <p className="text-xs text-gray-400">Admins can skip approval steps</p>
-            </div>
-          </label>
-
-          <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
-            <input
-              type="checkbox"
-              checked={workflowSettings.allowReassignment}
-              onChange={(e) => setWorkflowSettings({ ...workflowSettings, allowReassignment: e.target.checked })}
-              className="rounded border-gray-300 text-primary-500 focus:ring-primary-500"
-            />
-            <div>
-              <span className="text-sm font-medium text-gray-700">Allow Reassignment</span>
-              <p className="text-xs text-gray-400">Approvers can reassign to others</p>
-            </div>
-          </label>
-
-          <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
-            <input
-              type="checkbox"
-              checked={workflowSettings.allowWithdraw}
-              onChange={(e) => setWorkflowSettings({ ...workflowSettings, allowWithdraw: e.target.checked })}
-              className="rounded border-gray-300 text-primary-500 focus:ring-primary-500"
-            />
-            <div>
-              <span className="text-sm font-medium text-gray-700">Allow Withdraw</span>
-              <p className="text-xs text-gray-400">Requesters can withdraw pending requests</p>
-            </div>
-          </label>
-
-          <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
-            <input
-              type="checkbox"
-              checked={workflowSettings.notifyRequesterOnEachStep}
-              onChange={(e) => setWorkflowSettings({ ...workflowSettings, notifyRequesterOnEachStep: e.target.checked })}
-              className="rounded border-gray-300 text-primary-500 focus:ring-primary-500"
-            />
-            <div>
-              <span className="text-sm font-medium text-gray-700">Notify on Each Step</span>
-              <p className="text-xs text-gray-400">Update requester after each approval</p>
-            </div>
-          </label>
-
-          <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
-            <input
-              type="checkbox"
-              checked={workflowSettings.requireAttachments}
-              onChange={(e) => setWorkflowSettings({ ...workflowSettings, requireAttachments: e.target.checked })}
-              className="rounded border-gray-300 text-primary-500 focus:ring-primary-500"
-            />
-            <div>
-              <span className="text-sm font-medium text-gray-700">Require Attachments</span>
-              <p className="text-xs text-gray-400">Requests must include files</p>
-            </div>
-          </label>
-        </div>
-
-        {/* Expiration */}
-        <div className="p-4 bg-danger-50/50 rounded-xl border border-danger-100">
-          <h4 className="font-medium text-gray-800 mb-3">Request Expiration</h4>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Expire after (days)</label>
-              <input
-                type="number"
-                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-danger-500"
-                value={workflowSettings.expirationDays}
-                onChange={(e) => setWorkflowSettings({ ...workflowSettings, expirationDays: parseInt(e.target.value) || 0 })}
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">On expiration</label>
-              <select
-                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-danger-500"
-                value={workflowSettings.onExpiration}
-                onChange={(e) => setWorkflowSettings({ ...workflowSettings, onExpiration: e.target.value as any })}
-              >
-                <option value="notify">Notify only</option>
-                <option value="reject">Auto-reject</option>
-                <option value="escalate">Escalate to admin</option>
-              </select>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Card>
-  );
-
-  const renderBusinessRules = () => (
-    <Card className="mb-4">
-      <h3 className="font-semibold text-text-primary mb-4 flex items-center gap-2">
-        <svg className="w-5 h-5 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-        </svg>
-        Business Rules
-      </h3>
-      <p className="text-sm text-gray-500 mb-4">Define rules that automatically route requests based on conditions</p>
-
-      <div className="space-y-3">
-        <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
-          <div className="flex items-center justify-between mb-2">
-            <span className="font-medium text-gray-700">Amount-based Routing</span>
-            <span className="text-xs bg-primary-100 text-primary-700 px-2 py-0.5 rounded-full">Active</span>
-          </div>
-          <p className="text-xs text-gray-500">Requests over $10,000 require Director approval</p>
-        </div>
-
-        <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
-          <div className="flex items-center justify-between mb-2">
-            <span className="font-medium text-gray-700">Department Override</span>
-            <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">Inactive</span>
-          </div>
-          <p className="text-xs text-gray-500">Finance department requests skip manager approval</p>
-        </div>
-
-        <button
-          type="button"
-          className="w-full py-3 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:border-primary-400 hover:text-primary-600 hover:bg-primary-50/30 transition-colors flex items-center justify-center gap-2"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Add Business Rule
-        </button>
-      </div>
-    </Card>
-  );
-
-  return (
-    <AppLayout title="Customize Workflow" showBack onBack={() => router.back()} hideNav>
-      <div className="p-4 sm:p-6 max-w-4xl mx-auto pb-28">
-        <div className="mb-6">
-          <h1 className="text-xl font-bold text-text-primary font-heading flex items-center gap-2">
-            <svg className="w-6 h-6 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            Customize Approval Workflow
-          </h1>
-          <p className="text-sm text-text-secondary mt-1">Configure approval steps, conditions, escalations, and business rules</p>
-        </div>
-
-        {error && (
-          <Card className="mb-4 bg-danger-50 border-danger-200">
-            <p className="text-danger-600 text-sm">{error}</p>
-          </Card>
+  const renderStepCard = (step: ApprovalStep, index: number) => {
+    const isExpanded = expandedStep === step.id;
+    return (
+      <div key={step.id} className="relative pl-8 pb-8 last:pb-0">
+        {/* Connection Line */}
+        {index < steps.length - 1 && (
+          <div className="absolute left-3.5 top-8 bottom-0 w-0.5 bg-gray-200" />
         )}
 
-        <Card className="mb-4">
-          <div className="space-y-4">
-            <Input
-              label="Workflow Name"
-              placeholder="e.g., Standard Purchase Approval"
-              value={workflowName}
-              onChange={(e) => setWorkflowName(e.target.value)}
-              required
-            />
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Description
-              </label>
-              <textarea
-                className="w-full px-4 py-3 min-h-[80px] rounded-xl border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none"
-                placeholder="Describe when this workflow should be used..."
-                value={workflowDescription}
-                onChange={(e) => setWorkflowDescription(e.target.value)}
-              />
-            </div>
-          </div>
-        </Card>
-
-        {/* Tab Navigation */}
-        <div className="flex gap-1 p-1 bg-gray-100 rounded-xl mb-4">
-          {[
-            { id: 'steps', label: 'Approval Steps', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4' },
-            { id: 'settings', label: 'Settings', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z' },
-            { id: 'rules', label: 'Business Rules', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01' },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium transition-all ${
-                activeTab === tab.id
-                  ? 'bg-white text-primary-600 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={tab.icon} />
-              </svg>
-              {tab.label}
-            </button>
-          ))}
+        {/* Step Number Bubble */}
+        <div className={`absolute left-0 top-0 w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs ring-4 ring-white z-10 transition-colors ${isExpanded ? 'bg-primary-600 text-white' : 'bg-white border-2 border-gray-200 text-gray-500'
+          }`}>
+          {step.order}
         </div>
 
-        {activeTab === 'settings' && renderWorkflowSettings()}
-        {activeTab === 'rules' && renderBusinessRules()}
-
-        {activeTab === 'steps' && (
-          <>
-            <div className="mb-4">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="font-semibold text-text-primary">Approval Steps</h2>
-                <span className="text-sm text-text-secondary">{steps.length} step{steps.length !== 1 ? 's' : ''}</span>
+        <div className={`transition-all duration-200 ${isExpanded ? 'scale-100' : 'scale-[0.99]'}`}>
+          <Card className={`overflow-visible border transition-colors ${isExpanded ? 'border-primary-200 ring-4 ring-primary-50/50' : 'border-gray-200 hover:border-gray-300'}`}>
+            {/* Header */}
+            <div
+              className="flex items-center justify-between p-1 cursor-pointer"
+              onClick={() => setExpandedStep(isExpanded ? null : step.id)}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-lg ${step.approverSource === 'organogram' ? 'bg-indigo-50 text-indigo-600' :
+                  step.approverSource === 'manual' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
+                  }`}>
+                  {renderIcon(step.approverSource)}
+                </div>
+                <div>
+                  <h4 className="font-semibold text-gray-900 text-sm">{step.name}</h4>
+                  <p className="text-xs text-gray-500 flex items-center gap-1">
+                    {step.approverLabel || 'Assign Approver'}
+                    {step.conditions.length > 0 && (
+                      <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 rounded text-gray-600 font-medium ml-2">
+                        {step.conditions.length} condition{step.conditions.length > 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </p>
+                </div>
               </div>
+              <div className="flex items-center gap-1">
+                <button type="button" onClick={(e) => { e.stopPropagation(); moveStep(step.id, 'up'); }} disabled={index === 0} className="p-1.5 text-gray-400 hover:bg-gray-100 rounded-lg disabled:opacity-30">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
+                </button>
+                <button type="button" onClick={(e) => { e.stopPropagation(); moveStep(step.id, 'down'); }} disabled={index === steps.length - 1} className="p-1.5 text-gray-400 hover:bg-gray-100 rounded-lg disabled:opacity-30">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                </button>
+                <button type="button" onClick={(e) => { e.stopPropagation(); removeStep(step.id); }} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg ml-1">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                </button>
+              </div>
+            </div>
 
-              {steps.length === 0 ? (
-                <Card className="border-dashed border-2 border-gray-200 bg-gray-50/50">
-                  <div className="text-center py-8">
-                    <svg className="w-12 h-12 mx-auto text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-                    </svg>
-                    <p className="text-gray-500 font-medium">No approval steps defined</p>
-                    <p className="text-sm text-gray-400 mt-1">Add steps to define the approval workflow</p>
-                  </div>
-                </Card>
-              ) : (
-                <div className="space-y-3">
-                  {steps.map((step, index) => (
-                    <Card key={step.id} variant="outlined" className={`relative transition-all ${expandedStep === step.id ? 'ring-2 ring-primary-200' : ''}`}>
-                      <div className="flex items-start gap-4">
-                        <div className="flex flex-col items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => moveStep(step.id, 'up')}
-                            disabled={index === 0}
-                            className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                            </svg>
-                          </button>
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${step.isParallel ? 'bg-primary-100' : 'bg-primary-100'}`}>
-                            <span className="text-sm font-bold text-primary-600">{step.order}</span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => moveStep(step.id, 'down')}
-                            disabled={index === steps.length - 1}
-                            className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                          </button>
-                        </div>
-                        <div className="flex-1 space-y-3">
-                          <div className="flex items-center gap-2">
-                            <Input
-                              placeholder="Step name"
-                              value={step.name}
-                              onChange={(e) => updateStep(step.id, { name: e.target.value })}
-                              className="flex-1"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setExpandedStep(expandedStep === step.id ? null : step.id)}
-                              className={`p-2 rounded-lg transition-colors ${expandedStep === step.id ? 'bg-primary-100 text-primary-600' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
-                              title="Configure step"
-                            >
-                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-                              </svg>
-                            </button>
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                              <label className="block text-xs font-medium text-gray-500 mb-1">
-                                Approver Type
-                              </label>
-                              <select
-                                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                                value={step.approverType}
-                                onChange={(e) => updateStep(step.id, { approverType: e.target.value as any })}
-                              >
-                                <option value="user">Specific User</option>
-                                <option value="role">Role</option>
-                                <option value="department">Department Head</option>
-                                <option value="manager">Direct Manager</option>
-                                <option value="skip_level">Skip-level Manager</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="block text-xs font-medium text-gray-500 mb-1">
-                                {step.approverType === 'user' ? 'User' : step.approverType === 'role' ? 'Role' : step.approverType === 'manager' ? 'Relationship' : step.approverType === 'skip_level' ? 'Level' : 'Department'}
-                              </label>
-                              <select
-                                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                                value={step.approverValue}
-                                onChange={(e) => updateStep(step.id, { approverValue: e.target.value })}
-                              >
-                                <option value="">Select...</option>
-                                {step.approverType === 'role' && (
-                                  <>
-                                    <option value="manager">Manager</option>
-                                    <option value="director">Director</option>
-                                    <option value="finance">Finance Team</option>
-                                    <option value="hr">HR Team</option>
-                                    <option value="legal">Legal Team</option>
-                                    <option value="procurement">Procurement</option>
-                                  </>
-                                )}
-                                {step.approverType === 'department' && (
-                                  <>
-                                    <option value="engineering">Engineering</option>
-                                    <option value="marketing">Marketing</option>
-                                    <option value="sales">Sales</option>
-                                    <option value="operations">Operations</option>
-                                    <option value="finance">Finance</option>
-                                    <option value="hr">Human Resources</option>
-                                  </>
-                                )}
-                                {step.approverType === 'user' && (
-                                  <>
-                                    <option value="user1">John Doe</option>
-                                    <option value="user2">Jane Smith</option>
-                                    <option value="user3">Mike Johnson</option>
-                                  </>
-                                )}
-                                {step.approverType === 'manager' && (
-                                  <>
-                                    <option value="direct">Direct Manager</option>
-                                    <option value="cost_center">Cost Center Owner</option>
-                                  </>
-                                )}
-                                {step.approverType === 'skip_level' && (
-                                  <>
-                                    <option value="1">1 Level Up</option>
-                                    <option value="2">2 Levels Up</option>
-                                    <option value="3">3 Levels Up</option>
-                                  </>
-                                )}
-                              </select>
-                            </div>
-                          </div>
-
-                          {/* Quick badges showing step config */}
-                          <div className="flex flex-wrap gap-1.5">
-                            {step.conditions.length > 0 && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary-100 text-primary-700 text-xs rounded-full">
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                {step.conditions.length} condition{step.conditions.length > 1 ? 's' : ''}
-                              </span>
-                            )}
-                            {step.escalation.enabled && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-warning-100 text-warning-700 text-xs rounded-full">
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                {step.escalation.hours}h escalation
-                              </span>
-                            )}
-                            {step.autoApprove.enabled && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-success-100 text-success-700 text-xs rounded-full">
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                                </svg>
-                                Auto-approve
-                              </span>
-                            )}
-                            {step.requireComment && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-full">
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-                                </svg>
-                                Comment required
-                              </span>
-                            )}
-                          </div>
-
-                          {renderStepConfig(step)}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => removeStep(step.id)}
-                          className="p-2 text-gray-400 hover:text-danger-500 hover:bg-danger-50 rounded-lg transition-colors"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </button>
+            {/* Expanded Context */}
+            {isExpanded && (
+              <div className="border-t border-gray-100 p-4 space-y-6 animate-in slide-in-from-top-2 duration-200">
+                {/* Source Selection - Big Cards */}
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: 'organogram', label: 'From Organogram', icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10', desc: 'Use HRIMS hierarchy' },
+                    { id: 'manual', label: 'Role / Person', icon: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z', desc: 'Job Title or Employee' },
+                    { id: 'dynamic', label: 'Dynamic', icon: 'M13 10V3L4 14h7v7l9-11h-7z', desc: 'Based on form fields' }
+                  ].map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => updateStep(step.id, {
+                        approverSource: opt.id as any,
+                        approverType: opt.id === 'organogram' ? 'manager' : opt.id === 'manual' ? 'role' : 'dynamic_field',
+                        approverValue: '',
+                        approverLabel: ''
+                      })}
+                      className={`relative p-3 rounded-xl border-2 text-left transition-all ${step.approverSource === opt.id
+                        ? 'border-primary-500 bg-primary-50/50'
+                        : 'border-transparent bg-gray-50 hover:bg-gray-100 hover:border-gray-200'
+                        }`}
+                    >
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${step.approverSource === opt.id ? 'bg-primary-100 text-primary-600' : 'bg-white text-gray-500 shadow-sm'
+                        }`}>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={opt.icon} /></svg>
                       </div>
-                    </Card>
+                      <span className={`block text-xs font-bold ${step.approverSource === opt.id ? 'text-primary-900' : 'text-gray-700'}`}>{opt.label}</span>
+                      <span className="block text-[10px] text-gray-500 leading-tight mt-0.5">{opt.desc}</span>
+                    </button>
                   ))}
                 </div>
-              )}
+
+                {/* Detailed Config Based on Source */}
+                <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+                  {step.approverSource === 'organogram' && (
+                    <div className="space-y-4">
+                      <div className="flex gap-2 p-1 bg-white rounded-lg border border-gray-200 shadow-sm">
+                        {organogramSubOptions.map(t => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => updateStep(step.id, { approverType: t.id as any, approverValue: '', approverLabel: '' })}
+                            className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${step.approverType === t.id ? 'bg-primary-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'
+                              }`}
+                          >
+                            {t.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      {step.approverType === 'manager' && (
+                        <select
+                          className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          value={step.approverValue}
+                          onChange={(e) => updateStep(step.id, { approverValue: e.target.value, approverLabel: `Level ${e.target.value} Supervisor` })}
+                        >
+                          <option value="">Select Level...</option>
+                          <option value="1">Direct Manager (Level 1)</option>
+                          <option value="2">Manager's Manager (Level 2)</option>
+                          <option value="3">Level 3 Manager</option>
+                        </select>
+                      )}
+
+                      {step.approverType === 'organogram_position' && (
+                        <button
+                          type="button"
+                          onClick={() => setShowPositionPicker(step.id)}
+                          className="w-full flex items-center justify-between px-4 py-2.5 bg-white border border-gray-200 rounded-xl hover:border-primary-400 group transition-all"
+                        >
+                          <div className="text-left">
+                            <span className="block text-xs font-semibold text-gray-500 uppercase tracking-wide">Selected Position</span>
+                            <span className={`block text-sm font-medium ${step.approverValue ? 'text-primary-700' : 'text-gray-400 italic'}`}>
+                              {step.approverLabel || 'Click to select position...'}
+                            </span>
+                          </div>
+                          <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center group-hover:bg-primary-50 group-hover:text-primary-600">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                          </div>
+                        </button>
+                      )}
+
+                      {step.approverType === 'department_head' && (
+                        <select
+                          className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          value={step.approverValue}
+                          onChange={(e) => {
+                            const d = departmentHeadOptions.find(opt => opt.departmentId === e.target.value);
+                            updateStep(step.id, {
+                              approverValue: e.target.value,
+                              approverLabel: d ? `${d.departmentName} Head` : ''
+                            });
+                          }}
+                        >
+                          <option value="">Select Department...</option>
+                          {departmentHeadOptions.map(d => (
+                            <option key={d.departmentId} value={d.departmentId}>{d.departmentName} - {d.headName}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  )}
+
+                  {step.approverSource === 'manual' && (
+                    <div className="space-y-4">
+                      <div className="flex gap-2 p-1 bg-white rounded-lg border border-gray-200 shadow-sm">
+                        {[
+                          { id: 'role', label: 'Job Title / Role' },
+                          { id: 'specific_user', label: 'Specific Person' }
+                        ].map(t => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => updateStep(step.id, { approverType: t.id as any, approverValue: '', approverLabel: '' })}
+                            className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${step.approverType === t.id ? 'bg-emerald-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'
+                              }`}
+                          >
+                            {t.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      {step.approverType === 'role' && (
+                        <select
+                          className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          value={step.approverValue}
+                          onChange={(e) => updateStep(step.id, { approverValue: e.target.value, approverLabel: e.target.value })}
+                        >
+                          <option value="">Select Job Title...</option>
+                          {uniqueJobTitles.map(t => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                        </select>
+                      )}
+
+                      {step.approverType === 'specific_user' && (
+                        <button
+                          type="button"
+                          onClick={() => setShowEmployeePicker(step.id)}
+                          className="w-full flex items-center justify-between px-4 py-2.5 bg-white border border-gray-200 rounded-xl hover:border-emerald-400 group transition-all"
+                        >
+                          <div className="text-left">
+                            <span className="block text-xs font-semibold text-gray-500 uppercase tracking-wide">Selected User</span>
+                            <span className={`block text-sm font-medium ${step.approverValue ? 'text-emerald-700' : 'text-gray-400 italic'}`}>
+                              {step.approverLabel || 'Click to select person...'}
+                            </span>
+                          </div>
+                          <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center group-hover:bg-emerald-50 group-hover:text-emerald-600">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                          </div>
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {step.approverSource === 'dynamic' && (
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Form Field Name</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. project_manager_email"
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        value={step.approverValue}
+                        onChange={(e) => updateStep(step.id, { approverValue: e.target.value, approverLabel: `Field: ${e.target.value}` })}
+                      />
+                      <p className="text-[10px] text-gray-400 mt-1">
+                        The workflow will look for an email address in this field from the request form.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Extra Settings */}
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                  <label className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={step.settings.requireComment}
+                      onChange={(e) => updateStep(step.id, { settings: { ...step.settings, requireComment: e.target.checked } })}
+                      className="rounded border-gray-300 text-primary-600"
+                    />
+                    <span className="text-sm text-gray-700">Require Comment</span>
+                  </label>
+                  <label className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={step.settings.allowDelegation}
+                      onChange={(e) => updateStep(step.id, { settings: { ...step.settings, allowDelegation: e.target.checked } })}
+                      className="rounded border-gray-300 text-primary-600"
+                    />
+                    <span className="text-sm text-gray-700">Allow Delegation</span>
+                  </label>
+                </div>
+              </div>
+            )}
+          </Card>
+        </div>
+      </div>
+    );
+  };
+
+  // Modals
+  const renderPositionPicker = () => {
+    if (!showPositionPicker) return null;
+    const scopeLabel = isWideScope ? ' (All Business Units)' : '';
+    return (
+      <Modal isOpen={!!showPositionPicker} onClose={() => { setShowPositionPicker(null); setPositionSearch(''); }} title={`Select Position from Organogram${scopeLabel}`} size="lg">
+        <div className="space-y-4">
+          {isWideScope && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-purple-50 border border-purple-100 rounded-lg text-xs text-purple-700">
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              Showing positions across all business units for {WORKFLOW_CATEGORIES.find(c => c.value === workflowCategory)?.label} scope
             </div>
-
-            <button
-              type="button"
-              onClick={addStep}
-              className="w-full py-3 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:border-primary-400 hover:text-primary-600 hover:bg-primary-50/30 transition-colors flex items-center justify-center gap-2"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Add Approval Step
-            </button>
-          </>
-        )}
-
-        <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-sm border-t border-gray-100 pb-safe lg:left-64">
-          <div className="flex gap-3 max-w-4xl mx-auto">
-            <Button
-              type="button"
-              variant="secondary"
-              className="flex-1"
-              onClick={() => router.back()}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              className="flex-1 !bg-primary-600 hover:!bg-primary-700"
-              disabled={!workflowName || steps.length === 0 || loading}
-              onClick={handleSubmit}
-              isLoading={loading}
-            >
-              Save Workflow
-            </Button>
+          )}
+          <input
+            type="text"
+            placeholder="Search by title, employee name, department..."
+            className="w-full px-4 py-2 text-sm rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
+            value={positionSearch}
+            onChange={(e) => setPositionSearch(e.target.value)}
+            autoFocus
+          />
+          <div className="max-h-[400px] overflow-y-auto space-y-1">
+            {loadingPositions ? (
+              <div className="text-center py-6 text-gray-500">Loading...</div>
+            ) : filteredPositions.length === 0 ? (
+              <div className="text-center py-6 text-gray-500">No positions found.</div>
+            ) : (
+              filteredPositions.map(pos => (
+                <button
+                  key={pos.id}
+                  onClick={() => {
+                    updateStep(showPositionPicker, {
+                      approverValue: pos.position_title,
+                      approverLabel: pos.employee
+                        ? `${pos.position_title} (${pos.employee.first_name} ${pos.employee.last_name})`
+                        : pos.position_title
+                    });
+                    setShowPositionPicker(null);
+                    setPositionSearch('');
+                  }}
+                  className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-primary-50 border border-transparent hover:border-primary-100 group transition-all text-left"
+                >
+                  <div>
+                    <div className="font-semibold text-gray-900 text-sm">{pos.position_title}</div>
+                    <div className="text-xs text-gray-500 flex items-center gap-1.5 mt-0.5">
+                      {pos.employee ? (
+                        <span className="text-primary-600 font-medium">{pos.employee.first_name} {pos.employee.last_name}</span>
+                      ) : (
+                        <span className="bg-amber-100 text-amber-700 px-1.5 rounded uppercase text-[10px] font-bold">Vacant</span>
+                      )}
+                      {pos.department && <span>• {pos.department.name}</span>}
+                      {isWideScope && pos.business_unit && <span>• {pos.business_unit.name}</span>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isWideScope && pos.business_unit && (
+                      <span className="text-[10px] bg-purple-50 text-purple-600 px-2 py-0.5 rounded font-medium whitespace-nowrap">{pos.business_unit.name}</span>
+                    )}
+                    {pos.grade && <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded font-medium">{pos.grade}</span>}
+                  </div>
+                </button>
+              ))
+            )}
           </div>
         </div>
+      </Modal>
+    );
+  };
+
+  const renderEmployeePicker = () => {
+    if (!showEmployeePicker) return null;
+    const scopeLabel = isWideScope ? ' (All Business Units)' : '';
+    return (
+      <Modal isOpen={!!showEmployeePicker} onClose={() => { setShowEmployeePicker(null); setEmployeeSearch(''); }} title={`Select Employee${scopeLabel}`} size="lg">
+        <div className="space-y-4">
+          {isWideScope && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-purple-50 border border-purple-100 rounded-lg text-xs text-purple-700">
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              Showing employees across all business units for {WORKFLOW_CATEGORIES.find(c => c.value === workflowCategory)?.label} scope
+            </div>
+          )}
+          <input
+            type="text"
+            placeholder="Search by name, email, job title..."
+            className="w-full px-4 py-2 text-sm rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            value={employeeSearch}
+            onChange={(e) => setEmployeeSearch(e.target.value)}
+            autoFocus
+          />
+          <div className="max-h-[400px] overflow-y-auto space-y-1">
+            {loadingEmployees ? (
+              <div className="text-center py-6 text-gray-500">Loading...</div>
+            ) : filteredEmployees.length === 0 ? (
+              <div className="text-center py-6 text-gray-500">No employees found.</div>
+            ) : (
+              filteredEmployees.map(emp => {
+                const empBu = isWideScope ? businessUnits.find(b => b.id === emp.business_unit_id) : null;
+                return (
+                  <button
+                    key={emp.id}
+                    onClick={() => {
+                      updateStep(showEmployeePicker, {
+                        approverValue: emp.email,
+                        approverLabel: `${emp.first_name} ${emp.last_name}`
+                      });
+                      setShowEmployeePicker(null);
+                      setEmployeeSearch('');
+                    }}
+                    className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-emerald-50 border border-transparent hover:border-emerald-100 group transition-all text-left"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-xs flex-shrink-0">
+                      {emp.first_name[0]}{emp.last_name[0]}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-gray-900 text-sm">{emp.first_name} {emp.last_name}</div>
+                      <div className="text-xs text-gray-500 truncate">{emp.email} • {emp.job_title || 'No Job Title'}</div>
+                    </div>
+                    {empBu && (
+                      <span className="text-[10px] bg-purple-50 text-purple-600 px-2 py-0.5 rounded font-medium whitespace-nowrap flex-shrink-0">{empBu.name}</span>
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </Modal>
+    );
+  };
+
+  if (status === 'loading') return null;
+  if (!session) return null;
+
+  return (
+    <AppLayout title="Workflow Designer" showBack onBack={() => router.back()} hideNav>
+      <div className="min-h-screen bg-gray-50/50 pb-32">
+        {/* Header Section */}
+        <div className="bg-white border-b border-gray-200 sticky top-0 z-20 shadow-sm">
+          <div className="max-w-5xl mx-auto px-6 py-4">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600">
+                  Workflow Designer
+                </h1>
+                <p className="text-sm text-gray-500 mt-1">Create customized approval flows matching your exact needs</p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={addStep}
+                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-xl shadow-lg shadow-gray-200 hover:shadow-xl hover:-translate-y-0.5 transition-all text-sm font-medium"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                  Add Step
+                </button>
+              </div>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex items-center gap-6 text-sm font-medium border-b border-gray-100 -mb-4">
+              {[
+                { id: 'design', label: 'Flow Design' },
+                { id: 'settings', label: 'Settings' },
+                { id: 'saved', label: 'Template Library' }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as any)}
+                  className={`pb-4 border-b-2 transition-colors ${activeTab === tab.id ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-800'
+                    }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="max-w-5xl mx-auto px-6 py-8">
+          {error && (
+            <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-3">
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              {error}
+            </div>
+          )}
+          {successMsg && (
+            <div className="mb-6 bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl flex items-center gap-3">
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              {successMsg}
+            </div>
+          )}
+
+          {activeTab === 'design' && (
+            <div className="flex flex-col lg:flex-row gap-8">
+              {/* Left: General Info */}
+              <div className="lg:w-1/3 space-y-4">
+                <Card className="p-4" title="Workflow Properties">
+                  <div className="space-y-4">
+                    <Input label="Name" placeholder="e.g. Finance Approval" value={workflowName} onChange={e => setWorkflowName(e.target.value)} />
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Workflow Scope</label>
+                      <div className="grid grid-cols-1 gap-2">
+                        {WORKFLOW_CATEGORIES.map(cat => (
+                          <button
+                            key={cat.value}
+                            onClick={() => { setWorkflowCategory(cat.value); setSteps([]); }}
+                            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all border ${workflowCategory === cat.value
+                              ? 'bg-white border-primary-500 ring-1 ring-primary-500 shadow-sm'
+                              : 'bg-gray-50 border-transparent hover:bg-gray-100'
+                              }`}
+                          >
+                            <span className="text-lg">{cat.icon}</span>
+                            <div className="text-left flex-1">
+                              <span className="font-medium text-gray-700 block">{cat.label}</span>
+                              <span className="text-[10px] text-gray-400 leading-tight block">{cat.description}</span>
+                            </div>
+                            {workflowCategory === cat.value && <svg className="w-4 h-4 flex-shrink-0 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+
+                {/* Auto-generate from Organogram */}
+                <Card className="p-4 bg-gradient-to-br from-indigo-50 to-purple-50 border-indigo-100">
+                  <h4 className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                    <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                    Quick Start
+                  </h4>
+                  <p className="text-xs text-gray-600 mb-3">
+                    {workflowCategory === 'departmental'
+                      ? 'Auto-generate steps from your department hierarchy (HOD down to lowest level).'
+                      : workflowCategory === 'multi_departmental' || workflowCategory === 'business_unit'
+                        ? 'Auto-generate steps from all positions in your business unit.'
+                        : 'Auto-generate steps from the full organization organogram.'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={autoGenerateFromOrganogram}
+                    disabled={loadingPositions}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-all text-sm font-medium shadow-sm"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                    {loadingPositions ? 'Loading...' : 'Generate from Organogram'}
+                  </button>
+                  {steps.length > 0 && (
+                    <p className="text-[10px] text-indigo-600 mt-2 text-center font-medium">
+                      This will replace your current {steps.length} step{steps.length > 1 ? 's' : ''}
+                    </p>
+                  )}
+                </Card>
+
+                {/* Organogram Status */}
+                <Card className="p-4 bg-gray-50">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className={`w-2 h-2 rounded-full ${hrimsDetected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                    <h4 className="text-sm font-semibold text-gray-900">HRIMS Connection</h4>
+                  </div>
+                  {hrimsDetected ? (
+                    <div className="text-xs text-gray-600">
+                      <p>Connected as <span className="font-medium text-gray-900">{hrimsProfile?.first_name} {hrimsProfile?.last_name}</span></p>
+                      <p className="mt-1">{hrimsProfile?.job_title} • {hrimsBusinessUnit?.name}</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-xs text-amber-700">Not connected to your profile automatically.</p>
+                      <select
+                        className="w-full text-xs p-2 rounded border"
+                        value={selectedBusinessUnit}
+                        onChange={(e) => setSelectedBusinessUnit(e.target.value)}
+                      >
+                        <option value="">Select Business Unit...</option>
+                        {businessUnits.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                      </select>
+                    </div>
+                  )}
+                </Card>
+              </div>
+
+              {/* Right: Steps Timeline */}
+              <div className="lg:w-2/3">
+                <div className="flex items-center gap-2 mb-6">
+                  <span className="px-3 py-1 bg-gray-100 rounded-full text-xs font-bold text-gray-600">Start</span>
+                  <div className="h-0.5 flex-1 bg-gray-200" />
+                  <span className="text-xs text-gray-400 font-medium">Requester Submits</span>
+                </div>
+
+                {steps.length === 0 ? (
+                  <div className="text-center py-16 border-2 border-dashed border-gray-200 rounded-2xl bg-gray-50/50">
+                    <div className="w-16 h-16 mx-auto bg-white rounded-full shadow-sm flex items-center justify-center mb-4">
+                      <svg className="w-8 h-8 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+                    </div>
+                    <h3 className="text-lg font-semibold text-gray-900">Start your flow</h3>
+                    <p className="text-gray-500 mb-6">Add the first approval step to begin</p>
+                    <Button onClick={addStep} variant="primary">Add Approval Step</Button>
+                  </div>
+                ) : (
+                  <div className="mb-8">
+                    {steps.map((step, i) => renderStepCard(step, i))}
+                  </div>
+                )}
+
+                {steps.length > 0 && (
+                  <div className="flex items-center gap-2 mt-6">
+                    <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-bold">End</span>
+                    <div className="h-0.5 flex-1 bg-gray-200" />
+                    <span className="text-xs text-gray-400 font-medium">Request Approved</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'settings' && (
+            <div className="max-w-2xl mx-auto space-y-6">
+              <Card className="p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Workflow Configuration</h3>
+                <div className="space-y-4">
+                  <label className="flex items-start justify-between p-3 rounded-lg hover:bg-gray-50 border border-gray-100 hover:border-gray-200 transition-all cursor-pointer">
+                    <div>
+                      <div className="font-medium text-gray-900">Allow Parallel Approvals</div>
+                      <div className="text-xs text-gray-500 mt-0.5">Enable multiple approvers to approve simultaneously in a single step</div>
+                    </div>
+                    <div className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" checked={workflowSettings.allowParallelApprovals} onChange={(e) => setWorkflowSettings({ ...workflowSettings, allowParallelApprovals: e.target.checked })} className="sr-only peer" />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start justify-between p-3 rounded-lg hover:bg-gray-50 border border-gray-100 hover:border-gray-200 transition-all cursor-pointer">
+                    <div>
+                      <div className="font-medium text-gray-900">Requester Notifications</div>
+                      <div className="text-xs text-gray-500 mt-0.5">Notify the requester via email when each step is completed</div>
+                    </div>
+                    <div className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" checked={workflowSettings.notifyRequesterOnEachStep} onChange={(e) => setWorkflowSettings({ ...workflowSettings, notifyRequesterOnEachStep: e.target.checked })} className="sr-only peer" />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start justify-between p-3 rounded-lg hover:bg-gray-50 border border-gray-100 hover:border-gray-200 transition-all cursor-pointer">
+                    <div>
+                      <div className="font-medium text-gray-900">Allow Withdrawal</div>
+                      <div className="text-xs text-gray-500 mt-0.5">Requester can withdraw the request before final approval</div>
+                    </div>
+                    <div className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" checked={workflowSettings.allowWithdraw} onChange={(e) => setWorkflowSettings({ ...workflowSettings, allowWithdraw: e.target.checked })} className="sr-only peer" />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start justify-between p-3 rounded-lg hover:bg-gray-50 border border-gray-100 hover:border-gray-200 transition-all cursor-pointer">
+                    <div>
+                      <div className="font-medium text-gray-900">Require Attachments</div>
+                      <div className="text-xs text-gray-500 mt-0.5">Force requesters to upload supporting documents</div>
+                    </div>
+                    <div className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" checked={workflowSettings.requireAttachments} onChange={(e) => setWorkflowSettings({ ...workflowSettings, requireAttachments: e.target.checked })} className="sr-only peer" />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                    </div>
+                  </label>
+                </div>
+              </Card>
+
+              <Card className="p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">SLA & Expiration</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Request Expiration (Days)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      value={workflowSettings.expirationDays}
+                      onChange={(e) => setWorkflowSettings({ ...workflowSettings, expirationDays: parseInt(e.target.value) || 30 })}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Requests pending longer than this will be processed</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Action on Expiration</label>
+                    <div className="flex bg-gray-100 rounded-lg p-1">
+                      {['notify', 'escalate', 'reject'].map(opt => (
+                        <button
+                          key={opt}
+                          onClick={() => setWorkflowSettings({ ...workflowSettings, onExpiration: opt as any })}
+                          className={`flex-1 py-1.5 text-xs font-medium rounded-md capitalize transition-all ${workflowSettings.onExpiration === opt ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                            }`}
+                        >
+                          {opt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            </div>
+          )}
+
+          {activeTab === 'saved' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {savedWorkflows.map(wf => (
+                <Card key={wf.id} className="cursor-pointer hover:border-primary-400 hover:shadow-md transition-all group" onClick={() => loadWorkflow(wf)}>
+                  <div className="p-5">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="p-2 bg-gray-50 rounded-lg group-hover:bg-primary-50 text-2xl group-hover:text-primary-600 transition-colors">
+                        {WORKFLOW_CATEGORIES.find(c => c.value === wf.category)?.icon || '📝'}
+                      </div>
+                      {wf.is_active && <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] uppercase font-bold rounded-full">Active</span>}
+                    </div>
+                    <h3 className="font-bold text-gray-900 mb-1">{wf.name}</h3>
+                    {wf.category && (
+                      <span className={`inline-block text-[10px] px-2 py-0.5 rounded-full font-medium mb-1 ${WORKFLOW_CATEGORIES.find(c => c.value === wf.category)?.color || 'bg-gray-100 text-gray-600'}`}>
+                        {WORKFLOW_CATEGORIES.find(c => c.value === wf.category)?.label || wf.category}
+                      </span>
+                    )}
+                    <p className="text-sm text-gray-500 line-clamp-2 min-h-[40px]">{wf.description || 'No description'}</p>
+                    <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between text-xs text-gray-400">
+                      <span>{wf.steps?.length || 0} steps</span>
+                      <span>{new Date(wf.updated_at).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+              {savedWorkflows.length === 0 && !loadingSaved && (
+                <div className="col-span-full text-center py-12 text-gray-500">No saved workflows found.</div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Footer Action */}
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 lg:pl-72 flex justify-end gap-3 z-30">
+          <Button variant="secondary" onClick={() => router.back()}>Cancel</Button>
+          <Button variant="primary" onClick={handleSubmit} isLoading={loading} disabled={!workflowName || steps.length === 0}>
+            {editingWorkflowId ? 'Update Design' : 'Save Design'}
+          </Button>
+        </div>
+
+        {renderPositionPicker()}
+        {renderEmployeePicker()}
       </div>
     </AppLayout>
   );

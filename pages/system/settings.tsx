@@ -1,10 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
+import { GetServerSideProps } from 'next';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../api/auth/[...nextauth]';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { AppLayout } from '@/components/layout';
 import { Card, Button } from '@/components/ui';
 import { SettingsIllustration } from '@/components/illustrations/SettingsIllustration';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
-import { supabase, isSupabaseConfigured } from '@/lib/supabaseClient';
+import { useUserHrimsProfile } from '@/hooks/useUserHrimsProfile';
 import dynamic from 'next/dynamic';
 
 const SignaturePad = dynamic(() => import('@/components/SignaturePad'), {
@@ -12,22 +16,59 @@ const SignaturePad = dynamic(() => import('@/components/SignaturePad'), {
   loading: () => <div className="h-40 bg-gray-50 animate-pulse rounded-xl" />
 });
 
-export default function Settings() {
+interface SettingsProps {
+  initialSignatureUrl: string | null;
+}
+
+export const getServerSideProps: GetServerSideProps<SettingsProps> = async (context) => {
+  const session = await getServerSession(context.req, context.res, authOptions);
+
+  if (!session?.user) {
+    return {
+      redirect: {
+        destination: '/',
+        permanent: false,
+      },
+    };
+  }
+
+  const user = session.user as any;
+  const userId = user.id;
+  let initialSignatureUrl: string | null = null;
+
+  try {
+    if (userId) {
+      const { data } = supabaseAdmin.storage.from('signatures').getPublicUrl(`${userId}.png`);
+      // Check if signature exists by making a HEAD request
+      const res = await fetch(data.publicUrl, { method: 'HEAD' });
+      if (res.ok) {
+        initialSignatureUrl = `${data.publicUrl}?t=${Date.now()}`;
+      }
+    }
+  } catch (e) {
+    // No signature found or error fetching
+  }
+
+  return {
+    props: {
+      initialSignatureUrl,
+    },
+  };
+};
+
+export default function Settings({ initialSignatureUrl }: SettingsProps) {
     const { user, session, loading: userLoading, updateProfilePicture } = useCurrentUser();
+    const { departmentName, businessUnitName } = useUserHrimsProfile();
     const [activeTab, setActiveTab] = useState('profile');
     const [isLoading, setIsLoading] = useState(false);
-    const [signatureUrl, setSignatureUrl] = useState<string | null>(null);
+    const [signatureUrl, setSignatureUrl] = useState<string | null>(initialSignatureUrl);
     const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
     const [uploadingPicture, setUploadingPicture] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // Load signature and profile picture when user data is available
+    // Load profile picture when user data is available
     useEffect(() => {
-        if (user?.id && isSupabaseConfigured) {
-            // Fetch signature from storage
-            const { data } = supabase.storage.from('signatures').getPublicUrl(`${user.id}.png`);
-            checkSignature(data.publicUrl);
-
+        if (user?.id) {
             // Set profile picture from user data
             if (user.profile_picture_url) {
                 const url = user.profile_picture_url;
@@ -38,23 +79,11 @@ export default function Settings() {
         }
     }, [user]);
 
-    const checkSignature = async (url: string) => {
-        try {
-            const res = await fetch(url, { method: 'HEAD' });
-            if (res.ok) {
-                setSignatureUrl(`${url}?t=${Date.now()}`);
-            }
-        } catch (e) {
-            // No signature found
-        }
-    };
-
     const fetchProfilePictureFromStorage = async (userId: string) => {
-        if (!isSupabaseConfigured) return;
         try {
             const extensions = ['png', 'jpg', 'jpeg', 'webp'];
             for (const ext of extensions) {
-                const { data } = supabase.storage.from('profile_pictures').getPublicUrl(`${userId}.${ext}`);
+                const { data } = supabaseAdmin.storage.from('profile_pictures').getPublicUrl(`${userId}.${ext}`);
                 try {
                     const res = await fetch(data.publicUrl, { method: 'HEAD' });
                     if (res.ok) {
@@ -242,13 +271,13 @@ export default function Settings() {
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
                                             <p className="text-gray-900 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
-                                                {user?.department?.name || 'Not assigned'}
+                                                {departmentName || 'Not assigned'}
                                             </p>
                                         </div>
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-1">Business Unit</label>
                                             <p className="text-gray-900 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
-                                                {user?.business_unit?.name || 'Not assigned'}
+                                                {businessUnitName || 'Not assigned'}
                                             </p>
                                         </div>
                                         <div className="md:col-span-2">

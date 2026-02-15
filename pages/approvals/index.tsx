@@ -1,6 +1,10 @@
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
+import { GetServerSideProps } from 'next';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../api/auth/[...nextauth]';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import dynamic from 'next/dynamic';
 import { AppLayout } from '../../components/layout';
 import { Card, Button } from '../../components/ui';
@@ -66,7 +70,197 @@ const priorityConfig: Record<string, { label: string; bg: string; text: string; 
 
 type TabType = 'pending' | 'watching' | 'history';
 
-export default function ApprovalsPage() {
+interface ApprovalsPageProps {
+  initialPendingApprovals: any[];
+  initialWatchingRequests: any[];
+  initialHistoryRequests: any[];
+  initialError: string | null;
+}
+
+export const getServerSideProps: GetServerSideProps<ApprovalsPageProps> = async (context) => {
+  const session = await getServerSession(context.req, context.res, authOptions);
+
+  if (!session?.user?.id) {
+    return {
+      redirect: {
+        destination: '/',
+        permanent: false,
+      },
+    };
+  }
+
+  const userId = session.user.id;
+  const organizationId = (session.user as any).org_id;
+
+  try {
+    // Fetch pending approvals
+    const { data: pendingSteps, error: stepsError } = await supabaseAdmin
+      .from('request_steps')
+      .select('request_id')
+      .eq('approver_user_id', userId)
+      .eq('status', 'pending');
+
+    let pendingApprovals: any[] = [];
+    if (!stepsError && pendingSteps && pendingSteps.length > 0) {
+      const requestIds = pendingSteps.map(s => s.request_id);
+      const { data: pendingData, error: fetchError } = await supabaseAdmin
+        .from('requests')
+        .select(`
+          id,
+          organization_id,
+          workspace_id,
+          creator_id,
+          title,
+          description,
+          status,
+          metadata,
+          created_at,
+          updated_at,
+          creator:app_users!requests_creator_id_fkey (
+            id,
+            display_name,
+            email,
+            profile_picture_url
+          ),
+          request_steps (
+            id,
+            step_index,
+            step_type,
+            approver_role,
+            approver_user_id,
+            status,
+            due_at
+          )
+        `)
+        .in('id', requestIds)
+        .in('status', ['pending', 'pending_approval'])
+        .order('created_at', { ascending: false });
+
+      if (!fetchError && pendingData) {
+        pendingApprovals = pendingData.filter((req: any) => {
+          const userStep = req.request_steps?.find(
+            (step: any) => step.approver_user_id === userId && step.status === 'pending'
+          );
+          return !!userStep;
+        });
+      }
+    }
+
+    // Fetch watching requests
+    const { data: watchingData, error: watchingError } = await supabaseAdmin
+      .from('requests')
+      .select(`
+        id,
+        organization_id,
+        workspace_id,
+        creator_id,
+        title,
+        description,
+        status,
+        metadata,
+        created_at,
+        updated_at,
+        creator:app_users!requests_creator_id_fkey (
+          id,
+          display_name,
+          email,
+          profile_picture_url
+        ),
+        request_steps (
+          id,
+          step_index,
+          step_type,
+          approver_role,
+          approver_user_id,
+          status,
+          due_at
+        )
+      `)
+      .eq('organization_id', organizationId)
+      .order('created_at', { ascending: false });
+
+    let watchingRequests: any[] = [];
+    if (!watchingError && watchingData) {
+      watchingRequests = watchingData.filter((req: any) => {
+        const watchers = req.metadata?.watchers || [];
+        return Array.isArray(watchers) && watchers.some((w: any) =>
+          typeof w === 'string' ? w === userId : w?.id === userId
+        );
+      });
+    }
+
+    // Fetch history requests
+    const { data: historyData, error: historyError } = await supabaseAdmin
+      .from('approvals')
+      .select(`
+        id,
+        decision,
+        comment,
+        signed_at,
+        step:request_steps!inner (
+          request:requests!inner (
+            id,
+            organization_id,
+            workspace_id,
+            creator_id,
+            title,
+            description,
+            status,
+            metadata,
+            created_at,
+            updated_at,
+            creator:app_users!requests_creator_id_fkey (
+              id,
+              display_name,
+              email,
+              profile_picture_url
+            ),
+            request_steps (
+              id,
+              step_index,
+              step_type,
+              approver_role,
+              approver_user_id,
+              status,
+              due_at
+            )
+          )
+        )
+      `)
+      .eq('approver_id', userId)
+      .order('signed_at', { ascending: false });
+
+    let historyRequests: any[] = [];
+    if (!historyError && historyData) {
+      historyRequests = historyData.map((approval: any) => ({
+        ...approval.step.request,
+        user_action: approval.decision,
+        user_action_date: approval.signed_at,
+        user_comment: approval.comment,
+      }));
+    }
+
+    return {
+      props: {
+        initialPendingApprovals: pendingApprovals,
+        initialWatchingRequests: watchingRequests,
+        initialHistoryRequests: historyRequests,
+        initialError: null,
+      },
+    };
+  } catch (err: any) {
+    return {
+      props: {
+        initialPendingApprovals: [],
+        initialWatchingRequests: [],
+        initialHistoryRequests: [],
+        initialError: err.message || 'Failed to load approvals',
+      },
+    };
+  }
+};
+
+export default function ApprovalsPage({ initialPendingApprovals, initialWatchingRequests, initialHistoryRequests, initialError }: ApprovalsPageProps) {
   const { data: session, status } = useSession();
   const router = useRouter();
   const { pendingApprovals, watchingRequests, historyRequests, loading, watchingLoading, historyLoading, error } = useApprovals();
@@ -77,6 +271,11 @@ export default function ApprovalsPage() {
   const [dateFilter, setDateFilter] = useState<string>('all');
   const [showFilters, setShowFilters] = useState(false);
 
+  // Use initial data from SSR
+  const displayPendingApprovals = initialPendingApprovals.length > 0 || loading ? pendingApprovals : initialPendingApprovals;
+  const displayWatchingRequests = initialWatchingRequests.length > 0 || watchingLoading ? watchingRequests : initialWatchingRequests;
+  const displayHistoryRequests = initialHistoryRequests.length > 0 || historyLoading ? historyRequests : initialHistoryRequests;
+
   useEffect(() => {
     if (status === 'unauthenticated') {
       router.push('/');
@@ -85,9 +284,9 @@ export default function ApprovalsPage() {
 
   const getActiveData = () => {
     switch (activeTab) {
-      case 'pending': return pendingApprovals;
-      case 'watching': return watchingRequests;
-      case 'history': return historyRequests;
+      case 'pending': return displayPendingApprovals;
+      case 'watching': return displayWatchingRequests;
+      case 'history': return displayHistoryRequests;
       default: return [];
     }
   };
@@ -190,7 +389,7 @@ export default function ApprovalsPage() {
     {
       id: 'pending',
       label: 'Pending',
-      count: pendingApprovals.length,
+      count: displayPendingApprovals.length,
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -200,7 +399,7 @@ export default function ApprovalsPage() {
     {
       id: 'watching',
       label: 'Watching',
-      count: watchingRequests.length,
+      count: displayWatchingRequests.length,
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -211,7 +410,7 @@ export default function ApprovalsPage() {
     {
       id: 'history',
       label: 'History',
-      count: historyRequests.length,
+      count: displayHistoryRequests.length,
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />

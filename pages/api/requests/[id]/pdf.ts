@@ -45,10 +45,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           id,
           display_name,
           email,
-          department:departments (
-            id,
-            name
-          )
+          department_id,
+          job_title
         ),
         request_steps (
           id,

@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { useState } from 'react';
-import { useCurrentUser } from '@/hooks';
+import { useEffect, useState } from 'react';
+import { useSession } from 'next-auth/react';
 
 interface NavItem {
   href?: string;
@@ -127,8 +127,36 @@ interface SidebarProps {
 
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const router = useRouter();
-  const { user: appUser } = useCurrentUser();
-  const [expandedSections, setExpandedSections] = useState<string[]>(['Requests', 'System']);
+  const { data: session } = useSession();
+  const [expandedSections, setExpandedSections] = useState<string[]>(['Requests', 'Reporting and Archives', 'System']);
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState<string | null>(null);
+
+  // Fetch profile data if session doesn't have it
+  useEffect(() => {
+    const sessionUser = session?.user as any;
+    if (sessionUser?.profile_picture_url) {
+      setProfilePhoto(sessionUser.profile_picture_url);
+    }
+    if (sessionUser?.display_name) {
+      setDisplayName(sessionUser.display_name);
+    }
+    
+    // If session doesn't have profile data, fetch from API
+    if (session?.user?.id && (!sessionUser?.profile_picture_url || !sessionUser?.display_name)) {
+      fetch('/api/user/profile')
+        .then(res => res.json())
+        .then(data => {
+          if (data.profile_picture_url) {
+            setProfilePhoto(data.profile_picture_url);
+          }
+          if (data.display_name) {
+            setDisplayName(data.display_name);
+          }
+        })
+        .catch(err => console.error('Error fetching profile:', err));
+    }
+  }, [session]);
 
   const toggleSection = (title: string) => {
     setExpandedSections((prev) =>
@@ -146,16 +174,16 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
       {/* Mobile overlay - only when expanded (isOpen true) on mobile */}
       {isOpen && (
         <div
-          className="fixed inset-0 bg-gray-900/50 z-40 lg:hidden"
+          className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm z-40 lg:hidden transition-opacity duration-300"
           onClick={onClose}
         />
       )}
 
       {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 bg-white border-r border-gray-200 transition-all duration-300 ease-in-out font-sans
-          ${isOpen ? 'w-64' : 'w-16'} 
-          lg:w-64
+        className={`fixed inset-y-0 left-0 z-50 bg-white border-r border-gray-200 font-sans w-64 shadow-2xl lg:shadow-none transition-transform duration-300 ease-in-out
+          lg:translate-x-0
+          ${isOpen ? 'translate-x-0' : '-translate-x-full'}
         `}
       >
         <div className="flex flex-col h-full overflow-hidden">
@@ -186,24 +214,24 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                   />
                 </svg>
               </div>
-              <span className={`text-gray-900 font-bold text-xl whitespace-nowrap transition-opacity duration-200 ${isOpen ? 'opacity-100' : 'opacity-0 lg:opacity-100 hidden lg:block'}`}>
+              <span className="text-gray-900 font-bold text-xl whitespace-nowrap">
                 The Circle
               </span>
             </div>
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 overflow-y-auto overflow-x-hidden py-4 px-2">
+          <nav className="flex-1 overflow-y-auto overflow-x-hidden py-4 px-2 custom-scrollbar">
             {navSections.map((section, sectionIndex) => (
               <div key={sectionIndex} className={sectionIndex > 0 ? 'mt-6' : ''}>
                 {section.title && (
-                  <div className={`px-2 py-2 mb-1 flex items-center justify-between whitespace-nowrap ${isOpen ? 'opacity-100' : 'opacity-0 lg:opacity-100 hidden lg:flex'}`}>
+                  <div className="px-2 py-2 mb-1 flex items-center justify-between whitespace-nowrap">
                     <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
                       {section.title}
                     </span>
-                    <button onClick={() => toggleSection(section.title!)} className="text-gray-400 hover:text-gray-600">
+                    <button onClick={() => toggleSection(section.title!)} className="text-gray-400 hover:text-gray-600 transition-colors">
                       <svg
-                        className={`w-3 h-3 transition-transform ${expandedSections.includes(section.title!) ? 'rotate-180' : ''}`}
+                        className={`w-3 h-3 transition-transform duration-200 ${expandedSections.includes(section.title!) ? 'rotate-180' : ''}`}
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
@@ -215,7 +243,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                 )}
 
                 <div
-                  className={`space-y-1 ${section.title && isOpen && !expandedSections.includes(section.title!) ? 'hidden' : ''
+                  className={`space-y-1 transition-all duration-300 ${section.title && !expandedSections.includes(section.title!) ? 'hidden' : ''
                     }`}
                 >
                   {section.items.map((item) => (
@@ -223,23 +251,22 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                       key={item.href}
                       href={item.href!}
                       onClick={() => {
-                        if (window.innerWidth < 1024 && isOpen) {
+                        if (window.innerWidth < 1024) {
                           onClose();
                         }
                       }}
-                      className={`flex items-center px-3 py-2.5 rounded-xl text-sm font-medium transition-all group
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all group
                         ${isActive(item.href!)
-                          ? 'bg-brand-50 text-brand-600'
+                          ? 'bg-brand-50 text-brand-600 shadow-sm'
                           : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                         }
-                        ${isOpen ? 'gap-3' : 'justify-center'} lg:justify-start lg:gap-3
                       `}
-                      title={!isOpen ? item.label : undefined}
+                      title={item.label}
                     >
                       <span className={`shrink-0 ${isActive(item.href!) ? 'text-brand-500' : 'text-gray-400 group-hover:text-gray-500'}`}>
                         {item.icon}
                       </span>
-                      <span className={`whitespace-nowrap transition-opacity duration-200 ${isOpen ? 'opacity-100' : 'opacity-0 w-0 hidden'} lg:opacity-100 lg:w-auto lg:block`}>
+                      <span className="whitespace-nowrap">
                         {item.label}
                       </span>
                     </Link>
@@ -250,26 +277,29 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
           </nav>
 
           {/* User section at bottom */}
-          <div className="p-4 border-t border-gray-200 overflow-hidden">
+          <div className="p-4 border-t border-gray-200 bg-gray-50">
             <Link
-              href="/profile"
-              className={`flex items-center rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-all
-                 ${isOpen ? 'gap-3 px-3 py-2.5' : 'justify-center py-2 px-0'} lg:justify-start lg:gap-3 lg:px-3 lg:py-2.5
-              `}
+              href="/system/settings"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-600 hover:bg-white hover:shadow-sm hover:text-gray-900 transition-all"
             >
-              <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-600 font-medium text-sm shrink-0 overflow-hidden">
-                {appUser?.profile_picture_url ? (
+              <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-600 font-medium text-sm shrink-0 overflow-hidden ring-2 ring-white">
+                {(session?.user as any)?.profile_picture_url || profilePhoto ? (
                   <img
-                    src={appUser.profile_picture_url}
-                    alt={appUser.display_name || 'Profile'}
+                    src={(session?.user as any)?.profile_picture_url || profilePhoto || ''}
+                    alt={(session?.user as any)?.display_name || displayName || 'Profile'}
                     className="w-full h-full object-cover"
+                    onError={(e) => {
+                      // If image fails to load, clear it and show initial
+                      e.currentTarget.style.display = 'none';
+                      setProfilePhoto(null);
+                    }}
                   />
                 ) : (
-                  appUser?.display_name?.charAt(0) || appUser?.email?.charAt(0) || 'U'
+                  (session?.user as any)?.display_name?.charAt(0) || displayName?.charAt(0) || (session?.user as any)?.email?.charAt(0) || 'U'
                 )}
               </div>
-              <div className={`flex-1 min-w-0 ${isOpen ? 'block' : 'hidden lg:block'}`}>
-                <p className="text-sm font-medium text-gray-900 truncate">User Profile</p>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900 truncate">{(session?.user as any)?.display_name || 'User Profile'}</p>
                 <p className="text-xs text-gray-500 truncate">View settings</p>
               </div>
             </Link>

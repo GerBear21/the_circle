@@ -105,12 +105,13 @@ export const authOptions: NextAuthOptions = {
             // Check if user already exists
             const { data: existingUser } = await supabaseAdmin
               .from("app_users")
-              .select("id, role, profile_picture_url")
+              .select("id, role, profile_picture_url, display_name")
               .eq("organization_id", org.id)
               .eq("azure_oid", oid)
               .single();
 
             let profilePictureUrl = existingUser?.profile_picture_url || null;
+            let displayName = existingUser?.display_name || token.name || user?.name || null;
 
             // If user doesn't have a profile picture, try to fetch from Microsoft Graph
             if (!profilePictureUrl && account?.access_token) {
@@ -156,7 +157,7 @@ export const authOptions: NextAuthOptions = {
               organization_id: org.id,
               azure_oid: oid,
               email: email,
-              display_name: token.name || user?.name || null,
+              display_name: displayName,
             };
 
             // Only set profile_picture_url if we fetched one and user doesn't have one
@@ -177,6 +178,8 @@ export const authOptions: NextAuthOptions = {
             if (appUser) {
               token.user_id = appUser.id;
               token.role = appUser.role;
+              token.profile_picture_url = profilePictureUrl;
+              token.display_name = displayName;
             }
           }
         }
@@ -187,12 +190,14 @@ export const authOptions: NextAuthOptions = {
     },
 
     async session({ session, token }) {
-      // Expose org_id, user_id, and role to the client session
+      // Expose org_id, user_id, role, profile_picture_url, and display_name to the client session
       if (session.user) {
         (session.user as any).org_id = token.org_id;
         (session.user as any).azure_oid = token.azure_oid;
         (session.user as any).id = token.user_id;
         (session.user as any).role = token.role;
+        (session.user as any).profile_picture_url = token.profile_picture_url;
+        (session.user as any).display_name = token.display_name;
       }
       return session;
     },
