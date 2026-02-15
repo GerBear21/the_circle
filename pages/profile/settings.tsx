@@ -7,6 +7,7 @@ import { Card, Button } from '../../components/ui';
 import dynamic from 'next/dynamic';
 import { supabase, isSupabaseConfigured } from '../../lib/supabaseClient';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
+import { useUserHrimsProfile } from '../../hooks/useUserHrimsProfile';
 
 const SignaturePad = dynamic(() => import('../../components/SignaturePad'), {
   ssr: false,
@@ -15,6 +16,7 @@ const SignaturePad = dynamic(() => import('../../components/SignaturePad'), {
 
 export default function SettingsPage() {
   const { user, session, loading: userLoading, updateProfilePicture } = useCurrentUser();
+  const { departmentName, businessUnitName } = useUserHrimsProfile();
   const router = useRouter();
   const [signatureUrl, setSignatureUrl] = useState<string | undefined>(undefined);
   const [profilePictureUrl, setProfilePictureUrl] = useState<string | undefined>(undefined);
@@ -208,13 +210,13 @@ export default function SettingsPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-500 mb-1">Department</label>
                 <p className="text-gray-900 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
-                  {user.department?.name || 'Not assigned'}
+                  {departmentName || 'Not assigned'}
                 </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-500 mb-1">Business Unit</label>
                 <p className="text-gray-900 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
-                  {user.business_unit?.name || 'Not assigned'}
+                  {businessUnitName || 'Not assigned'}
                 </p>
               </div>
             </div>

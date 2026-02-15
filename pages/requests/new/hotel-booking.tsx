@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input } from '../../../components/ui';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
+import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
 
 interface SelectedBusinessUnit {
     id: string;
@@ -21,6 +22,7 @@ export default function HotelBookingPage() {
     const { data: session, status } = useSession();
     const router = useRouter();
     const { user } = useCurrentUser();
+    const { departmentName, businessUnitName } = useUserHrimsProfile();
     const [businessUnits, setBusinessUnits] = useState<Array<{ id: string; name: string }>>([]);
     const [businessUnitsLoading, setBusinessUnitsLoading] = useState(true);
     const [loading, setLoading] = useState(false);
@@ -794,13 +796,13 @@ export default function HotelBookingPage() {
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Business Unit</label>
                                 <div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600">
-                                    {user?.business_unit?.name || 'N/A'}
+                                    {businessUnitName || 'N/A'}
                                 </div>
                             </div>
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Department</label>
                                 <div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600">
-                                    {user?.department?.name || 'N/A'}
+                                    {departmentName || 'N/A'}
                                 </div>
                             </div>
                             <div>

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input } from '../../../components/ui';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
+import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
 import { useOrganizationData } from '../../../hooks/useOrganizationData';
 
 interface SelectedBusinessUnit {
@@ -22,6 +23,7 @@ export default function HotelBookingEditPage() {
     const { data: session, status } = useSession();
     const router = useRouter();
     const { user } = useCurrentUser();
+    const { departmentName, businessUnitName } = useUserHrimsProfile();
     const { businessUnits, loading: businessUnitsLoading } = useOrganizationData(user?.organization_id);
     const [loading, setLoading] = useState(false);
     const [savingChanges, setSavingChanges] = useState(false);
@@ -439,13 +441,13 @@ export default function HotelBookingEditPage() {
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Business Unit</label>
                                 <div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600">
-                                    {user?.business_unit?.name || 'N/A'}
+                                    {businessUnitName || 'N/A'}
                                 </div>
                             </div>
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Department</label>
                                 <div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600">
-                                    {user?.department?.name || 'N/A'}
+                                    {departmentName || 'N/A'}
                                 </div>
                             </div>
                             <div>
