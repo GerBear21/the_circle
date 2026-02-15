@@ -1,4 +1,5 @@
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
+import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
@@ -17,6 +18,7 @@ interface DocumentMetadata {
 export default function NewCapexRequestPage() {
   const { data: session, status } = useSession();
   const { user } = useCurrentUser();
+  const { departmentName, businessUnitName } = useUserHrimsProfile();
   const router = useRouter();
   const { addToast } = useToast();
   const [loading, setLoading] = useState(false);
@@ -353,8 +355,8 @@ export default function NewCapexRequestPage() {
       setFormData(prev => ({
         ...prev,
         requester: user.display_name || user.email || session?.user?.name || prev.requester,
-        unit: user.business_unit?.name || prev.unit,
-        department: user.department?.name || prev.department,
+        unit: businessUnitName || prev.unit,
+        department: departmentName || prev.department,
       }));
     } else if (session?.user?.name && !formData.requester) {
       // Fallback to session name if user profile not yet loaded/available
@@ -1111,7 +1113,7 @@ export default function NewCapexRequestPage() {
                 <input
                   type="text"
                   className="w-full px-4 py-2 min-h-[44px] rounded-xl border border-gray-300 bg-gray-50 text-gray-500 cursor-not-allowed focus:outline-none transition-all"
-                  value={user.business_unit?.name || formData.unit || 'Loading...'}
+                  value={businessUnitName || formData.unit || 'Loading...'}
                   readOnly
                   disabled
                 />
@@ -1140,7 +1142,7 @@ export default function NewCapexRequestPage() {
                 <input
                   type="text"
                   className="w-full px-4 py-2 min-h-[44px] rounded-xl border border-gray-300 bg-gray-50 text-gray-500 cursor-not-allowed focus:outline-none transition-all"
-                  value={user.department?.name || formData.department || 'Loading...'}
+                  value={departmentName || formData.department || 'Loading...'}
                   readOnly
                   disabled
                 />

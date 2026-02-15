@@ -70,7 +70,7 @@ export default function AppLayout({
       )}
 
       {/* Main content area */}
-      <div className={`flex flex-col min-h-screen ${!hideSidebar ? 'pl-16 lg:pl-64' : ''} transition-all duration-300`}>
+      <div className={`flex flex-col min-h-screen ${!hideSidebar ? 'lg:pl-64' : ''} transition-all duration-300`}>
         <AppHeader
           title={title}
           showBack={showBack}

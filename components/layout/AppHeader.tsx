@@ -1,9 +1,7 @@
-import NotificationPanel from '../ui/NotificationPanel';
-
 import { useSession, signOut } from 'next-auth/react';
 import Link from 'next/link';
 import { useState, useRef, useEffect } from 'react';
-import { useCurrentUser, useRealtime } from '@/hooks';
+import NotificationPanel from '../ui/NotificationPanel';
 
 interface AppHeaderProps {
   title?: string;
@@ -20,13 +18,40 @@ export default function AppHeader({
   onMenuClick,
   showMenuButton = false
 }: AppHeaderProps) {
-  const { data: session } = useSession();
-  const { user: appUser } = useCurrentUser();
+  const { data: session, update: updateSession } = useSession();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState<string | null>(null);
   const profileRef = useRef<HTMLDivElement>(null);
   const notificationRef = useRef<HTMLDivElement>(null);
+
+  // Fetch profile data if session doesn't have it
+  useEffect(() => {
+    const sessionUser = session?.user as any;
+    if (sessionUser?.profile_picture_url) {
+      setProfilePhoto(sessionUser.profile_picture_url);
+    }
+    if (sessionUser?.display_name) {
+      setDisplayName(sessionUser.display_name);
+    }
+    
+    // If session doesn't have profile data, fetch from API
+    if (session?.user?.id && (!sessionUser?.profile_picture_url || !sessionUser?.display_name)) {
+      fetch('/api/user/profile')
+        .then(res => res.json())
+        .then(data => {
+          if (data.profile_picture_url) {
+            setProfilePhoto(data.profile_picture_url);
+          }
+          if (data.display_name) {
+            setDisplayName(data.display_name);
+          }
+        })
+        .catch(err => console.error('Error fetching profile:', err));
+    }
+  }, [session]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -35,9 +60,7 @@ export default function AppHeader({
       if (profileRef.current && !profileRef.current.contains(event.target as Node)) {
         setIsProfileOpen(false);
       }
-      // Notifications - Logic handled inside NotificationPanel for closing, 
-      // but we also want to handle the button click safely here if needed.
-      // Actually, let's keep the logic simple: if click is outside notificationRef (which will wrap button + panel), close it.
+      // Notifications
       if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
         setIsNotificationsOpen(false);
       }
@@ -45,25 +68,6 @@ export default function AppHeader({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-
-  const playNotificationSound = () => {
-    try {
-      const audio = new Audio('/notification.wav');
-      audio.play().catch(e => console.log('Audio play failed', e));
-    } catch (e) {
-      console.error('Error playing notification sound', e);
-    }
-  };
-
-  useRealtime({
-    table: 'notifications',
-    event: 'INSERT',
-    filter: appUser?.id ? `recipient_id=eq.${appUser.id}` : 'recipient_id=eq.00000000-0000-0000-0000-000000000000',
-    onInsert: (_payload) => {
-      setHasUnreadNotifications(true);
-      playNotificationSound();
-    },
-  });
 
   const sessionUser = session?.user as any;
 
@@ -103,20 +107,20 @@ export default function AppHeader({
           {session?.user && (
             <>
               {/* Organization Selector */}
-              <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-lg border border-gray-200 cursor-default">
+              {/* <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-lg border border-gray-200 cursor-default">
                 <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                 </svg>
-                <span className="text-sm font-medium text-gray-700">{appUser?.business_unit?.name || 'Select Business Unit'}</span>
-              </div>
+                <span className="text-sm font-medium text-gray-700">{(session?.user as any)?.business_unit?.name || 'Select Business Unit'}</span>
+              </div> */}
 
               {/* Business Unit Selector */}
-              <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-lg border border-gray-200 cursor-default">
+              {/* <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-lg border border-gray-200 cursor-default">
                 <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                 </svg>
-                <span className="text-sm font-medium text-gray-700">{appUser?.department?.name || 'Select Department'}</span>
-              </div>
+                <span className="text-sm font-medium text-gray-700">{(session?.user as any)?.department?.name || 'Select Department'}</span>
+              </div> */}
 
               {/* Notifications Bell */}
               <div className="relative" ref={notificationRef}>
@@ -124,16 +128,9 @@ export default function AppHeader({
                   onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
                   className={`relative p-2 rounded-lg transition-colors ${isNotificationsOpen ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
                 >
-                  <svg className={`w-5 h-5 ${hasUnreadNotifications ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className={`w-5 h-5`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                   </svg>
-                  {/* Notification badge - Show if there are unread items */}
-                  {hasUnreadNotifications && (
-                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-danger rounded-full ring-2 ring-white animate-ping"></span>
-                  )}
-                  {hasUnreadNotifications && (
-                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-danger rounded-full ring-2 ring-white"></span>
-                  )}
                 </button>
 
                 <NotificationPanel
@@ -150,14 +147,19 @@ export default function AppHeader({
                   className="flex items-center gap-2 p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
                 >
                   <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center text-primary-600 font-medium text-sm overflow-hidden">
-                    {appUser?.profile_picture_url ? (
+                    {(session?.user as any)?.profile_picture_url || profilePhoto ? (
                       <img
-                        src={appUser.profile_picture_url}
-                        alt={appUser.display_name || 'Profile'}
+                        src={(session?.user as any)?.profile_picture_url || profilePhoto || ''}
+                        alt={(session?.user as any)?.display_name || displayName || 'Profile'}
                         className="w-full h-full object-cover"
+                        onError={(e) => {
+                          // If image fails to load, clear it and show initial
+                          e.currentTarget.style.display = 'none';
+                          setProfilePhoto(null);
+                        }}
                       />
                     ) : (
-                      appUser?.display_name?.charAt(0) || sessionUser?.name?.charAt(0) || sessionUser?.email?.charAt(0) || '?'
+                      (session?.user as any)?.display_name?.charAt(0) || displayName?.charAt(0) || (session?.user as any)?.email?.charAt(0) || 'U'
                     )}
                   </div>
                   <svg className="w-4 h-4 text-gray-400 hidden sm:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -177,7 +179,7 @@ export default function AppHeader({
                     {/* Menu Items */}
                     <div className="py-1">
                       <Link
-                        href="/settings"
+                        href="/system/settings"
                         onClick={() => setIsProfileOpen(false)}
                         className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                       >

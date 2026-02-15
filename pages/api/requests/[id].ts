@@ -42,10 +42,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             display_name,
             email,
             profile_picture_url,
-            department:departments (
-              id,
-              name
-            )
+            department_id,
+            job_title
           ),
           request_steps (
             id,
@@ -59,7 +57,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             approver:app_users!request_steps_approver_user_id_fkey (
               id,
               display_name,
-              email
+              email,
+              profile_picture_url
             ),
             approvals (
               id,
@@ -69,7 +68,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               approver:app_users!approvals_approver_id_fkey (
                 id,
                 display_name,
-                email
+                email,
+                profile_picture_url
               )
             )
           ),

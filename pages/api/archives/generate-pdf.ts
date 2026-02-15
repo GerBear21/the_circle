@@ -92,10 +92,8 @@ export async function generateAndStoreArchive(
           id,
           display_name,
           email,
-          department:departments (
-            id,
-            name
-          )
+          department_id,
+          job_title
         ),
         request_steps (
           id,

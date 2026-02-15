@@ -1,5 +1,9 @@
 import { useRouter } from 'next/router';
 import { useSession } from 'next-auth/react';
+import { GetServerSideProps } from 'next';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../../api/auth/[...nextauth]';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input } from '../../../components/ui';
@@ -21,10 +25,8 @@ interface RequestDetail {
         display_name: string;
         email: string;
         profile_picture_url?: string;
-        department?: {
-            id: string;
-            name: string;
-        } | null;
+        department_id?: string | null;
+        job_title?: string | null;
     };
     current_approver?: {
         id: string;
@@ -291,13 +293,187 @@ function ApprovalTimeline({ request }: { request: RequestDetail }) {
     );
 }
 
-export default function CompHotelBookingDetailsPage() {
+interface CompHotelBookingDetailsPageProps {
+  initialRequest: RequestDetail | null;
+  initialError: string | null;
+}
+
+export const getServerSideProps: GetServerSideProps<CompHotelBookingDetailsPageProps> = async (context) => {
+  const session = await getServerSession(context.req, context.res, authOptions);
+
+  if (!session?.user) {
+    return {
+      redirect: {
+        destination: '/',
+        permanent: false,
+      },
+    };
+  }
+
+  const user = session.user as any;
+  const organizationId = user.org_id;
+  const userId = user.id;
+  const { id } = context.query;
+
+  if (!id || typeof id !== 'string' || !organizationId) {
+    return {
+      props: {
+        initialRequest: null,
+        initialError: 'Invalid request',
+      },
+    };
+  }
+
+  try {
+    const { data: request, error } = await supabaseAdmin
+      .from('requests')
+      .select(`
+        id,
+        title,
+        description,
+        status,
+        metadata,
+        created_at,
+        updated_at,
+        creator_id,
+        creator:app_users!requests_creator_id_fkey (
+          id,
+          display_name,
+          email,
+          profile_picture_url
+        ),
+        request_steps (
+          id,
+          step_index,
+          step_type,
+          approver_role,
+          approver_user_id,
+          status,
+          due_at,
+          created_at,
+          approver:app_users!request_steps_approver_user_id_fkey (
+            id,
+            display_name,
+            email,
+            profile_picture_url
+          ),
+          approvals (
+            id,
+            decision,
+            comment,
+            signed_at,
+            approver:app_users!approvals_approver_id_fkey (
+              id,
+              display_name,
+              email,
+              profile_picture_url
+            )
+          )
+        ),
+        documents (
+          id,
+          filename,
+          storage_path,
+          file_size,
+          mime_type,
+          created_at
+        )
+      `)
+      .eq('id', id)
+      .eq('organization_id', organizationId)
+      .single();
+
+    if (error) {
+      return {
+        props: {
+          initialRequest: null,
+          initialError: error.code === 'PGRST116' ? 'Request not found' : 'Failed to fetch request',
+        },
+      };
+    }
+
+    // Visibility check
+    const isCreator = request.creator_id === userId;
+    const watcherIds = request.metadata?.watchers || [];
+    const isWatcher = Array.isArray(watcherIds) && watcherIds.some((w: any) => 
+      typeof w === 'string' ? w === userId : w?.id === userId
+    );
+    const userStep = request.request_steps?.find(
+      (step: any) => step.approver_user_id === userId
+    );
+    const canApproverView = userStep && userStep.status !== 'waiting';
+
+    if (!isCreator && !isWatcher && !canApproverView) {
+      return {
+        props: {
+          initialRequest: null,
+          initialError: userStep?.status === 'waiting' 
+            ? 'This request is not yet ready for your review.' 
+            : 'You do not have permission to view this request',
+        },
+      };
+    }
+
+    // Sort steps and calculate current step
+    if (request.request_steps) {
+      request.request_steps.sort((a: any, b: any) => a.step_index - b.step_index);
+    }
+    const currentStepIndex = request.request_steps?.findIndex((step: any) => step.status === 'pending') ?? -1;
+    const currentStep = currentStepIndex >= 0 ? request.request_steps[currentStepIndex] : null;
+
+    // Compute actual status
+    const computeActualStatus = (dbStatus: string, steps: any[]) => {
+      if (!steps || steps.length === 0) return dbStatus;
+      if (steps.some((s: any) => s.status === 'rejected')) return 'rejected';
+      if (steps.every((s: any) => s.status === 'approved')) return 'approved';
+      if (steps.some((s: any) => s.status === 'pending' || s.status === 'waiting')) return 'pending';
+      return dbStatus;
+    };
+    const actualStatus = computeActualStatus(request.status, request.request_steps);
+
+    // Handle approver - could be array from query
+    const rawApprover = currentStep?.approver;
+    const currentApprover = Array.isArray(rawApprover) ? rawApprover[0] : rawApprover;
+
+    // Normalize request_steps approvers (could be arrays from query)
+    const normalizedSteps = request.request_steps?.map((step: any) => ({
+      ...step,
+      approver: Array.isArray(step.approver) ? step.approver[0] : step.approver,
+    }));
+
+    const enrichedRequest = {
+      ...request,
+      creator: Array.isArray(request.creator) ? request.creator[0] : request.creator,
+      status: actualStatus as RequestDetail['status'],
+      current_step: currentStepIndex >= 0 ? currentStepIndex + 1 : request.request_steps?.length || 0,
+      total_steps: request.request_steps?.length || 0,
+      current_approver: currentApprover || null,
+      request_steps: normalizedSteps,
+    };
+
+    return {
+      props: {
+        initialRequest: enrichedRequest,
+        initialError: null,
+      },
+    };
+  } catch (err: any) {
+    return {
+      props: {
+        initialRequest: null,
+        initialError: err.message || 'Failed to load request details',
+      },
+    };
+  }
+};
+
+export default function CompHotelBookingDetailsPage({ initialRequest, initialError }: CompHotelBookingDetailsPageProps) {
     const router = useRouter();
     const { id } = router.query;
     const { data: session, status } = useSession();
-    const [request, setRequest] = useState<RequestDetail | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [request, setRequest] = useState<RequestDetail | null>(initialRequest);
+    const [loading, setLoading] = useState(!initialRequest);
+    const [error, setError] = useState<string | null>(initialError);
     const [activeTab, setActiveTab] = useState<'details' | 'timeline' | 'documents'>('details');
     const [publishing, setPublishing] = useState(false);
     const [publishError, setPublishError] = useState<string | null>(null);
@@ -479,6 +655,11 @@ export default function CompHotelBookingDetailsPage() {
     useEffect(() => {
         async function fetchRequestDetails() {
             if (!id || status !== 'authenticated') return;
+            // Skip if we already have initial data and id hasn't changed
+            if (initialRequest && initialRequest.id === id) {
+                setLoading(false);
+                return;
+            }
 
             setLoading(true);
             try {
@@ -500,7 +681,7 @@ export default function CompHotelBookingDetailsPage() {
         }
 
         fetchRequestDetails();
-    }, [id, status]);
+    }, [id, status, initialRequest]);
 
     const fetchDocuments = async () => {
         if (!id) return;
@@ -1028,7 +1209,7 @@ export default function CompHotelBookingDetailsPage() {
                                 />
                                 <div>
                                     <div className="font-bold text-text-primary text-lg">{request.creator.display_name}</div>
-                                    <div className="text-sm text-text-secondary">{request.creator.department?.name || 'No Department'}</div>
+                                    <div className="text-sm text-text-secondary">{request.creator.job_title || 'No Job Title'}</div>
                                     <div className="text-xs text-primary-600 mt-1">{request.creator.email}</div>
                                 </div>
                             </div>

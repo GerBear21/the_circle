@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input } from '../../../components/ui';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
+import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
 
 interface ItineraryRow {
     date: string;
@@ -41,6 +42,7 @@ export default function TravelAuthPage() {
     const { data: session, status } = useSession();
     const router = useRouter();
     const { user } = useCurrentUser();
+    const { departmentName, businessUnitName } = useUserHrimsProfile();
     const [loading, setLoading] = useState(false);
     const [savingDraft, setSavingDraft] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -574,8 +576,8 @@ export default function TravelAuthPage() {
                         <h3 className="text-sm font-semibold text-gray-700 mb-4 uppercase border-b pb-2">Requestor Information</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                             <div><label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Name</label><div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600">{user?.display_name || session?.user?.name || 'N/A'}</div></div>
-                            <div><label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Business Unit</label><div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600">{user?.business_unit?.name || 'N/A'}</div></div>
-                            <div><label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Department</label><div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600">{user?.department?.name || 'N/A'}</div></div>
+                            <div><label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Business Unit</label><div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600">{businessUnitName || 'N/A'}</div></div>
+                            <div><label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Department</label><div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600">{departmentName || 'N/A'}</div></div>
                             <div><label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Date</label><div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600">{today}</div></div>
                         </div>
                     </Card>
