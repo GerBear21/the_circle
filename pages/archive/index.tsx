@@ -25,16 +25,30 @@ interface ArchivedDocument {
     approver_count: number;
     attached_documents: any[];
     download_url: string | null;
+    folder_name: string | null;
+    template_id: string | null;
+    category: string | null;
+}
+
+interface FolderSummary {
+    folder_name: string;
+    document_count: number;
+    latest_archived_at: string;
+    template_id: string | null;
+    category: string | null;
 }
 
 export default function ArchivePage() {
     const { data: session, status } = useSession();
     const router = useRouter();
     const [archivedDocuments, setArchivedDocuments] = useState<ArchivedDocument[]>([]);
+    const [folders, setFolders] = useState<FolderSummary[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [selectedArchive, setSelectedArchive] = useState<ArchivedDocument | null>(null);
     const [showDetailModal, setShowDetailModal] = useState(false);
+    const [viewMode, setViewMode] = useState<'folders' | 'documents'>('folders');
+    const [currentFolder, setCurrentFolder] = useState<string | null>(null);
 
     // Filters & Sort State
     const [searchQuery, setSearchQuery] = useState('');
@@ -59,6 +73,27 @@ export default function ArchivePage() {
             }
             const data = await response.json();
             setArchivedDocuments(data.archives || []);
+            
+            // Group documents by folder
+            const folderMap = new Map<string, FolderSummary>();
+            (data.archives || []).forEach((doc: ArchivedDocument) => {
+                const folderName = doc.folder_name || 'Uncategorized';
+                if (!folderMap.has(folderName)) {
+                    folderMap.set(folderName, {
+                        folder_name: folderName,
+                        document_count: 0,
+                        latest_archived_at: doc.archived_at,
+                        template_id: doc.template_id,
+                        category: doc.category,
+                    });
+                }
+                const folder = folderMap.get(folderName)!;
+                folder.document_count++;
+                if (new Date(doc.archived_at) > new Date(folder.latest_archived_at)) {
+                    folder.latest_archived_at = doc.archived_at;
+                }
+            });
+            setFolders(Array.from(folderMap.values()));
         } catch (err: any) {
             console.error('Error fetching archive:', err);
             setError(err.message);
@@ -95,6 +130,12 @@ export default function ArchivePage() {
 
     // Filter and sort archived documents
     const filteredData = archivedDocuments.filter((archive) => {
+        // Folder Filter
+        if (currentFolder) {
+            const folderName = archive.folder_name || 'Uncategorized';
+            if (folderName !== currentFolder) return false;
+        }
+
         // Search Filter
         const matchesSearch =
             archive.request_title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -247,8 +288,64 @@ export default function ArchivePage() {
                     <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-gradient-to-br from-brand-100/40 to-purple-100/30 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none" />
                 </div>
 
+                {/* Breadcrumb Navigation */}
+                {currentFolder && (
+                    <div className="flex items-center gap-2 text-sm">
+                        <button
+                            onClick={() => {
+                                setCurrentFolder(null);
+                                setViewMode('folders');
+                            }}
+                            className="text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1"
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                            </svg>
+                            All Folders
+                        </button>
+                        <span className="text-gray-400">/</span>
+                        <span className="text-gray-700 font-medium">{currentFolder}</span>
+                    </div>
+                )}
+
                 {/* Controls Bar: Search, Filter, Sort */}
                 <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm flex flex-col lg:flex-row items-center gap-4 sticky top-4 z-20">
+                    {/* View Mode Toggle */}
+                    {!currentFolder && (
+                        <div className="flex gap-2 bg-gray-100 p-1 rounded-lg">
+                            <button
+                                onClick={() => setViewMode('folders')}
+                                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                                    viewMode === 'folders'
+                                        ? 'bg-white text-brand-600 shadow-sm'
+                                        : 'text-gray-600 hover:text-gray-900'
+                                }`}
+                            >
+                                <div className="flex items-center gap-2">
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                    </svg>
+                                    Folders
+                                </div>
+                            </button>
+                            <button
+                                onClick={() => setViewMode('documents')}
+                                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                                    viewMode === 'documents'
+                                        ? 'bg-white text-brand-600 shadow-sm'
+                                        : 'text-gray-600 hover:text-gray-900'
+                                }`}
+                            >
+                                <div className="flex items-center gap-2">
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                    </svg>
+                                    All Documents
+                                </div>
+                            </button>
+                        </div>
+                    )}
+
                     {/* Search */}
                     <div className="relative flex-1 w-full">
                         <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -290,7 +387,45 @@ export default function ArchivePage() {
                     </div>
                 </div>
 
+                {/* Folder Grid View */}
+                {viewMode === 'folders' && !currentFolder && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                        {folders.map((folder) => (
+                            <button
+                                key={folder.folder_name}
+                                onClick={() => {
+                                    setCurrentFolder(folder.folder_name);
+                                    setViewMode('documents');
+                                }}
+                                className="group bg-white rounded-2xl border-2 border-gray-200 p-6 hover:border-brand-400 hover:shadow-lg hover:shadow-brand-500/10 transition-all duration-300 text-left"
+                            >
+                                <div className="flex items-start gap-4">
+                                    <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-brand-100 to-brand-50 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform duration-300">
+                                        <svg className="w-7 h-7 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                        </svg>
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <h3 className="font-bold text-gray-900 text-lg group-hover:text-brand-600 transition-colors truncate mb-1">
+                                            {folder.folder_name}
+                                        </h3>
+                                        <div className="flex items-center gap-2 text-sm text-gray-500">
+                                            <span className="font-medium">{folder.document_count}</span>
+                                            <span>{folder.document_count === 1 ? 'document' : 'documents'}</span>
+                                        </div>
+                                        <div className="text-xs text-gray-400 mt-1">
+                                            Last updated {formatDate(folder.latest_archived_at)}
+                                        </div>
+                                    </div>
+                                </div>
+                            </button>
+                        ))}
+                    </div>
+                )}
+
                 {/* Content Grid */}
+                {(viewMode === 'documents' || currentFolder) && (
+                    <>
                 {error ? (
                     <Card className="bg-red-50 border-red-200 p-6 text-center">
                         <p className="text-red-600 font-medium">Error loading archives: {error}</p>
@@ -411,6 +546,8 @@ export default function ArchivePage() {
                             </div>
                         ))}
                     </div>
+                )}
+                    </>
                 )}
 
                 {/* Detail Modal */}
