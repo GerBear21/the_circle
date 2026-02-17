@@ -43,7 +43,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         currency,
         approval_completed_at,
         approver_count,
-        attached_documents
+        attached_documents,
+        folder_name,
+        template_id,
+        category
       `)
       .eq('organization_id', organizationId)
       .order('archived_at', { ascending: false });

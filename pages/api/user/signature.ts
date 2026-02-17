@@ -22,13 +22,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       
       if (checkRes.ok) {
         return res.status(200).json({ 
-          signature: { 
-            url: data.publicUrl,
-            exists: true 
-          } 
+          signature_url: data.publicUrl
         });
       } else {
-        return res.status(200).json({ signature: null });
+        return res.status(200).json({ signature_url: null });
       }
     } catch (error: any) {
       console.error('Signature fetch error:', error);

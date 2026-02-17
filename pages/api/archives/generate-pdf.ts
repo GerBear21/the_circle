@@ -168,6 +168,22 @@ export async function generateAndStoreArchive(
     const creator = Array.isArray(request.creator) ? request.creator[0] : request.creator;
     const creatorDepartment = creator?.department ? (Array.isArray(creator.department) ? creator.department[0] : creator.department) : null;
 
+    // Get template info for field labels
+    const templateId = request.metadata?.template_id || null;
+    let templateData: any = null;
+    
+    if (templateId) {
+      const { data: template } = await supabaseAdmin
+        .from('form_templates')
+        .select('name, workflow_mode, fields')
+        .eq('id', templateId)
+        .single();
+      
+      if (template) {
+        templateData = template;
+      }
+    }
+
     // Resolve signature URLs from storage for each approval
     for (const step of (request.request_steps || [])) {
       for (const approval of (step.approvals || [])) {
@@ -192,8 +208,19 @@ export async function generateAndStoreArchive(
     const amount = formData.amount ? parseFloat(formData.amount) : null;
     const currency = formData.currency || '$';
 
+    // Get signed by name if this is a self-signed form (before PDF generation)
+    let signedByName = null;
+    if (formData.signed_by) {
+      const { data: signedByUser } = await supabaseAdmin
+        .from('app_users')
+        .select('display_name')
+        .eq('id', formData.signed_by)
+        .single();
+      signedByName = signedByUser?.display_name || null;
+    }
+
     // Generate the PDF using PDFKit
-    const pdfBuffer = await generatePdfBuffer(request, latestApprovalTime, formData);
+    const pdfBuffer = await generatePdfBuffer(request, latestApprovalTime, formData, templateData, signedByName);
     
     // Generate filename with timestamp
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -223,6 +250,17 @@ export async function generateAndStoreArchive(
       mime_type: doc.mime_type,
     }));
 
+    // Determine folder name and category from template data
+    let folderName = 'Approved Requests';
+    let category = 'approved_requests';
+    
+    if (templateData) {
+      folderName = templateData.name || 'Approved Requests';
+      if (templateData.workflow_mode === 'self_sign') {
+        category = 'self_signed_forms';
+      }
+    }
+
     // Create archive record
     const { data: archive, error: dbError } = await supabaseAdmin
       .from('archived_documents')
@@ -243,6 +281,9 @@ export async function generateAndStoreArchive(
         approval_completed_at: latestApprovalTime ? (latestApprovalTime as Date).toISOString() : new Date().toISOString(),
         approver_count: request.request_steps?.length || 0,
         attached_documents: attachedDocs,
+        folder_name: folderName,
+        template_id: templateId || null,
+        category: category,
       })
       .select()
       .single();
@@ -621,59 +662,71 @@ function renderExternalHotelBooking(doc: any, formData: Record<string, any>, yPo
 }
 
 // ── Render generic form data (fallback for unknown form types) ──
-function renderGenericForm(doc: any, formData: Record<string, any>, yPos: number, pageWidth: number): number {
-  const excludedFields = ['approvers', 'documents', 'type', 'category', 'watchers', 'useParallelApprovals', 'current_step', 'approverRoles'];
+function renderGenericForm(doc: any, formData: Record<string, any>, yPos: number, pageWidth: number, templateData: any = null): number {
+  const excludedFields = ['approvers', 'documents', 'type', 'category', 'watchers', 'useParallelApprovals', 'current_step', 'approverRoles', 'template_id', 'signature_url', 'signed_at', 'signed_by'];
 
   yPos = drawSectionHeading(doc, 'Request Details', yPos, pageWidth);
 
   for (const [key, value] of Object.entries(formData)) {
     if (excludedFields.includes(key) || value === null || value === undefined || value === '') continue;
 
+    const fieldLabel = templateData ? getFieldLabelFromTemplate(key, templateData) : getFieldLabel(key);
+
     if (Array.isArray(value)) {
       // Render arrays as tables if they contain objects
       const objectItems = value.filter(v => v && typeof v === 'object');
       if (objectItems.length > 0) {
         const allKeys = [...new Set(objectItems.flatMap(obj => Object.keys(obj)))];
-        const headers = allKeys.map(k => getFieldLabel(k));
+        const headers = allKeys.map(k => templateData ? getFieldLabelFromTemplate(k, templateData) : getFieldLabel(k));
         const colWidths = allKeys.map(() => pageWidth / allKeys.length);
         const rows = objectItems.map(obj => allKeys.map(k => String(obj[k] ?? '')));
         if (yPos > 650) { doc.addPage(); yPos = 50; }
-        doc.fontSize(9).fillColor('#374151').font('Helvetica-Bold').text(getFieldLabel(key), 50, yPos);
+        doc.fontSize(9).fillColor('#374151').font('Helvetica-Bold').text(fieldLabel, 50, yPos);
         doc.font('Helvetica');
         yPos += 14;
         yPos = drawTable(doc, headers, rows, yPos, pageWidth, colWidths);
       } else {
-        yPos = drawFieldRow(doc, getFieldLabel(key), value.join(', '), yPos, pageWidth);
+        yPos = drawFieldRow(doc, fieldLabel, value.join(', '), yPos, pageWidth);
       }
     } else if (typeof value === 'object') {
-      // Render nested objects as sub-section
+      // Render nested objects as sub-section (like requestor_info)
       if (yPos > 650) { doc.addPage(); yPos = 50; }
-      doc.fontSize(9).fillColor('#374151').font('Helvetica-Bold').text(getFieldLabel(key), 50, yPos);
+      doc.fontSize(9).fillColor('#374151').font('Helvetica-Bold').text(fieldLabel, 50, yPos);
       doc.font('Helvetica');
       yPos += 14;
       for (const [subKey, subVal] of Object.entries(value)) {
         if (subVal === null || subVal === undefined || subVal === '') continue;
+        const subFieldLabel = templateData ? getFieldLabelFromTemplate(subKey, templateData) : getFieldLabel(subKey);
         if (typeof subVal === 'object') {
-          yPos = drawFieldRow(doc, getFieldLabel(subKey), JSON.stringify(subVal), yPos, pageWidth);
+          yPos = drawFieldRow(doc, subFieldLabel, JSON.stringify(subVal), yPos, pageWidth);
         } else {
-          yPos = drawFieldRow(doc, getFieldLabel(subKey), String(subVal), yPos, pageWidth);
+          yPos = drawFieldRow(doc, subFieldLabel, String(subVal), yPos, pageWidth);
         }
       }
       yPos += 5;
     } else if (typeof value === 'boolean') {
-      yPos = drawCheckboxField(doc, getFieldLabel(key), value, yPos, pageWidth);
+      yPos = drawCheckboxField(doc, fieldLabel, value, yPos, pageWidth);
     } else {
-      yPos = drawFieldRow(doc, getFieldLabel(key), String(value), yPos, pageWidth);
+      yPos = drawFieldRow(doc, fieldLabel, String(value), yPos, pageWidth);
     }
   }
 
   return yPos;
 }
 
+function getFieldLabelFromTemplate(fieldId: string, templateData: any): string {
+  if (!templateData?.fields) return getFieldLabel(fieldId);
+  
+  const field = templateData.fields.find((f: any) => f.id === fieldId);
+  return field?.label || getFieldLabel(fieldId);
+}
+
 async function generatePdfBuffer(
   request: any,
   approvalCompletedAt: Date | null,
-  formData: Record<string, any>
+  formData: Record<string, any>,
+  templateData: any = null,
+  signedByName: string | null = null
 ): Promise<Buffer> {
   // Pre-fetch all signature images
   const signatureBuffers: Map<number, Buffer> = new Map();
@@ -687,6 +740,12 @@ async function generatePdfBuffer(
         }
       })
     );
+  }
+
+  // Pre-fetch self-sign signature if present
+  let selfSignSignatureBuffer: Buffer | null = null;
+  if (formData.signature_url) {
+    selfSignSignatureBuffer = await fetchImageBuffer(formData.signature_url);
   }
 
   return new Promise((resolve, reject) => {
@@ -748,13 +807,26 @@ async function generatePdfBuffer(
 
       const creator = Array.isArray(request.creator) ? request.creator[0] : request.creator;
       const creatorDept = creator?.department ? (Array.isArray(creator.department) ? creator.department[0] : creator.department) : null;
+      
+      // Get department from requestor_info if available, otherwise from creator
+      const departmentName = formData.requestor_info?.department || creatorDept?.name || 'N/A';
 
       const infoItems = [
         { label: 'Requester', value: creator?.display_name || 'Unknown' },
-        { label: 'Department', value: creatorDept?.name || 'N/A' },
+        { label: 'Department', value: departmentName },
         { label: 'Request Date', value: formatDate(request.created_at) },
         { label: 'Approval Completed', value: approvalCompletedAt ? formatDateTime(approvalCompletedAt.toISOString()) : formatDateTime(request.updated_at) },
       ];
+      
+      // Add template name if available
+      if (templateData?.name) {
+        infoItems.push({ label: 'Form Template', value: templateData.name });
+      }
+      
+      // Add signed by if this is a self-signed form
+      if (signedByName) {
+        infoItems.push({ label: 'Signed By', value: signedByName });
+      }
 
       const colWidth = (pageWidth - 20) / 2;
       infoItems.forEach((item, idx) => {
@@ -788,8 +860,39 @@ async function generatePdfBuffer(
           yPos = renderExternalHotelBooking(doc, formData, yPos, pageWidth);
           break;
         default:
-          yPos = renderGenericForm(doc, formData, yPos, pageWidth);
+          yPos = renderGenericForm(doc, formData, yPos, pageWidth, templateData);
           break;
+      }
+      
+      // ── Self-Sign Signature Section ──
+      if (formData.signature_url && formData.signed_by) {
+        if (yPos > 650) {
+          doc.addPage();
+          yPos = 50;
+        }
+        
+        yPos = drawSectionHeading(doc, 'Signature', yPos, pageWidth);
+        
+        // Display the pre-fetched signature image
+        if (selfSignSignatureBuffer) {
+          try {
+            doc.image(selfSignSignatureBuffer, 50, yPos, { width: 200, height: 80 });
+            yPos += 90;
+          } catch (err) {
+            console.error('Failed to embed signature image:', err);
+            yPos = drawFieldRow(doc, 'Signature', 'Signature image available', yPos, pageWidth);
+          }
+        } else {
+          yPos = drawFieldRow(doc, 'Signature', 'Signature image not available', yPos, pageWidth);
+        }
+        
+        if (signedByName) {
+          yPos = drawFieldRow(doc, 'Signed By', signedByName, yPos, pageWidth);
+        }
+        if (formData.signed_at) {
+          yPos = drawFieldRow(doc, 'Signed At', formatDateTime(formData.signed_at), yPos, pageWidth);
+        }
+        yPos += 10;
       }
 
       // ── Approval Signatures Section (UNCHANGED) ──
