@@ -93,8 +93,7 @@ export async function generateAndStoreArchive(
           display_name,
           email,
           department_id,
-          job_title,
-          department:rtg_departments(name)
+          job_title
         ),
         request_steps (
           id,
@@ -167,7 +166,17 @@ export async function generateAndStoreArchive(
 
     // Extract creator info (handle both single object and array from Supabase)
     const creator = Array.isArray(request.creator) ? request.creator[0] : request.creator;
-    const creatorDepartment = creator?.department ? (Array.isArray(creator.department) ? creator.department[0] : creator.department) : null;
+    
+    // Fetch department name separately if creator has department_id
+    let creatorDepartment: { name: string } | null = null;
+    if (creator?.department_id) {
+      const { data: deptData } = await supabaseAdmin
+        .from('departments')
+        .select('name')
+        .eq('id', creator.department_id)
+        .single();
+      creatorDepartment = deptData;
+    }
 
     // Get template info for field labels
     const templateId = request.metadata?.template_id || null;
@@ -251,18 +260,41 @@ export async function generateAndStoreArchive(
       mime_type: doc.mime_type,
     }));
 
-    // Determine folder name and category from template data
+    // Determine folder name and category from request type or template data
     let folderName = 'Approved Requests';
     let category = 'approved_requests';
     
-    if (templateData) {
+    // Check request type for specific folder names
+    const requestType = request.metadata?.type || request.metadata?.requestType;
+    if (requestType === 'voucher_request' || requestType === 'hotel_booking') {
+      folderName = 'Complimentary Vouchers';
+      category = 'complimentary_vouchers';
+    } else if (requestType === 'travel_authorization') {
+      folderName = 'Travel Authorizations';
+      category = 'travel_authorizations';
+    } else if (requestType === 'capex') {
+      folderName = 'CAPEX Requests';
+      category = 'capex_requests';
+    } else if (requestType === 'external_hotel_booking') {
+      folderName = 'External Hotel Bookings';
+      category = 'external_hotel_bookings';
+    } else if (templateData) {
       folderName = templateData.name || 'Approved Requests';
       if (templateData.workflow_mode === 'self_sign') {
         category = 'self_signed_forms';
       }
     }
 
-    // Create archive record
+    // Extract visibility info: creator, approvers, and watchers
+    const creatorId = request.creator_id;
+    const approverIds = (request.request_steps || [])
+      .map((step: any) => step.approver_user_id)
+      .filter((id: string | null) => id !== null);
+    const watcherIds = (request.metadata?.watchers || [])
+      .map((w: any) => typeof w === 'string' ? w : w?.id)
+      .filter((id: string | null | undefined) => id);
+
+    // Create archive record with visibility info
     const { data: archive, error: dbError } = await supabaseAdmin
       .from('archived_documents')
       .insert({
@@ -285,6 +317,9 @@ export async function generateAndStoreArchive(
         folder_name: folderName,
         template_id: templateId || null,
         category: category,
+        creator_id: creatorId,
+        approver_ids: approverIds,
+        watcher_ids: watcherIds,
       })
       .select()
       .single();

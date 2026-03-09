@@ -1118,7 +1118,7 @@ export default function VoucherRequestPage() {
                                     placeholder="Enter full names of all guests"
                                     value={formData.guestNames}
                                     onChange={(e) => setFormData({ ...formData, guestNames: e.target.value })}
-                                    required
+                                   
                                 />
                             </div>
 

@@ -65,6 +65,17 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
     const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
     const [uploadingPicture, setUploadingPicture] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    
+    // Security/PIN state
+    const [sendingPinReset, setSendingPinReset] = useState(false);
+    const [pinResetSent, setPinResetSent] = useState(false);
+    const [pinResetError, setPinResetError] = useState<string | null>(null);
+    const [changingPin, setChangingPin] = useState(false);
+    const [currentPin, setCurrentPin] = useState('');
+    const [newPin, setNewPin] = useState('');
+    const [confirmNewPin, setConfirmNewPin] = useState('');
+    const [pinChangeError, setPinChangeError] = useState<string | null>(null);
+    const [pinChangeSuccess, setPinChangeSuccess] = useState(false);
 
     // Load profile picture when user data is available
     useEffect(() => {
@@ -151,11 +162,81 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
         }, 1500);
     };
 
+    const handleSendPinResetEmail = async () => {
+        setSendingPinReset(true);
+        setPinResetError(null);
+        setPinResetSent(false);
+
+        try {
+            const response = await fetch('/api/user/pin/request-reset', {
+                method: 'POST',
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to send reset email');
+            }
+
+            setPinResetSent(true);
+        } catch (err: any) {
+            setPinResetError(err.message || 'Failed to send reset email');
+        } finally {
+            setSendingPinReset(false);
+        }
+    };
+
+    const handleChangePin = async () => {
+        setPinChangeError(null);
+        setPinChangeSuccess(false);
+
+        if (!/^\d{4}$/.test(currentPin)) {
+            setPinChangeError('Current PIN must be 4 digits');
+            return;
+        }
+
+        if (!/^\d{4}$/.test(newPin)) {
+            setPinChangeError('New PIN must be 4 digits');
+            return;
+        }
+
+        if (newPin !== confirmNewPin) {
+            setPinChangeError('New PINs do not match');
+            return;
+        }
+
+        if (currentPin === newPin) {
+            setPinChangeError('New PIN must be different from current PIN');
+            return;
+        }
+
+        setChangingPin(true);
+
+        try {
+            const response = await fetch('/api/user/pin/change', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ currentPin, newPin }),
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to change PIN');
+            }
+
+            setPinChangeSuccess(true);
+            setCurrentPin('');
+            setNewPin('');
+            setConfirmNewPin('');
+        } catch (err: any) {
+            setPinChangeError(err.message || 'Failed to change PIN');
+        } finally {
+            setChangingPin(false);
+        }
+    };
+
     const tabs = [
         { id: 'profile', label: 'Profile' },
-        { id: 'notifications', label: 'Notifications' },
-        { id: 'appearance', label: 'Appearance' },
-        { id: 'integrations', label: 'Integrations' },
+        { id: 'security', label: 'Security' }
     ];
 
     return (
@@ -263,9 +344,9 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
                                             </p>
                                         </div>
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Job Title</label>
                                             <p className="text-gray-900 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200 capitalize">
-                                                {user?.role || 'User'}
+                                                {user?.job_title || 'User'}
                                             </p>
                                         </div>
                                         <div>
@@ -302,76 +383,143 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
                                 </Card>
                             )}
 
-                            {activeTab === 'notifications' && (
+                            {activeTab === 'security' && (
                                 <Card className="p-6 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                                     <div>
-                                        <h2 className="text-xl font-bold text-gray-900">Notification Preferences</h2>
-                                        <p className="text-sm text-gray-500 mt-1">Choose what you want to be notified about.</p>
+                                        <h2 className="text-xl font-bold text-gray-900">Security Settings</h2>
+                                        <p className="text-sm text-gray-500 mt-1">Manage your approval PIN and account security.</p>
                                     </div>
-                                    <div className="space-y-4">
-                                        {['New User Registration', 'System Updates', 'Security Alerts', 'Weekly Reports'].map((item, i) => (
-                                            <div key={i} className="flex items-center gap-3">
-                                                <input type="checkbox" id={`notif-${i}`} className="w-5 h-5 text-brand-600 rounded focus:ring-brand-500 border-gray-300" defaultChecked />
-                                                <label htmlFor={`notif-${i}`} className="text-gray-700 font-medium">{item}</label>
+
+                                    {/* PIN Status */}
+                                    <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
+                                        <div className="flex items-center gap-3">
+                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${user?.pin_setup_completed ? 'bg-green-100' : 'bg-amber-100'}`}>
+                                                <svg className={`w-5 h-5 ${user?.pin_setup_completed ? 'text-green-600' : 'text-amber-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                                </svg>
                                             </div>
-                                        ))}
+                                            <div>
+                                                <h3 className="font-medium text-gray-900">Approval PIN</h3>
+                                                <p className="text-sm text-gray-500">
+                                                    {user?.pin_setup_completed 
+                                                        ? `PIN is set up${user?.pin_last_changed ? ` • Last changed ${new Date(user.pin_last_changed).toLocaleDateString()}` : ''}`
+                                                        : 'PIN not set up yet'
+                                                    }
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Change PIN Section */}
+                                    {user?.pin_setup_completed && (
+                                        <div className="pt-4 border-t border-gray-100">
+                                            <h3 className="font-medium text-gray-900 mb-4">Change PIN</h3>
+                                            
+                                            {pinChangeSuccess && (
+                                                <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700 flex items-center gap-2">
+                                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    </svg>
+                                                    PIN changed successfully!
+                                                </div>
+                                            )}
+
+                                            {pinChangeError && (
+                                                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                                                    {pinChangeError}
+                                                </div>
+                                            )}
+
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">Current PIN</label>
+                                                    <input
+                                                        type="password"
+                                                        inputMode="numeric"
+                                                        maxLength={4}
+                                                        value={currentPin}
+                                                        onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                                                        placeholder="••••"
+                                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-center text-lg tracking-widest"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">New PIN</label>
+                                                    <input
+                                                        type="password"
+                                                        inputMode="numeric"
+                                                        maxLength={4}
+                                                        value={newPin}
+                                                        onChange={(e) => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                                                        placeholder="••••"
+                                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-center text-lg tracking-widest"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">Confirm New PIN</label>
+                                                    <input
+                                                        type="password"
+                                                        inputMode="numeric"
+                                                        maxLength={4}
+                                                        value={confirmNewPin}
+                                                        onChange={(e) => setConfirmNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                                                        placeholder="••••"
+                                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-center text-lg tracking-widest"
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="mt-4">
+                                                <Button
+                                                    onClick={handleChangePin}
+                                                    disabled={changingPin || currentPin.length !== 4 || newPin.length !== 4 || confirmNewPin.length !== 4}
+                                                    isLoading={changingPin}
+                                                    variant="outline"
+                                                >
+                                                    Change PIN
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Reset PIN via Email */}
+                                    <div className="pt-4 border-t border-gray-100">
+                                        <h3 className="font-medium text-gray-900 mb-2">Forgot PIN?</h3>
+                                        <p className="text-sm text-gray-500 mb-4">
+                                            If you've forgotten your PIN, we can send a reset link to your RTG email address.
+                                        </p>
+
+                                        {pinResetSent && (
+                                            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700 flex items-center gap-2">
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                                </svg>
+                                                Reset link sent to {user?.email}. Please check your inbox.
+                                            </div>
+                                        )}
+
+                                        {pinResetError && (
+                                            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                                                {pinResetError}
+                                            </div>
+                                        )}
+
+                                        <Button
+                                            onClick={handleSendPinResetEmail}
+                                            disabled={sendingPinReset || pinResetSent}
+                                            isLoading={sendingPinReset}
+                                            variant="outline"
+                                        >
+                                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                            </svg>
+                                            {pinResetSent ? 'Email Sent' : 'Send Reset Link to Email'}
+                                        </Button>
                                     </div>
                                 </Card>
                             )}
 
-                            {activeTab === 'appearance' && (
-                                <Card className="p-6 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                                    <div>
-                                        <h2 className="text-xl font-bold text-gray-900">Appearance</h2>
-                                        <p className="text-sm text-gray-500 mt-1">Customize the look and feel of the application.</p>
-                                    </div>
-                                    <div className="grid grid-cols-3 gap-4">
-                                        <div className="border-2 border-brand-500 rounded-xl p-4 bg-white cursor-pointer hover:shadow-md transition-all">
-                                            <div className="h-20 bg-gray-100 rounded-lg mb-3 border border-gray-200"></div>
-                                            <p className="font-medium text-center text-brand-600">Light</p>
-                                        </div>
-                                        <div className="border border-gray-200 rounded-xl p-4 bg-gray-900 cursor-pointer hover:shadow-md transition-all opacity-60 hover:opacity-100">
-                                            <div className="h-20 bg-gray-800 rounded-lg mb-3 border border-gray-700"></div>
-                                            <p className="font-medium text-center text-white">Dark</p>
-                                        </div>
-                                        <div className="border border-gray-200 rounded-xl p-4 bg-white cursor-pointer hover:shadow-md transition-all opacity-60 hover:opacity-100">
-                                            <div className="h-20 bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg mb-3 border border-gray-200"></div>
-                                            <p className="font-medium text-center text-gray-700">System</p>
-                                        </div>
-                                    </div>
-                                </Card>
-                            )}
-
-                            {activeTab === 'integrations' && (
-                                <Card className="p-6 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                                    <div>
-                                        <h2 className="text-xl font-bold text-gray-900">Integrations</h2>
-                                        <p className="text-sm text-gray-500 mt-1">Manage external services and API keys.</p>
-                                    </div>
-                                    <div className="space-y-4">
-                                        <div className="p-4 border border-gray-200 rounded-xl flex items-center justify-between">
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center text-blue-600 font-bold">S</div>
-                                                <div>
-                                                    <h3 className="font-medium text-gray-900">Stripe</h3>
-                                                    <p className="text-xs text-gray-500">Payment processing</p>
-                                                </div>
-                                            </div>
-                                            <Button variant="outline" size="sm">Configure</Button>
-                                        </div>
-                                        <div className="p-4 border border-gray-200 rounded-xl flex items-center justify-between">
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center text-green-600 font-bold">S</div>
-                                                <div>
-                                                    <h3 className="font-medium text-gray-900">Slack</h3>
-                                                    <p className="text-xs text-gray-500">Team communication</p>
-                                                </div>
-                                            </div>
-                                            <Button variant="outline" size="sm">Connect</Button>
-                                        </div>
-                                    </div>
-                                </Card>
-                            )}
+                            
+                            
 
                             <div className="flex justify-end pt-4">
                                 <Button onClick={handleSave} isLoading={isLoading} className="w-full sm:w-auto">

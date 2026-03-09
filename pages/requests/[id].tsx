@@ -9,6 +9,7 @@ import dynamic from 'next/dynamic';
 import { AppLayout } from '../../components/layout';
 import { Card, Button, Input } from '../../components/ui';
 import DynamicFormDetails from '../../components/DynamicFormDetails';
+import PinVerificationModal from '../../components/PinVerificationModal';
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
 import criticalAnimation from '../../lotties/red critical.json';
@@ -1016,6 +1017,8 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     const [reviewProcessing, setReviewProcessing] = useState(false);
     const [reviewError, setReviewError] = useState<string | null>(null);
     const [userSignatureUrl, setUserSignatureUrl] = useState<string | null>(null);
+    const [showPinModal, setShowPinModal] = useState(false);
+    const [pendingApprovalAction, setPendingApprovalAction] = useState<'approve' | 'reject' | null>(null);
     const [isApproverEditing, setIsApproverEditing] = useState(false);
     const [approverEditedRequest, setApproverEditedRequest] = useState<RequestDetail | null>(null);
     const [savingApproverEdit, setSavingApproverEdit] = useState(false);
@@ -1121,6 +1124,14 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
             return;
         }
 
+        // Store the action and show PIN verification modal
+        setPendingApprovalAction(action);
+        setShowPinModal(true);
+    };
+
+    const executeApprovalAction = async () => {
+        if (!id || !effectivePendingStep || !pendingApprovalAction) return;
+
         setReviewProcessing(true);
         setReviewError(null);
 
@@ -1131,14 +1142,14 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                 body: JSON.stringify({
                     requestId: id,
                     stepId: effectivePendingStep.id,
-                    action,
+                    action: pendingApprovalAction,
                     comment: reviewComment || undefined,
                 }),
             });
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.error || `Failed to ${action} request`);
+                throw new Error(errorData.error || `Failed to ${pendingApprovalAction} request`);
             }
 
             // Refresh the request data
@@ -1150,11 +1161,22 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
 
             setShowReviewModal(false);
             setReviewComment('');
+            setPendingApprovalAction(null);
         } catch (err: any) {
-            setReviewError(err.message || `Failed to ${action} request`);
+            setReviewError(err.message || `Failed to ${pendingApprovalAction} request`);
         } finally {
             setReviewProcessing(false);
         }
+    };
+
+    const handlePinVerified = () => {
+        setShowPinModal(false);
+        executeApprovalAction();
+    };
+
+    const handlePinCancel = () => {
+        setShowPinModal(false);
+        setPendingApprovalAction(null);
     };
 
     const handlePublish = async () => {
@@ -1678,6 +1700,15 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     return (
         <AppLayout title={`Request #${request.id.substring(0, 8)}`}>
             <style dangerouslySetInnerHTML={{ __html: pulseKeyframes }} />
+            
+            {/* PIN Verification Modal */}
+            <PinVerificationModal
+                isOpen={showPinModal}
+                onVerified={handlePinVerified}
+                onCancel={handlePinCancel}
+                title={pendingApprovalAction === 'approve' ? 'Confirm Approval' : 'Confirm Rejection'}
+                description="Enter your 4-digit PIN to sign this action"
+            />
             <div className="max-w-[1400px] mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
 
                 {/* Priority Alert Banner */}
@@ -1777,6 +1808,17 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                 request.title
                             )}
                         </h1>
+                        {/* Show guest name or identifier if available */}
+                        {request.metadata?.guestNames && (
+                            <p className="text-primary-600 font-medium text-lg mt-1">
+                                {request.metadata.guestNames}
+                            </p>
+                        )}
+                        {!request.metadata?.guestNames && (request.metadata?.guestTitle || request.metadata?.guestFirstName) && (
+                            <p className="text-primary-600 font-medium text-lg mt-1">
+                                {request.metadata.guestTitle} {request.metadata.guestFirstName}
+                            </p>
+                        )}
                         <div className="text-text-secondary text-lg leading-relaxed max-w-3xl">
                             {isEditing && editedRequest ? (
                                 <textarea
@@ -2328,68 +2370,89 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                                         const downloadUrl = uploadedDoc?.download_url;
                                                         
                                                         return (
-                                                            <div key={index} className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-200 hover:border-gray-300 transition-colors">
-                                                                <div className="flex items-center gap-3 flex-1 min-w-0">
-                                                                    <div className="w-12 h-12 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                                                                        {getFileIcon(doc.type || '')}
-                                                                    </div>
-                                                                    <div className="flex-1 min-w-0">
-                                                                        <p className="font-medium text-gray-900 truncate">{doc.name}</p>
-                                                                        <p className="text-xs text-gray-500">{formatFileSize(doc.size)}</p>
-                                                                        {doc.uploadedBy && (
-                                                                            <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
-                                                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                                                                                </svg>
-                                                                                Uploaded by {doc.uploadedBy.name}
-                                                                                {doc.uploadedBy.isApprover && (
-                                                                                    <span className="ml-1 px-1.5 py-0.5 rounded text-xs bg-primary-100 text-primary-700">Approver</span>
+                                                            <div key={index} className="p-4 bg-white rounded-xl border border-gray-200 hover:border-gray-300 transition-colors">
+                                                                <div className="flex items-start justify-between gap-4">
+                                                                    <div className="flex items-start gap-3 flex-1 min-w-0">
+                                                                        <div className="w-12 h-12 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                                                                            {getFileIcon(doc.type || '')}
+                                                                        </div>
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <p className="font-semibold text-gray-900">{doc.name}</p>
+                                                                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs">
+                                                                                <div>
+                                                                                    <span className="text-gray-500">Size:</span>
+                                                                                    <span className="ml-1 text-gray-700 font-medium">{formatFileSize(doc.size)}</span>
+                                                                                </div>
+                                                                                <div>
+                                                                                    <span className="text-gray-500">Type:</span>
+                                                                                    <span className="ml-1 text-gray-700 font-medium">{doc.type || 'Unknown'}</span>
+                                                                                </div>
+                                                                                {doc.uploadedBy && (
+                                                                                    <div className="col-span-2 flex items-center gap-1 mt-1">
+                                                                                        <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                                                                        </svg>
+                                                                                        <span className="text-gray-500">Uploaded by:</span>
+                                                                                        <span className="text-gray-700 font-medium">{doc.uploadedBy.name}</span>
+                                                                                        {doc.uploadedBy.isApprover && (
+                                                                                            <span className="px-1.5 py-0.5 rounded text-xs bg-primary-100 text-primary-700">Approver</span>
+                                                                                        )}
+                                                                                    </div>
                                                                                 )}
                                                                                 {doc.uploadedAt && (
-                                                                                    <span className="ml-1">• {new Date(doc.uploadedAt).toLocaleDateString('en-US')}</span>
+                                                                                    <div className="col-span-2">
+                                                                                        <span className="text-gray-500">Uploaded:</span>
+                                                                                        <span className="ml-1 text-gray-700 font-medium">
+                                                                                            {new Date(doc.uploadedAt).toLocaleDateString('en-US', { 
+                                                                                                year: 'numeric', month: 'short', day: 'numeric' 
+                                                                                            })} at {new Date(doc.uploadedAt).toLocaleTimeString('en-US', {
+                                                                                                hour: '2-digit', minute: '2-digit'
+                                                                                            })}
+                                                                                        </span>
+                                                                                    </div>
                                                                                 )}
-                                                                            </p>
-                                                                        )}
-                                                                        {doc.description && (
-                                                                            <p className="text-sm text-gray-600 mt-1">{doc.description}</p>
+                                                                            </div>
+                                                                            {doc.description && (
+                                                                                <p className="text-sm text-gray-600 mt-2 p-2 bg-gray-50 rounded-lg">{doc.description}</p>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="flex flex-col gap-2 flex-shrink-0">
+                                                                        {downloadUrl && (
+                                                                            <>
+                                                                                <Button
+                                                                                    variant="outline"
+                                                                                    size="sm"
+                                                                                    className="bg-white w-full"
+                                                                                    onClick={() => window.open(downloadUrl, '_blank', 'noopener,noreferrer')}
+                                                                                >
+                                                                                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                                                    </svg>
+                                                                                    View
+                                                                                </Button>
+                                                                                <Button
+                                                                                    variant="outline"
+                                                                                    size="sm"
+                                                                                    className="bg-white w-full"
+                                                                                    onClick={() => {
+                                                                                        const link = document.createElement('a');
+                                                                                        link.href = downloadUrl;
+                                                                                        link.download = doc.name;
+                                                                                        document.body.appendChild(link);
+                                                                                        link.click();
+                                                                                        document.body.removeChild(link);
+                                                                                    }}
+                                                                                >
+                                                                                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                                                    </svg>
+                                                                                    Download
+                                                                                </Button>
+                                                                            </>
                                                                         )}
                                                                     </div>
-                                                                </div>
-                                                                <div className="flex items-center gap-2 flex-shrink-0 ml-4">
-                                                                    {downloadUrl && (
-                                                                        <>
-                                                                            <Button
-                                                                                variant="outline"
-                                                                                size="sm"
-                                                                                className="bg-white"
-                                                                                onClick={() => window.open(downloadUrl, '_blank', 'noopener,noreferrer')}
-                                                                            >
-                                                                                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                                                                </svg>
-                                                                                View
-                                                                            </Button>
-                                                                            <Button
-                                                                                variant="outline"
-                                                                                size="sm"
-                                                                                className="bg-white"
-                                                                                onClick={() => {
-                                                                                    const link = document.createElement('a');
-                                                                                    link.href = downloadUrl;
-                                                                                    link.download = doc.name;
-                                                                                    document.body.appendChild(link);
-                                                                                    link.click();
-                                                                                    document.body.removeChild(link);
-                                                                                }}
-                                                                            >
-                                                                                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                                                                </svg>
-                                                                                Download
-                                                                            </Button>
-                                                                        </>
-                                                                    )}
                                                                 </div>
                                                             </div>
                                                         );
@@ -2412,54 +2475,78 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                                 </div>
                                                 <div className="p-4 space-y-3">
                                                     {additionalDocuments.map((doc: any) => (
-                                                        <div key={doc.id} className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-200 hover:border-gray-300 transition-colors">
-                                                            <div className="flex items-center gap-3 flex-1 min-w-0">
-                                                                <div className="w-12 h-12 bg-purple-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                                                                    {getFileIcon(doc.mime_type || '')}
+                                                        <div key={doc.id} className="p-4 bg-white rounded-xl border border-gray-200 hover:border-gray-300 transition-colors">
+                                                            <div className="flex items-start justify-between gap-4">
+                                                                <div className="flex items-start gap-3 flex-1 min-w-0">
+                                                                    <div className="w-12 h-12 bg-purple-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                                                                        {getFileIcon(doc.mime_type || '')}
+                                                                    </div>
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <p className="font-semibold text-gray-900">{doc.filename}</p>
+                                                                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs">
+                                                                            <div>
+                                                                                <span className="text-gray-500">Size:</span>
+                                                                                <span className="ml-1 text-gray-700 font-medium">{formatFileSize(doc.file_size)}</span>
+                                                                            </div>
+                                                                            <div>
+                                                                                <span className="text-gray-500">Type:</span>
+                                                                                <span className="ml-1 text-gray-700 font-medium">{doc.mime_type || 'Unknown'}</span>
+                                                                            </div>
+                                                                            <div className="col-span-2">
+                                                                                <span className="text-gray-500">Uploaded:</span>
+                                                                                <span className="ml-1 text-gray-700 font-medium">
+                                                                                    {new Date(doc.created_at).toLocaleDateString('en-US', { 
+                                                                                        year: 'numeric', month: 'short', day: 'numeric' 
+                                                                                    })} at {new Date(doc.created_at).toLocaleTimeString('en-US', {
+                                                                                        hour: '2-digit', minute: '2-digit'
+                                                                                    })}
+                                                                                </span>
+                                                                            </div>
+                                                                            {doc.storage_path && (
+                                                                                <div className="col-span-2">
+                                                                                    <span className="text-gray-500">Path:</span>
+                                                                                    <span className="ml-1 text-gray-600 font-mono text-[10px] truncate">{doc.storage_path}</span>
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
                                                                 </div>
-                                                                <div className="flex-1 min-w-0">
-                                                                    <p className="font-medium text-gray-900 truncate">{doc.filename}</p>
-                                                                    <p className="text-xs text-gray-500">{formatFileSize(doc.file_size)}</p>
-                                                                    <p className="text-xs text-gray-400 mt-0.5">
-                                                                        Uploaded {new Date(doc.created_at).toLocaleDateString('en-US')} at {new Date(doc.created_at).toLocaleTimeString('en-US')}
-                                                                    </p>
+                                                                <div className="flex flex-col gap-2 flex-shrink-0">
+                                                                    {doc.download_url && (
+                                                                        <>
+                                                                            <Button
+                                                                                variant="outline"
+                                                                                size="sm"
+                                                                                className="bg-white w-full"
+                                                                                onClick={() => window.open(doc.download_url, '_blank', 'noopener,noreferrer')}
+                                                                            >
+                                                                                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                                                </svg>
+                                                                                View
+                                                                            </Button>
+                                                                            <Button
+                                                                                variant="outline"
+                                                                                size="sm"
+                                                                                className="bg-white w-full"
+                                                                                onClick={() => {
+                                                                                    const link = document.createElement('a');
+                                                                                    link.href = doc.download_url;
+                                                                                    link.download = doc.filename;
+                                                                                    document.body.appendChild(link);
+                                                                                    link.click();
+                                                                                    document.body.removeChild(link);
+                                                                                }}
+                                                                            >
+                                                                                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                                                </svg>
+                                                                                Download
+                                                                            </Button>
+                                                                        </>
+                                                                    )}
                                                                 </div>
-                                                            </div>
-                                                            <div className="flex items-center gap-2 flex-shrink-0 ml-4">
-                                                                {doc.download_url && (
-                                                                    <>
-                                                                        <Button
-                                                                            variant="outline"
-                                                                            size="sm"
-                                                                            className="bg-white"
-                                                                            onClick={() => window.open(doc.download_url, '_blank', 'noopener,noreferrer')}
-                                                                        >
-                                                                            <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                                                            </svg>
-                                                                            View
-                                                                        </Button>
-                                                                        <Button
-                                                                            variant="outline"
-                                                                            size="sm"
-                                                                            className="bg-white"
-                                                                            onClick={() => {
-                                                                                const link = document.createElement('a');
-                                                                                link.href = doc.download_url;
-                                                                                link.download = doc.filename;
-                                                                                document.body.appendChild(link);
-                                                                                link.click();
-                                                                                document.body.removeChild(link);
-                                                                            }}
-                                                                        >
-                                                                            <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                                                            </svg>
-                                                                            Download
-                                                                        </Button>
-                                                                    </>
-                                                                )}
                                                             </div>
                                                         </div>
                                                     ))}

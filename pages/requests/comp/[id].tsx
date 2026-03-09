@@ -4,9 +4,11 @@ import { GetServerSideProps } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../api/auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { fetchHrimsEmployeeByEmail } from '@/lib/hrimsClient';
 import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input } from '../../../components/ui';
+import PinVerificationModal from '../../../components/PinVerificationModal';
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -345,7 +347,8 @@ export const getServerSideProps: GetServerSideProps<CompHotelBookingDetailsPageP
           id,
           display_name,
           email,
-          profile_picture_url
+          profile_picture_url,
+          job_title
         ),
         request_steps (
           id,
@@ -446,9 +449,28 @@ export const getServerSideProps: GetServerSideProps<CompHotelBookingDetailsPageP
       approver: Array.isArray(step.approver) ? step.approver[0] : step.approver,
     }));
 
+    // Normalize creator
+    let creator = Array.isArray(request.creator) ? request.creator[0] : request.creator;
+
+    // If job_title is missing, try to fetch from HRIMS
+    if (creator && !creator.job_title && creator.email) {
+      try {
+        const hrimsData = await fetchHrimsEmployeeByEmail(creator.email);
+        if (hrimsData) {
+          // Use position_title from organogram if available, otherwise use job_title from employee
+          creator = {
+            ...creator,
+            job_title: hrimsData.position?.position_title || hrimsData.employee?.job_title || null,
+          };
+        }
+      } catch (hrimsError) {
+        console.log('Could not fetch HRIMS data for creator:', hrimsError);
+      }
+    }
+
     const enrichedRequest = {
       ...request,
-      creator: Array.isArray(request.creator) ? request.creator[0] : request.creator,
+      creator,
       status: actualStatus as RequestDetail['status'],
       current_step: currentStepIndex >= 0 ? currentStepIndex + 1 : request.request_steps?.length || 0,
       total_steps: request.request_steps?.length || 0,
@@ -492,6 +514,8 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
     const [reviewProcessing, setReviewProcessing] = useState(false);
     const [reviewError, setReviewError] = useState<string | null>(null);
     const [userSignatureUrl, setUserSignatureUrl] = useState<string | null>(null);
+    const [showPinModal, setShowPinModal] = useState(false);
+    const [pendingApprovalAction, setPendingApprovalAction] = useState<'approve' | 'reject' | null>(null);
 
     const currentUserId = (session?.user as any)?.id;
     const isCreator = request?.creator?.id === currentUserId;
@@ -566,6 +590,14 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
             return;
         }
 
+        // Store the action and show PIN verification modal
+        setPendingApprovalAction(action);
+        setShowPinModal(true);
+    };
+
+    const executeApprovalAction = async () => {
+        if (!id || !effectivePendingStep || !pendingApprovalAction) return;
+
         setReviewProcessing(true);
         setReviewError(null);
 
@@ -576,14 +608,14 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                 body: JSON.stringify({
                     requestId: id,
                     stepId: effectivePendingStep.id,
-                    action,
+                    action: pendingApprovalAction,
                     comment: reviewComment || undefined,
                 }),
             });
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.error || `Failed to ${action} request`);
+                throw new Error(errorData.error || `Failed to ${pendingApprovalAction} request`);
             }
 
             const refreshResponse = await fetch(`/api/requests/${id}`);
@@ -594,11 +626,22 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
 
             setShowReviewModal(false);
             setReviewComment('');
+            setPendingApprovalAction(null);
         } catch (err: any) {
-            setReviewError(err.message || `Failed to ${action} request`);
+            setReviewError(err.message || `Failed to ${pendingApprovalAction} request`);
         } finally {
             setReviewProcessing(false);
         }
+    };
+
+    const handlePinVerified = () => {
+        setShowPinModal(false);
+        executeApprovalAction();
+    };
+
+    const handlePinCancel = () => {
+        setShowPinModal(false);
+        setPendingApprovalAction(null);
     };
 
     const handlePublish = async () => {
@@ -772,6 +815,14 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
 
     return (
         <AppLayout title={`Request #${request.id.substring(0, 8)}`}>
+            {/* PIN Verification Modal */}
+            <PinVerificationModal
+                isOpen={showPinModal}
+                onVerified={handlePinVerified}
+                onCancel={handlePinCancel}
+                title={pendingApprovalAction === 'approve' ? 'Confirm Approval' : 'Confirm Rejection'}
+                description="Enter your 4-digit PIN to sign this action"
+            />
             <div className="max-w-[1400px] mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
 
                 {publishError && (
@@ -831,6 +882,17 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                         <h1 className="text-3xl font-bold text-text-primary font-heading leading-tight mb-2">
                             {request.title}
                         </h1>
+                        {/* Show guest name or identifier if available */}
+                        {metadata.guestNames && (
+                            <p className="text-primary-600 font-medium text-lg mt-1">
+                                {metadata.guestNames}
+                            </p>
+                        )}
+                        {!metadata.guestNames && (metadata.guestTitle || metadata.guestFirstName) && (
+                            <p className="text-primary-600 font-medium text-lg mt-1">
+                                {metadata.guestTitle} {metadata.guestFirstName}
+                            </p>
+                        )}
                         <div className="text-text-secondary text-lg leading-relaxed max-w-3xl">
                             {request.description}
                         </div>
@@ -919,7 +981,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                 <div>
                                                     <span className="text-xs font-semibold text-primary-600 uppercase tracking-wider">Guest Information</span>
                                                     <h2 className="text-2xl font-bold text-text-primary mt-1 font-heading">
-                                                        {metadata.guestNames || 'N/A'}
+                                                        {metadata.guestNames || (metadata.guestTitle && metadata.guestFirstName ? `${metadata.guestTitle} ${metadata.guestFirstName}` : metadata.voucherNumber ? `Voucher #${metadata.voucherNumber}` : `Request #${request.id.substring(0, 8)}`)}
                                                     </h2>
                                                     <div className="flex items-center gap-2 mt-2">
                                                         {metadata.isExternalGuest ? (
@@ -1269,6 +1331,82 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                             </div>
                                         </Card>
                                     )}
+
+                                    {/* Administration Section - Only shows when request is fully approved */}
+                                    {actualStatus === 'approved' && (
+                                        <Card className="!p-0 overflow-hidden border-emerald-200 shadow-sm">
+                                            <div className="bg-emerald-50 px-6 py-4 border-b border-emerald-100">
+                                                <h3 className="font-semibold text-emerald-800 flex items-center gap-2">
+                                                    <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                    </svg>
+                                                    Administration
+                                                    <span className="ml-2 text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Post-Approval</span>
+                                                </h3>
+                                            </div>
+                                            <div className="p-6 space-y-4">
+                                                <p className="text-sm text-gray-600 mb-4">This section is for administrative use after the request has been fully approved.</p>
+                                                
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-gray-700 mb-1">Funds Issued By</label>
+                                                        <div className="px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700">
+                                                            {metadata.administration?.fundsIssuedBy || <span className="text-gray-400 italic">Not yet recorded</span>}
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-gray-700 mb-1">Funds Collected By</label>
+                                                        <div className="px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700">
+                                                            {metadata.administration?.fundsCollectedBy || <span className="text-gray-400 italic">Not yet recorded</span>}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">Additional Comments</label>
+                                                    <div className="px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700 min-h-[60px]">
+                                                        {metadata.administration?.additionalComments || <span className="text-gray-400 italic">No additional comments</span>}
+                                                    </div>
+                                                </div>
+
+                                                {/* Scanned Document Upload Section */}
+                                                <div className="mt-6 pt-4 border-t border-gray-200">
+                                                    <h4 className="font-medium text-gray-700 mb-3 flex items-center gap-2">
+                                                        <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                                                        </svg>
+                                                        Attached Travel Document
+                                                    </h4>
+                                                    <p className="text-xs text-gray-500 mb-3">Upload a scanned copy of the signed travel document or any supporting forms.</p>
+                                                    
+                                                    {metadata.administration?.scannedDocument ? (
+                                                        <div className="flex items-center gap-3 p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                                                            <svg className="w-8 h-8 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                            </svg>
+                                                            <div className="flex-1">
+                                                                <p className="font-medium text-emerald-800">{metadata.administration.scannedDocument.filename}</p>
+                                                                <p className="text-xs text-emerald-600">Uploaded on {new Date(metadata.administration.scannedDocument.uploadedAt).toLocaleDateString()}</p>
+                                                            </div>
+                                                            <a href={metadata.administration.scannedDocument.url} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 transition-colors">
+                                                                View
+                                                            </a>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex items-center justify-center p-6 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                                                            <div className="text-center">
+                                                                <svg className="w-10 h-10 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                                                </svg>
+                                                                <p className="text-sm text-gray-500">No document uploaded yet</p>
+                                                                <p className="text-xs text-gray-400 mt-1">Document upload will be available soon</p>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </Card>
+                                    )}
                                 </div>
                             )}
 
@@ -1283,39 +1421,183 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
 
                             {activeTab === 'documents' && (
                                 <div className="space-y-6">
+                                    {/* Request Summary Card for Approvers */}
+                                    <Card className="!p-0 overflow-hidden border-primary-100 shadow-sm bg-gradient-to-br from-primary-50/50 via-white to-white">
+                                        <div className="bg-primary-50/80 px-6 py-4 border-b border-primary-100">
+                                            <h3 className="font-semibold text-primary-800 flex items-center gap-2">
+                                                <svg className="w-5 h-5 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                </svg>
+                                                Request Summary
+                                            </h3>
+                                        </div>
+                                        <div className="p-6 space-y-4">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div className="space-y-1">
+                                                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Request Title</span>
+                                                    <p className="text-gray-900 font-medium">{request.title}</p>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Request ID</span>
+                                                    <p className="text-gray-900 font-mono text-sm">#{request.id.substring(0, 8).toUpperCase()}</p>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Submitted By</span>
+                                                    <div className="flex items-center gap-2">
+                                                        <img
+                                                            src={request.creator.profile_picture_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(request.creator.display_name || 'User')}&background=random&size=24`}
+                                                            alt={request.creator.display_name}
+                                                            className="w-6 h-6 rounded-full"
+                                                        />
+                                                        <div>
+                                                            <p className="text-gray-900 font-medium">{request.creator.display_name}</p>
+                                                            <p className="text-xs text-gray-500">{request.creator.job_title || 'Employee'}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Submitted On</span>
+                                                    <p className="text-gray-900">{new Date(request.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                                                </div>
+                                            </div>
+                                            {request.description && (
+                                                <div className="pt-3 border-t border-gray-100">
+                                                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Description</span>
+                                                    <p className="text-gray-700 mt-1">{request.description}</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </Card>
+
                                     {loadingDocuments ? (
                                         <div className="flex items-center justify-center py-12">
                                             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
                                         </div>
                                     ) : documents.length > 0 ? (
                                         <Card className="!p-0 overflow-hidden border-gray-200 shadow-sm">
-                                            <div className="bg-gray-50/50 px-6 py-4 border-b border-gray-100">
-                                                <h3 className="font-semibold text-text-primary font-heading">Uploaded Documents</h3>
+                                            <div className="bg-gray-50/50 px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                                                <h3 className="font-semibold text-text-primary font-heading flex items-center gap-2">
+                                                    <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                                                    </svg>
+                                                    Uploaded Documents
+                                                </h3>
+                                                <span className="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{documents.length} file{documents.length !== 1 ? 's' : ''}</span>
                                             </div>
-                                            <div className="p-4 space-y-3">
-                                                {documents.map((doc: any) => (
-                                                    <div key={doc.id} className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-200 hover:border-gray-300 transition-colors">
-                                                        <div className="flex items-center gap-3 flex-1 min-w-0">
-                                                            <div className="w-12 h-12 bg-primary-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                                                                <svg className="w-6 h-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                                                </svg>
-                                                            </div>
-                                                            <div className="flex-1 min-w-0">
-                                                                <p className="font-medium text-gray-900 truncate">{doc.filename}</p>
-                                                                <p className="text-xs text-gray-500">{doc.file_size ? `${(doc.file_size / 1024).toFixed(1)} KB` : ''}</p>
+                                            <div className="p-4 space-y-4">
+                                                {documents.map((doc: any, index: number) => {
+                                                    const fileExt = doc.filename?.split('.').pop()?.toLowerCase() || '';
+                                                    const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(fileExt);
+                                                    const isPdf = fileExt === 'pdf';
+                                                    const isWord = ['doc', 'docx'].includes(fileExt);
+                                                    const isExcel = ['xls', 'xlsx', 'csv'].includes(fileExt);
+                                                    
+                                                    const getFileIcon = () => {
+                                                        if (isImage) return (
+                                                            <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                                            </svg>
+                                                        );
+                                                        if (isPdf) return (
+                                                            <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                                            </svg>
+                                                        );
+                                                        if (isWord) return (
+                                                            <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                            </svg>
+                                                        );
+                                                        if (isExcel) return (
+                                                            <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+                                                            </svg>
+                                                        );
+                                                        return (
+                                                            <svg className="w-6 h-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                            </svg>
+                                                        );
+                                                    };
+                                                    
+                                                    const getFileBgColor = () => {
+                                                        if (isImage) return 'bg-purple-50';
+                                                        if (isPdf) return 'bg-red-50';
+                                                        if (isWord) return 'bg-blue-50';
+                                                        if (isExcel) return 'bg-green-50';
+                                                        return 'bg-primary-50';
+                                                    };
+
+                                                    const formatFileSize = (bytes: number) => {
+                                                        if (!bytes) return 'Unknown size';
+                                                        if (bytes < 1024) return `${bytes} B`;
+                                                        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+                                                        return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+                                                    };
+
+                                                    return (
+                                                        <div key={doc.id} className="p-4 bg-white rounded-xl border border-gray-200 hover:border-gray-300 hover:shadow-sm transition-all">
+                                                            <div className="flex items-start gap-4">
+                                                                <div className={`w-14 h-14 ${getFileBgColor()} rounded-xl flex items-center justify-center flex-shrink-0`}>
+                                                                    {getFileIcon()}
+                                                                </div>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="flex items-start justify-between gap-4">
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <p className="font-semibold text-gray-900 truncate text-lg">{doc.filename}</p>
+                                                                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-sm text-gray-500">
+                                                                                <span className="inline-flex items-center gap-1">
+                                                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+                                                                                    </svg>
+                                                                                    {formatFileSize(doc.file_size)}
+                                                                                </span>
+                                                                                <span className="inline-flex items-center gap-1">
+                                                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                                                                    </svg>
+                                                                                    {fileExt.toUpperCase() || 'FILE'}
+                                                                                </span>
+                                                                                {doc.mime_type && (
+                                                                                    <span className="inline-flex items-center gap-1 text-xs bg-gray-100 px-2 py-0.5 rounded">
+                                                                                        {doc.mime_type}
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+                                                                            <div className="flex items-center gap-2 mt-2 text-xs text-gray-400">
+                                                                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                                                </svg>
+                                                                                Uploaded {new Date(doc.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="flex flex-col gap-2 flex-shrink-0">
+                                                                            {doc.download_url && (
+                                                                                <>
+                                                                                    <Button variant="primary" size="sm" className="gap-1.5" onClick={() => window.open(doc.download_url, '_blank')}>
+                                                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                                                        </svg>
+                                                                                        Download
+                                                                                    </Button>
+                                                                                    {(isImage || isPdf) && (
+                                                                                        <Button variant="outline" size="sm" className="gap-1.5 bg-white" onClick={() => window.open(doc.download_url, '_blank')}>
+                                                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                                                            </svg>
+                                                                                            Preview
+                                                                                        </Button>
+                                                                                    )}
+                                                                                </>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
                                                             </div>
                                                         </div>
-                                                        {doc.download_url && (
-                                                            <Button variant="outline" size="sm" className="bg-white" onClick={() => window.open(doc.download_url, '_blank')}>
-                                                                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                                                </svg>
-                                                                Download
-                                                            </Button>
-                                                        )}
-                                                    </div>
-                                                ))}
+                                                    );
+                                                })}
                                             </div>
                                         </Card>
                                     ) : (
