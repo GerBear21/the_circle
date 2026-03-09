@@ -98,6 +98,8 @@ export default function HotelBookingPage() {
             fuel: { quantity: '', unitCost: '', totalCost: '' },
             aaRates: { quantity: '', unitCost: '', totalCost: '' },
             airBusTickets: { quantity: '', unitCost: '', totalCost: '' },
+            overnightAccommodation: { quantity: '', unitCost: '', totalCost: '' },
+            lunchDinner: { quantity: '', unitCost: '', totalCost: '' },
             conferencingCost: { quantity: '', unitCost: '', totalCost: '' },
             tollgates: { quantity: '', unitCost: '', totalCost: '' },
             other: { description: '', quantity: '', unitCost: '', totalCost: '' },
@@ -1335,6 +1337,72 @@ export default function HotelBookingPage() {
                                                         <input
                                                             type="number"
                                                             value={travelData.budget.airBusTickets.totalCost}
+                                                            readOnly
+                                                            className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm"
+                                                            placeholder="0.00"
+                                                        />
+                                                    </td>
+                                                </tr>
+                                                <tr className="border-b border-gray-100">
+                                                    <td className="px-3 py-2 text-gray-700">Overnight Accommodation (b&b)</td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.overnightAccommodation.quantity}
+                                                            onChange={(e) => updateBudgetItem('overnightAccommodation', 'quantity', e.target.value)}
+                                                            className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
+                                                            placeholder="0"
+                                                            min="0"
+                                                        />
+                                                    </td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.overnightAccommodation.unitCost}
+                                                            onChange={(e) => updateBudgetItem('overnightAccommodation', 'unitCost', e.target.value)}
+                                                            className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
+                                                            placeholder="0.00"
+                                                            step="0.01"
+                                                            min="0"
+                                                        />
+                                                    </td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.overnightAccommodation.totalCost}
+                                                            readOnly
+                                                            className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm"
+                                                            placeholder="0.00"
+                                                        />
+                                                    </td>
+                                                </tr>
+                                                <tr className="border-b border-gray-100">
+                                                    <td className="px-3 py-2 text-gray-700">Lunch/Dinner</td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.lunchDinner.quantity}
+                                                            onChange={(e) => updateBudgetItem('lunchDinner', 'quantity', e.target.value)}
+                                                            className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
+                                                            placeholder="0"
+                                                            min="0"
+                                                        />
+                                                    </td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.lunchDinner.unitCost}
+                                                            onChange={(e) => updateBudgetItem('lunchDinner', 'unitCost', e.target.value)}
+                                                            className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
+                                                            placeholder="0.00"
+                                                            step="0.01"
+                                                            min="0"
+                                                        />
+                                                    </td>
+                                                    <td className="px-2 py-2">
+                                                        <input
+                                                            type="number"
+                                                            value={travelData.budget.lunchDinner.totalCost}
                                                             readOnly
                                                             className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm"
                                                             placeholder="0.00"

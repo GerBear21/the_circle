@@ -221,10 +221,13 @@ function formatModificationValue(fieldName: string, value: any): string {
             fuel: 'Fuel',
             aaRates: 'AA Rates',
             airBusTickets: 'Air/Bus Tickets',
+            'b&b': 'Overnight Accommodation (B&B)',
+            lunchDinner: 'Lunch/Dinner',
             conferencingCost: 'Conferencing',
             tollgates: 'Tollgates',
             other: 'Other',
         };
+
         
         const items: string[] = [];
         for (const [key, item] of Object.entries(parsedValue)) {
@@ -900,6 +903,17 @@ export const getServerSideProps: GetServerSideProps<RequestDetailsPageProps> = a
         props: {
           initialRequest: null,
           initialError: error.code === 'PGRST116' ? 'Request not found' : 'Failed to fetch request',
+        },
+      };
+    }
+
+    // Redirect complimentary request types to the comp/[id] page
+    const requestType = request.metadata?.type || request.metadata?.requestType;
+    if (requestType === 'hotel_booking' || requestType === 'voucher_request') {
+      return {
+        redirect: {
+          destination: `/requests/comp/${id}`,
+          permanent: false,
         },
       };
     }

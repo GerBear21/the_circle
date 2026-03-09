@@ -128,7 +128,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               request_id: id,
               request_type: requestType,
               action_label: 'Review Request',
-              action_url: `/requests/${id}`,
+              action_url: `/requests/comp/${id}`,
             },
             is_read: false,
           });
@@ -151,7 +151,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           request_id: id,
           request_type: requestType,
           action_label: 'View Request',
-          action_url: `/requests/${id}`,
+          action_url: `/requests/comp/${id}`,
         },
         is_read: false,
       }));

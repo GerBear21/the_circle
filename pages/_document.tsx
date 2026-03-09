@@ -31,6 +31,10 @@ export default class MyDocument extends Document {
     return (
       <Html lang="en">
         <Head>
+          {/* Favicon - The Circle logo */}
+          <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+          <link rel="icon" type="image/svg+xml" sizes="32x32" href="/logo.svg" />
+          <link rel="apple-touch-icon" href="/logo.svg" />
           {/* Theme color for mobile browsers */}
           <meta name="theme-color" content="#2D9CDB" />
           {/* Apple mobile web app capable */}

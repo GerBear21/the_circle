@@ -876,7 +876,7 @@ export default function AllRequestsPage({ initialRequests }: AllRequestsPageProp
                   className="cursor-pointer hover:shadow-card-hover transition-shadow"
                   onClick={() => {
                     // Route hotel booking requests to the comp detail page
-                    if (request.type === 'hotel_booking') {
+                    if (request.type === 'hotel_booking' || request.type === 'voucher_request') {
                       router.push(`/requests/comp/${request.id}`);
                     } else {
                       router.push(`/requests/${request.id}`);

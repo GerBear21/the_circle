@@ -90,6 +90,11 @@ const accommodationLabels: Record<string, string> = {
     accommodation_and_breakfast: 'Bed & Breakfast',
     accommodation_and_meals: 'Accommodation & Meals',
     accommodation_meals_drink: 'Accommodation, Meals & Soft Drink',
+    meals_all: 'Meals (Breakfast, Lunch and Dinner)',
+    rainbow_delights: 'Rainbow Delights Meal',
+    breakfast_only: 'Breakfast only',
+    lunch_only: 'Lunch only',
+    dinner_only: 'Dinner only',
 };
 
 interface ApproverInfo {
@@ -479,6 +484,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
     const [publishError, setPublishError] = useState<string | null>(null);
     const [deleting, setDeleting] = useState(false);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [showPublishConfirm, setShowPublishConfirm] = useState(false);
     const [documents, setDocuments] = useState<any[]>([]);
     const [loadingDocuments, setLoadingDocuments] = useState(false);
     const [showReviewModal, setShowReviewModal] = useState(false);
@@ -492,6 +498,12 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
     const isDraft = request?.status === 'draft';
     const canPublish = isCreator && isDraft;
     const canDelete = isCreator && request?.status !== 'approved';
+    
+    // Check if current user is a watcher
+    const watcherIds = request?.metadata?.watchers || [];
+    const isWatcher = Array.isArray(watcherIds) && watcherIds.some((w: any) => 
+        typeof w === 'string' ? w === currentUserId : w?.id === currentUserId
+    );
 
     const pendingStep = request?.request_steps?.find(
         s => s.approver?.id === currentUserId && s.status === 'pending'
@@ -533,8 +545,8 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
             fetch('/api/user/signature')
                 .then(res => res.json())
                 .then(data => {
-                    if (data.signature?.url) {
-                        setUserSignatureUrl(data.signature.url);
+                    if (data.signature_url) {
+                        setUserSignatureUrl(data.signature_url);
                     }
                 })
                 .catch(err => console.error('Error fetching signature:', err));
@@ -711,6 +723,11 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
         window.open(`/api/requests/${id}/pdf`, '_blank');
     };
 
+    const handleDownloadVoucher = () => {
+        if (!id) return;
+        window.open(`/api/requests/${id}/voucher-pdf`, '_blank');
+    };
+
     if (status === 'loading' || loading) {
         return (
             <AppLayout title="Request Details">
@@ -751,6 +768,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
     const selectedBusinessUnits = metadata.selectedBusinessUnits || [];
     const travelDocument = metadata.travelDocument;
     const hasTravelDocument = metadata.processTravelDocument && travelDocument;
+    const supportingDocuments = metadata.supportingDocuments || [];
 
     return (
         <AppLayout title={`Request #${request.id.substring(0, 8)}`}>
@@ -768,6 +786,24 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                 </svg>
                             </button>
+                        </div>
+                    </Card>
+                )}
+
+                {/* Watcher indicator banner */}
+                {isWatcher && !isCreator && !isCurrentApprover && (
+                    <Card className="bg-blue-50 border-blue-200 !p-4">
+                        <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                                <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                </svg>
+                            </div>
+                            <div>
+                                <p className="text-blue-800 text-sm font-medium">You are viewing this request as a Watcher</p>
+                                <p className="text-blue-600 text-xs mt-0.5">You can view details and download the voucher once approved, but cannot make changes.</p>
+                            </div>
                         </div>
                     </Card>
                 )}
@@ -809,32 +845,41 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                 Delete
                             </Button>
                         )}
-                        <Button variant="outline" className="gap-2 bg-white" onClick={handleDownloadPdf}>
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                            </svg>
-                            PDF
-                        </Button>
-                        {canPublish && (
-                            <Button variant="primary" className="gap-2 shadow-lg shadow-primary-500/20" onClick={handlePublish} disabled={publishing} isLoading={publishing}>
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                                </svg>
-                                {publishing ? 'Publishing...' : 'Publish Request'}
-                            </Button>
-                        )}
-                        {canApproverEdit && (
-                            <Button
-                                variant="outline"
-                                className="gap-2 bg-white text-text-secondary border-gray-200 hover:bg-gray-50 hover:text-text-primary"
-                                onClick={() => {
-                                    router.push(`/requests/hotel-booking/edit?id=${id}&approver=true`);
-                                }}
+{isDraft ? (
+                            <Button 
+                                variant="outline" 
+                                className="gap-2 bg-white text-primary-600 border-primary-200 hover:bg-primary-50" 
+                                onClick={() => router.push(`/requests/new/voucher?edit=${id}`)}
                             >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                                 </svg>
-                                Edit Request
+                                Edit Draft
+                            </Button>
+                        ) : (
+                            <>
+                                <Button variant="outline" className="gap-2 bg-white" onClick={handleDownloadPdf}>
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                    </svg>
+                                    PDF
+                                </Button>
+                                {actualStatus === 'approved' && (
+                                    <Button variant="primary" className="gap-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 shadow-lg shadow-amber-500/20" onClick={handleDownloadVoucher}>
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
+                                        </svg>
+                                        Generate Voucher
+                                    </Button>
+                                )}
+                            </>
+                        )}
+                        {canPublish && (
+                            <Button variant="primary" className="gap-2 shadow-lg shadow-primary-500/20" onClick={() => setShowPublishConfirm(true)} disabled={publishing} isLoading={publishing}>
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                                </svg>
+                                {publishing ? 'Publishing...' : 'Publish Request'}
                             </Button>
                         )}
                         {isCurrentApprover && (
@@ -892,12 +937,38 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                                 Staff Member
                                                             </span>
                                                         )}
+                                                        {metadata.showNameOnVoucher !== false ? (
+                                                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                                </svg>
+                                                                Name Visible on Voucher
+                                                            </span>
+                                                        ) : (
+                                                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                                                                </svg>
+                                                                Name Hidden on Voucher
+                                                            </span>
+                                                        )}
                                                     </div>
                                                 </div>
                                                 <div className="text-right">
-                                                    <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Allocation</span>
-                                                    <div className="text-lg font-semibold text-text-primary mt-1">
-                                                        {allocationLabels[metadata.allocationType] || metadata.allocationType || 'N/A'}
+                                                    {request.metadata?.type === 'voucher_request' && (
+                                                        <div className="mb-3">
+                                                            <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Voucher Number</span>
+                                                            <div className="text-lg font-bold font-mono tracking-wider text-primary-600 mt-1">
+                                                                {metadata.voucherNumber || 'N/A'}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    <div>
+                                                        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Charge To</span>
+                                                        <div className="text-sm font-semibold text-text-primary mt-1">
+                                                            {allocationLabels[metadata.allocationType] || metadata.allocationType || 'N/A'}
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -949,29 +1020,50 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                                 </span>
                                                             )}
                                                         </div>
-                                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                                                            <div>
-                                                                <span className="text-gray-500 block">Arrival Date</span>
-                                                                <span className="font-medium text-gray-900">{unit.arrivalDate ? new Date(unit.arrivalDate).toLocaleDateString('en-GB') : 'N/A'}</span>
-                                                            </div>
-                                                            <div>
-                                                                <span className="text-gray-500 block">Departure Date</span>
-                                                                <span className="font-medium text-gray-900">{unit.departureDate ? new Date(unit.departureDate).toLocaleDateString('en-GB') : 'N/A'}</span>
-                                                            </div>
-                                                            <div>
-                                                                <span className="text-gray-500 block">No. of Nights</span>
-                                                                <span className="font-medium text-gray-900">{unit.numberOfNights || 'N/A'}</span>
-                                                            </div>
-                                                            <div>
-                                                                <span className="text-gray-500 block">No. of Rooms</span>
-                                                                <span className="font-medium text-gray-900">{unit.numberOfRooms || 'N/A'}</span>
-                                                            </div>
+                                                        {/* Voucher Type */}
+                                                        <div className="mb-4">
+                                                            <span className="text-gray-500 block text-sm">Voucher Type</span>
+                                                            <span className="font-medium text-gray-900">{accommodationLabels[unit.accommodationType] || unit.accommodationType || 'N/A'}</span>
                                                         </div>
-                                                        <div className="mt-4 pt-4 border-t border-gray-100 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                                                            <div>
-                                                                <span className="text-gray-500 block">Accommodation Type</span>
-                                                                <span className="font-medium text-gray-900">{accommodationLabels[unit.accommodationType] || unit.accommodationType || 'N/A'}</span>
+
+                                                        {/* Accommodation Details - shown for types that include accommodation */}
+                                                        {!['meals_all', 'rainbow_delights', 'breakfast_only', 'lunch_only', 'dinner_only'].includes(unit.accommodationType) && (
+                                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                                                <div>
+                                                                    <span className="text-gray-500 block">Validity Period</span>
+                                                                    <span className="font-medium text-gray-900">{unit.voucherValidityPeriod || 'N/A'}</span>
+                                                                </div>
+                                                                <div>
+                                                                    <span className="text-gray-500 block">No. of People</span>
+                                                                    <span className="font-medium text-gray-900">{unit.numberOfPeople || 'N/A'}</span>
+                                                                </div>
+                                                                <div>
+                                                                    <span className="text-gray-500 block">No. of Nights</span>
+                                                                    <span className="font-medium text-gray-900">{unit.numberOfRooms || 'N/A'}</span>
+                                                                </div>
+                                                                <div>
+                                                                    <span className="text-gray-500 block">Room Type</span>
+                                                                    <span className="font-medium text-gray-900">{unit.roomType || 'N/A'}</span>
+                                                                </div>
                                                             </div>
+                                                        )}
+
+                                                        {/* Meal Details - shown for types that include meals */}
+                                                        {['meals_all', 'rainbow_delights', 'breakfast_only', 'lunch_only', 'dinner_only', 'accommodation_and_meals', 'accommodation_meals_drink'].includes(unit.accommodationType) && (
+                                                            <div className={`grid grid-cols-2 gap-4 text-sm ${!['meals_all', 'rainbow_delights', 'breakfast_only', 'lunch_only', 'dinner_only'].includes(unit.accommodationType) ? 'mt-4 pt-4 border-t border-gray-100' : ''}`}>
+                                                                <div>
+                                                                    <span className="text-gray-500 block">Number of Meals</span>
+                                                                    <span className="font-medium text-gray-900">{unit.numberOfMeals || 'N/A'}</span>
+                                                                </div>
+                                                                <div>
+                                                                    <span className="text-gray-500 block">Number of People for Meals</span>
+                                                                    <span className="font-medium text-gray-900">{unit.mealPeopleCount || 'N/A'}</span>
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Special Arrangements */}
+                                                        <div className="mt-4 pt-4 border-t border-gray-100 text-sm">
                                                             <div>
                                                                 <span className="text-gray-500 block">Special Arrangements</span>
                                                                 <span className="font-medium text-gray-900">{unit.specialArrangements || 'N/A'}</span>
@@ -1132,6 +1224,51 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                             </div>
                                         </Card>
                                     )}
+
+                                    {/* Supporting Documents Section */}
+                                    {supportingDocuments.length > 0 && (
+                                        <Card className="!p-0 overflow-hidden border-purple-200 shadow-sm">
+                                            <div className="bg-purple-50/50 px-6 py-4 border-b border-purple-100 flex items-center justify-between">
+                                                <h3 className="font-semibold text-purple-800 flex items-center gap-2">
+                                                    <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                    </svg>
+                                                    Supporting Documents
+                                                </h3>
+                                                <span className="text-sm text-purple-600 font-medium">{supportingDocuments.length} file(s)</span>
+                                            </div>
+                                            <div className="p-4 space-y-3">
+                                                {supportingDocuments.map((doc: any, index: number) => (
+                                                    <div key={index} className="flex items-center gap-4 p-4 bg-white rounded-xl border border-gray-200 hover:border-gray-300 transition-colors">
+                                                        <div className="w-12 h-12 bg-purple-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                                                            <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                            </svg>
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="font-medium text-gray-900 truncate">{doc.name || doc.filename || 'Document'}</p>
+                                                            <div className="flex items-center gap-2 mt-1">
+                                                                {doc.label && (
+                                                                    <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium">{doc.label}</span>
+                                                                )}
+                                                                {doc.size && (
+                                                                    <span className="text-xs text-gray-500">{(doc.size / 1024 / 1024).toFixed(2)} MB</span>
+                                                                )}
+                                                            </div>
+                                                            {doc.description && (
+                                                                <p className="text-sm text-gray-600 mt-1">{doc.description}</p>
+                                                            )}
+                                                            {doc.uploadedBy && (
+                                                                <p className="text-xs text-gray-400 mt-1">
+                                                                    Uploaded by {doc.uploadedBy.name} {doc.uploadedAt ? `on ${new Date(doc.uploadedAt).toLocaleDateString()}` : ''}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </Card>
+                                    )}
                                 </div>
                             )}
 
@@ -1249,8 +1386,83 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                 <span className="font-medium text-text-primary">{new Date(request.updated_at).toLocaleDateString('en-US')}</span>
                             </div>
                         </Card>
+
+                        {/* Watchers Section */}
+                        {metadata.watchers && Array.isArray(metadata.watchers) && metadata.watchers.length > 0 && (
+                            <Card className="!p-6 border-blue-100 bg-gradient-to-br from-white to-blue-50/30 shadow-sm">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                    </svg>
+                                    <h3 className="text-sm font-bold text-blue-700 uppercase tracking-widest">Watchers</h3>
+                                    <span className="ml-auto text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-medium">
+                                        {metadata.watchers.length}
+                                    </span>
+                                </div>
+                                <p className="text-xs text-gray-500 mb-3">
+                                    These users can view this request and generate the voucher once approved.
+                                </p>
+                                <div className="space-y-2">
+                                    {metadata.watchers.map((watcher: any) => (
+                                        <div key={watcher.id} className="flex items-center gap-3 p-2 bg-white/60 rounded-lg border border-blue-100/50">
+                                            <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                                                <span className="text-sm font-medium text-blue-600">
+                                                    {watcher.display_name?.charAt(0)?.toUpperCase() || '?'}
+                                                </span>
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-medium text-gray-900 truncate">{watcher.display_name}</p>
+                                                <p className="text-xs text-gray-500 truncate">{watcher.email}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </Card>
+                        )}
                     </div>
                 </div>
+
+                {/* Publish Confirmation Modal */}
+                {showPublishConfirm && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                        <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl">
+                            <div className="flex items-center gap-4 mb-4">
+                                <div className="w-12 h-12 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
+                                    <svg className="w-6 h-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-bold text-text-primary">Publish Request</h3>
+                                    <p className="text-sm text-text-secondary">Submit for approval</p>
+                                </div>
+                            </div>
+                            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
+                                <div className="flex items-start gap-3">
+                                    <svg className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                    </svg>
+                                    <div>
+                                        <p className="text-sm font-medium text-amber-800">Important Notice</p>
+                                        <p className="text-sm text-amber-700 mt-1">
+                                            Once an approver has approved this request, you will no longer be able to delete it. Please ensure all information is correct before publishing.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                            <p className="text-text-secondary mb-6">
+                                Are you sure you want to publish "<span className="font-medium text-text-primary">{request?.title}</span>" and send it for approval?
+                            </p>
+                            <div className="flex gap-3 justify-end">
+                                <Button variant="outline" onClick={() => setShowPublishConfirm(false)} disabled={publishing}>Cancel</Button>
+                                <Button variant="primary" onClick={() => { setShowPublishConfirm(false); handlePublish(); }} disabled={publishing} isLoading={publishing}>
+                                    {publishing ? 'Publishing...' : 'Publish Request'}
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Delete Confirmation Modal */}
                 {showDeleteConfirm && (

@@ -1,33 +1,30 @@
-import { signIn } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
 import Head from "next/head";
 import dynamic from "next/dynamic";
 import { GetServerSideProps } from "next";
-import { getServerSession } from "next-auth";
-import { authOptions } from "./api/auth/[...nextauth]";
+import { useRouter } from "next/router";
+import { useEffect } from "react";
 import { motion } from "framer-motion";
 
 // Dynamically import Lottie to avoid SSR issues
 const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
 import heroAnimation from "../Girl doing remote job using laptop.json";
 
-export const getServerSideProps: GetServerSideProps = async (context) => {
-  const session = await getServerSession(context.req, context.res, authOptions);
-
-  if (session) {
-    return {
-      redirect: {
-        destination: "/dashboard",
-        permanent: false,
-      },
-    };
-  }
-
+export const getServerSideProps: GetServerSideProps = async () => {
   return {
     props: {},
   };
 };
 
 export default function Home() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (status === 'authenticated' && sessionStorage.getItem('the_circle_active_session')) {
+      router.replace('/dashboard');
+    }
+  }, [status, router]);
 
   return (
     <>
@@ -113,8 +110,8 @@ export default function Home() {
             <div className="relative bg-white/80 backdrop-blur-xl border border-white/50 p-8 sm:p-12 rounded-[2.5rem] shadow-2xl shadow-brand-900/5">
 
               <div className="flex flex-col items-center mb-10">
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-brand-500 to-purple-600 p-[1px] shadow-lg shadow-brand-500/20 mb-6">
-                  <div className="w-full h-full rounded-2xl bg-white flex items-center justify-center">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-10 h-10 flex items-center justify-center shrink-0">
                     <svg className="w-10 h-10" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
                       <defs>
                         <linearGradient id="brandGradientLogin" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -138,8 +135,9 @@ export default function Home() {
                       />
                     </svg>
                   </div>
+                  <span className="text-gray-900 font-bold text-3xl">The Circle</span>
                 </div>
-                <h2 className="text-2xl font-bold text-gray-900 mb-2">Welcome Back</h2>
+                
                 <p className="text-gray-500 text-center text-sm">
                   Enter your credentials to access the workspace
                 </p>
@@ -148,7 +146,10 @@ export default function Home() {
               {/* Login Actions */}
               <div className="space-y-4">
                 <button
-                  onClick={() => signIn("azure-ad")}
+                  onClick={() => {
+                    sessionStorage.setItem('the_circle_active_session', '1');
+                    signIn("azure-ad");
+                  }}
                   className="group relative w-full overflow-hidden rounded-xl bg-gray-900 p-[1px] focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 transition-transform active:scale-[0.98]"
                 >
                   <div className="absolute inset-0 bg-gradient-to-r from-gray-700 via-gray-600 to-gray-700 group-hover:via-gray-500 transition-all duration-300" />
@@ -160,21 +161,6 @@ export default function Home() {
                   </div>
                 </button>
 
-                <div className="relative flex py-2 items-center">
-                  <div className="flex-grow border-t border-gray-200"></div>
-                  <span className="flex-shrink-0 mx-4 text-gray-400 text-xs uppercase tracking-wider">Alternative</span>
-                  <div className="flex-grow border-t border-gray-200"></div>
-                </div>
-
-                <button
-                  disabled
-                  className="w-full flex items-center justify-center gap-3 bg-gray-50 text-gray-400 font-medium py-4 px-6 rounded-xl border border-gray-200 cursor-not-allowed"
-                >
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
-                  </svg>
-                  GitHub (Coming Soon)
-                </button>
               </div>
 
               {/* Footer Links */}

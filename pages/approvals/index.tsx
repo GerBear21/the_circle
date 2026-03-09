@@ -44,7 +44,7 @@ const HIGH_ANIMATION_DURATION = 4.17;
 
 function getRequestDetailPath(request: any): string {
   const requestType = request.metadata?.type || request.metadata?.requestType;
-  if (requestType === 'hotel_booking') {
+  if (requestType === 'hotel_booking' || requestType === 'voucher_request') {
     return `/requests/comp/${request.id}`;
   }
   return `/requests/${request.id}`;

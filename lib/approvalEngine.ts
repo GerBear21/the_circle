@@ -673,12 +673,14 @@ export class ApprovalEngine {
       const totalSteps = allSteps?.length || 0;
       
       // Notify the requestor about this approval
+      const requestType = request?.metadata?.type || request?.metadata?.requestType;
       if (request) {
         await this.notifyRequester(
           requestId,
           request.creator_id,
           request.organization_id,
-          `Your request "${request.title}" was approved by ${approverName} (${approvedSteps.length} of ${totalSteps} approvals received).`
+          `Your request "${request.title}" was approved by ${approverName} (${approvedSteps.length} of ${totalSteps} approvals received).`,
+          requestType
         );
       }
       
@@ -694,7 +696,8 @@ export class ApprovalEngine {
             requestId,
             request.creator_id,
             request.organization_id,
-            `Your request "${request.title}" has been fully approved! All ${totalSteps} approvers have approved.`
+            `Your request "${request.title}" has been fully approved! All ${totalSteps} approvers have approved.`,
+            requestType
           );
           
           // Auto-generate and store PDF archive
@@ -767,11 +770,13 @@ export class ApprovalEngine {
         );
         
         // Notify the requestor about this step approval
+        const requestType = request.metadata?.type || request.metadata?.requestType;
         await this.notifyRequester(
           requestId,
           request.creator_id,
           request.organization_id,
-          `Your request "${request.title}" was approved by ${approverName} (Step ${currentStep.step_index}). Awaiting next approval.`
+          `Your request "${request.title}" was approved by ${approverName} (Step ${currentStep.step_index}). Awaiting next approval.`,
+          requestType
         );
       }
       
@@ -794,11 +799,13 @@ export class ApprovalEngine {
       
       // Notify the requester (request already fetched above)
       if (request) {
+        const requestType = request.metadata?.type || request.metadata?.requestType;
         await this.notifyRequester(
           requestId,
           request.creator_id,
           request.organization_id,
-          `Your request "${request.title}" has been fully approved by ${approverName}!`
+          `Your request "${request.title}" has been fully approved by ${approverName}!`,
+          requestType
         );
         
         // Auto-generate and store PDF archive
@@ -834,7 +841,7 @@ export class ApprovalEngine {
     // Notify the requester
     const { data: request } = await supabaseAdmin
       .from('requests')
-      .select('creator_id, organization_id, title')
+      .select('creator_id, organization_id, title, metadata')
       .eq('id', requestId)
       .single();
     
@@ -845,11 +852,13 @@ export class ApprovalEngine {
         .eq('id', rejecterId)
         .single();
       
+      const requestType = request.metadata?.type || request.metadata?.requestType;
       await this.notifyRequester(
         requestId,
         request.creator_id,
         request.organization_id,
-        `Your request "${request.title}" was rejected by ${rejecter?.display_name || 'an approver'}`
+        `Your request "${request.title}" was rejected by ${rejecter?.display_name || 'an approver'}`,
+        requestType
       );
     }
     
@@ -993,9 +1002,14 @@ export class ApprovalEngine {
     requestId: string,
     requesterId: string,
     organizationId: string,
-    message: string
+    message: string,
+    requestType?: string
   ): Promise<void> {
     try {
+      // Determine the correct URL based on request type
+      const isComplimentaryRequest = requestType === 'hotel_booking' || requestType === 'voucher_request';
+      const actionUrl = isComplimentaryRequest ? `/requests/comp/${requestId}` : `/requests/${requestId}`;
+      
       await supabaseAdmin
         .from('notifications')
         .insert({
@@ -1007,7 +1021,7 @@ export class ApprovalEngine {
           metadata: {
             request_id: requestId,
             action_label: 'View Request',
-            action_url: `/requests/${requestId}`,
+            action_url: actionUrl,
           },
           is_read: false,
         });
