@@ -113,6 +113,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           ? pendingStep.step_index 
           : (requestSteps.length > 0 ? requestSteps[requestSteps.length - 1].step_index : 1);
         
+        // Count completed (approved) steps for accurate progress calculation
+        const completedSteps = requestSteps.filter(s => s.status === 'approved').length;
+        
         // Get current approver
         const currentApprover = pendingStep?.approver;
 
@@ -126,11 +129,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           status: request.status,
           priority: metadata.priority || 'normal',
           category: metadata.category || 'General',
-          type: metadata.request_type || 'approval',
+          type: metadata.type || metadata.request_type || 'approval',
           created_at: request.created_at,
           updated_at: request.updated_at,
           current_step: currentStepIndex,
           total_steps: totalSteps,
+          completed_steps: completedSteps,
           current_approver: currentApprover ? {
             id: currentApprover.id,
             name: currentApprover.display_name || currentApprover.email,

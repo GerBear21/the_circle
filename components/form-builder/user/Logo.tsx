@@ -28,7 +28,7 @@ export const LogoSettings = () => {
 };
 
 Logo.craft = {
-    displayName: 'RTG Logo',
+    displayName: 'The Circle Logo',
     props: {},
     related: {
         settings: LogoSettings,

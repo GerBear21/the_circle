@@ -34,6 +34,26 @@ export const authOptions: NextAuthOptions = {
   ],
   secret: process.env.NEXTAUTH_SECRET || "fallback-secret-for-build-only",
   debug: true, // Enable debug mode to see errors in logs
+  session: {
+    strategy: "jwt",
+    maxAge: 8 * 60 * 60, // 8 hours - session expires after this time
+    // Reduce token size to avoid cookie chunking issues
+  },
+  jwt: {
+    maxAge: 8 * 60 * 60, // 8 hours
+  },
+  cookies: {
+    sessionToken: {
+      name: `next-auth.session-token`,
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: process.env.NODE_ENV === "production",
+        // No maxAge means cookie is deleted when browser closes (session cookie)
+      },
+    },
+  },
   pages: {
     error: "/auth/error", // Custom error page
   },
@@ -178,8 +198,8 @@ export const authOptions: NextAuthOptions = {
             if (appUser) {
               token.user_id = appUser.id;
               token.role = appUser.role;
-              token.profile_picture_url = profilePictureUrl;
-              token.display_name = displayName;
+              // Note: profile_picture_url and display_name are NOT stored in JWT to reduce cookie size
+              // They should be fetched from the database when needed via useCurrentUser hook
             }
           }
         }
@@ -190,14 +210,13 @@ export const authOptions: NextAuthOptions = {
     },
 
     async session({ session, token }) {
-      // Expose org_id, user_id, role, profile_picture_url, and display_name to the client session
+      // Expose org_id, user_id, and role to the client session
+      // Note: profile_picture_url and display_name are fetched via useCurrentUser hook to reduce JWT size
       if (session.user) {
         (session.user as any).org_id = token.org_id;
         (session.user as any).azure_oid = token.azure_oid;
         (session.user as any).id = token.user_id;
         (session.user as any).role = token.role;
-        (session.user as any).profile_picture_url = token.profile_picture_url;
-        (session.user as any).display_name = token.display_name;
       }
       return session;
     },
