@@ -18,6 +18,7 @@ interface AppUser {
   department_id: string | null;
   business_unit_id: string | null;
   profile_picture_url: string | null;
+  signature_url: string | null;
   // HRIMS-sourced fields
   hrims_employee_id?: string | null;
   job_title?: string | null;

@@ -93,7 +93,8 @@ export async function generateAndStoreArchive(
           display_name,
           email,
           department_id,
-          job_title
+          job_title,
+          department:rtg_departments(name)
         ),
         request_steps (
           id,
