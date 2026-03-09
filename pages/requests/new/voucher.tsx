@@ -871,6 +871,7 @@ export default function VoucherRequestPage() {
                     requestType: 'voucher_request',
                     status: 'pending', // Submit for approval immediately
                     metadata: {
+                        type: 'voucher_request',
                         voucherNumber: formData.voucherNumber,
                         guestNames: formData.guestNames,
                         guestTitle: formData.guestTitle,
@@ -963,6 +964,7 @@ export default function VoucherRequestPage() {
                     requestType: 'voucher_request',
                     status: 'draft',
                     metadata: {
+                        type: 'voucher_request',
                         voucherNumber: formData.voucherNumber,
                         guestNames: formData.guestNames,
                         guestTitle: formData.guestTitle,
