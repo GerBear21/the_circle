@@ -202,6 +202,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             'projects_manager', 'managing_director',
             // Hotel Booking roles (some overlap with CAPEX)
             'hod', 'hr_director', 'finance_director', 'ceo',
+            // Voucher request roles
+            'commercial_director',
             // Generic fallback roles
             'manager', 'director'
           ];

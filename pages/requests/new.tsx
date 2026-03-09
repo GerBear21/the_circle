@@ -66,11 +66,11 @@ const allRequestItems: RequestItem[] = [
   },
   {
     id: 'hotel',
-    title: 'Complimentary Hotel Booking',
-    description: 'Complimentary hotel accommodation',
+    title: 'Complimentary Accommodation',
+    description: 'Complimentary hotel or voucher accommodation',
     icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4',
     color: 'primary',
-    href: '/requests/new/hotel-booking',
+    href: '/requests/new/accommodation',
     category: 'Travel & Events',
   },
 
@@ -117,24 +117,15 @@ const allRequestItems: RequestItem[] = [
   },
 
   // --- System & Design ---
-  // {
-  //   id: 'form',
-  //   title: 'Design New Form',
-  //   description: 'Create a custom form with fields',
-  //   icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
-  //   color: 'accent',
-  //   href: '/requests/new/form',
-  //   category: 'System & Design',
-  // },
-  // {
-  //   id: 'template',
-  //   title: 'Create Template',
-  //   description: 'Build reusable approval templates',
-  //   icon: 'M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z',
-  //   color: 'accent',
-  //   href: '/requests/new/template',
-  //   category: 'System & Design',
-  // },
+  {
+    id: 'form',
+    title: 'Design New Form',
+    description: 'Create a custom form template for your team',
+    icon: 'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z',
+    color: 'accent',
+    href: '/requests/new/form',
+    category: 'System & Design',
+  },
   {
     id: 'workflow',
     title: 'Custom Workflow',

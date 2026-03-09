@@ -93,7 +93,8 @@ export async function generateAndStoreArchive(
           display_name,
           email,
           department_id,
-          job_title
+          job_title,
+          department:rtg_departments(name)
         ),
         request_steps (
           id,
@@ -518,12 +519,13 @@ function renderTravelAuth(doc: any, formData: Record<string, any>, yPos: number,
     const budgetWidths = [pageWidth * 0.4, pageWidth * 0.15, pageWidth * 0.2, pageWidth * 0.25];
     const b = formData.budget;
     const budgetItems: Array<{ label: string; data: any }> = [
-      { label: 'Fuel (Litres)', data: b.fuel },
-      { label: 'AA Rates (KM)', data: b.aaRates },
+      { label: 'Fuel (Indicate Total litres)', data: b.fuel },
+      { label: 'AA Rates (Indicate total mileage)', data: b.aaRates },
       { label: 'Air/Bus Tickets', data: b.airBusTickets },
+      { label: 'Overnight Accommodation (b&b)', data: b.b&b },
+      { label: 'Lunch/Dinner', data: b.lunchDinner },
       { label: 'Conferencing Cost', data: b.conferencingCost },
-      { label: 'Tollgates', data: b.tollgates },
-      { label: b.other?.description || 'Other', data: b.other },
+      { label: 'Tollgates', data: b.tollgates },      { label: b.other?.description || 'Other', data: b.other },
     ];
     const budgetRows = budgetItems
       .filter(item => item.data)

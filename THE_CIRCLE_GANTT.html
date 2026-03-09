@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>The Circle – SDLC Gantt Chart</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    width: 1400px;
+    background: #ffffff;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    color: #1a202c;
+    font-size: 11px;
+  }
+
+  /* ── PAGE HEADER ── */
+  .hdr {
+    background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 24px;
+    border-bottom: 4px solid #e85d04;
+  }
+  .hdr-left h1 { font-size: 18px; font-weight: 800; letter-spacing: 0.4px; }
+  .hdr-left p  { font-size: 11px; color: #90aac8; margin-top: 2px; }
+  .hdr-right { display: flex; gap: 20px; }
+  .kpi { text-align: center; background: rgba(255,255,255,0.08); border-radius: 8px; padding: 8px 14px; }
+  .kpi .val { font-size: 15px; font-weight: 800; color: #e85d04; }
+  .kpi .lbl { font-size: 9px; color: #90aac8; text-transform: uppercase; letter-spacing: 0.8px; margin-top: 1px; }
+
+  /* ── LEGEND ── */
+  .legend {
+    display: flex; align-items: center; gap: 14px;
+    padding: 7px 24px;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+    flex-wrap: wrap;
+  }
+  .legend-title { font-size: 9px; font-weight: 800; color: #718096; text-transform: uppercase; letter-spacing: 1px; }
+  .leg { display: flex; align-items: center; gap: 5px; font-size: 10px; color: #4a5568; font-weight: 600; }
+  .leg-dot { width: 14px; height: 10px; border-radius: 2px; }
+  .leg-diamond { width: 10px; height: 10px; background: #e85d04; transform: rotate(45deg); }
+
+  /* ── GANTT BODY ── */
+  .gantt {
+    display: flex;
+    flex-direction: column;
+    padding: 0 24px 8px;
+    background: #fff;
+  }
+
+  /* ── WEEK GRID HEADER ── */
+  .grid-header {
+    display: flex;
+    margin-top: 10px;
+    border-bottom: 2px solid #cbd5e0;
+    position: sticky;
+    top: 0;
+    background: #fff;
+    z-index: 10;
+  }
+  .gh-label {
+    flex-shrink: 0;
+    font-weight: 700;
+    font-size: 10px;
+    color: #4a5568;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    padding-bottom: 4px;
+    border-right: 2px solid #cbd5e0;
+  }
+  .gh-months {
+    flex: 1;
+    display: flex;
+    position: relative;
+  }
+  .gh-month {
+    display: flex;
+    flex-direction: column;
+    border-right: 2px solid #cbd5e0;
+    overflow: hidden;
+  }
+  .gh-month-name {
+    font-size: 10px; font-weight: 800; color: #2d3748;
+    text-align: center; padding: 2px 0 1px;
+    border-bottom: 1px solid #e2e8f0;
+    letter-spacing: 0.5px;
+  }
+  .gh-month.hi .gh-month-name { color: #e85d04; background: #fff5f0; }
+  .gh-weeks { display: flex; flex: 1; }
+  .gh-week {
+    flex: 1;
+    text-align: center;
+    font-size: 8px;
+    color: #a0aec0;
+    padding: 1px 0;
+    border-right: 1px dashed #e2e8f0;
+    font-weight: 600;
+  }
+  .gh-week:last-child { border-right: none; }
+
+  /* ── PHASE HEADER ROW ── */
+  .phase-hdr {
+    display: flex;
+    background: #1e293b;
+    color: #fff;
+    margin-top: 6px;
+    border-radius: 4px 4px 0 0;
+  }
+  .phase-hdr-label {
+    flex-shrink: 0;
+    font-size: 10px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: 0.8px;
+    padding: 4px 8px;
+    border-right: 2px solid rgba(255,255,255,0.15);
+  }
+  .phase-hdr-bar { flex: 1; }
+
+  /* ── TASK ROW ── */
+  .task-row {
+    display: flex;
+    border-bottom: 1px solid #f0f4f8;
+    min-height: 34px;
+    align-items: center;
+  }
+  .task-row:hover { background: #f7fafc; }
+  .task-label {
+    flex-shrink: 0;
+    font-size: 10px;
+    color: #2d3748;
+    padding: 3px 8px;
+    border-right: 2px solid #cbd5e0;
+    line-height: 1.3;
+    font-weight: 500;
+  }
+  .task-chart {
+    flex: 1;
+    position: relative;
+    height: 34px;
+  }
+
+  /* ── BARS ── */
+  .bar {
+    position: absolute;
+    top: 50%; transform: translateY(-50%);
+    height: 14px;
+    border-radius: 3px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0px; /* no text inside bars — labels too small */
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  }
+
+  /* ── MILESTONE ── */
+  .ms-wrap {
+    position: absolute;
+    top: 50%; transform: translate(-50%, -50%);
+    display: flex; flex-direction: column; align-items: center;
+    z-index: 5;
+  }
+  .ms-diamond {
+    width: 12px; height: 12px;
+    transform: rotate(45deg);
+    background: #e85d04;
+    box-shadow: 0 2px 6px rgba(232,93,4,0.5);
+    flex-shrink: 0;
+  }
+  .ms-label {
+    position: absolute;
+    top: calc(50% + 9px);
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 8px; font-weight: 800; color: #c2410c;
+    white-space: nowrap;
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    padding: 1px 4px; border-radius: 2px;
+    pointer-events: none;
+  }
+
+  /* ── TODAY LINE ── */
+  .today-line {
+    position: absolute;
+    top: 0; bottom: 0; width: 2px;
+    background: #e85d04;
+    z-index: 20;
+    pointer-events: none;
+  }
+  .today-tag {
+    position: absolute;
+    top: 0;
+    font-size: 8px; font-weight: 800; color: #fff;
+    background: #e85d04;
+    padding: 1px 4px; border-radius: 0 0 3px 3px;
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+
+  /* ── MONTH DIVIDER LINES in chart area ── */
+  .month-div {
+    position: absolute;
+    top: 0; bottom: 0; width: 2px;
+    background: #cbd5e0;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .week-div {
+    position: absolute;
+    top: 0; bottom: 0; width: 1px;
+    background: #f0f4f8;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── BAR COLORS (status-based) ── */
+  .c-done        { background: #22c55e; }
+  .c-in_progress { background: #f97316; }
+  .c-not_started { background: #ef4444; }
+
+  /* ── FOOTER ── */
+  .footer {
+    padding: 6px 24px;
+    font-size: 9px; color: #718096;
+    border-top: 1px solid #e2e8f0;
+    display: flex; justify-content: space-between;
+  }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="hdr-left">
+    <h1>The Circle &mdash; SDLC Project Timeline</h1>
+    <p>Rainbow Tourism Group &nbsp;&bull;&nbsp; Digital Approval Management System</p>
+  </div>
+  <div class="hdr-right">
+    <div class="kpi"><div class="val">15 Dec '25</div><div class="lbl">Start</div></div>
+    <div class="kpi"><div class="val">11 Mar '26</div><div class="lbl">Demo Day</div></div>
+    <div class="kpi"><div class="val">16 Mar '26</div><div class="lbl">Pilot Live</div></div>
+    <div class="kpi"><div class="val">12 May '26</div><div class="lbl">Full Rollout</div></div>
+  </div>
+</div>
+
+<!-- LEGEND -->
+<div class="legend">
+  <span class="legend-title">Status:</span>
+  <span class="leg"><span class="leg-dot" style="background:#22c55e"></span>Completed</span>
+  <span class="leg"><span class="leg-dot" style="background:#f97316"></span>In Progress</span>
+  <span class="leg"><span class="leg-dot" style="background:#ef4444"></span>Not Started</span>
+  <span class="leg"><span class="leg-diamond"></span>Milestone</span>
+  <span class="leg" style="margin-left:auto; color:#e85d04; font-weight:800;">&#9632; TODAY = 5 Mar 2026</span>
+</div>
+
+<!-- GANTT -->
+<div class="gantt" id="gantt"></div>
+
+<!-- FOOTER -->
+<div class="footer">
+  <span>Generated: March 2026 &nbsp;&bull;&nbsp; The Circle v1.0</span>
+  <span>Pilot scope: 1 Business Unit &nbsp;&bull;&nbsp; Full rollout after 4-week pilot evaluation</span>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+//  CONFIGURATION
+// ─────────────────────────────────────────────
+const LABEL_W = 200;   // px for task label column
+const ROW_H   = 26;    // px per task row
+
+// Timeline: 15 Dec 2025 → 31 May 2026  (168 days)
+const T_START = new Date('2025-12-15');
+const T_END   = new Date('2026-05-31');
+const T_DAYS  = diffDays(T_START, T_END) + 1; // 168
+
+// TODAY marker
+const TODAY = new Date('2026-03-05');
+
+// Months in timeline (used for column headers)
+const MONTHS = [
+  { label: 'Dec 2025',  start: '2025-12-15', end: '2025-12-31', hi: false },
+  { label: 'Jan 2026',  start: '2026-01-01', end: '2026-01-31', hi: false },
+  { label: 'Feb 2026',  start: '2026-02-01', end: '2026-02-28', hi: false },
+  { label: 'Mar 2026',  start: '2026-03-01', end: '2026-03-31', hi: true  },
+  { label: 'Apr 2026',  start: '2026-04-01', end: '2026-04-30', hi: false },
+  { label: 'May 2026',  start: '2026-05-01', end: '2026-05-31', hi: false },
+];
+
+// ─────────────────────────────────────────────
+//  STATUS COLOURS
+//  done       = green   (#22c55e)
+//  in_progress= orange  (#f97316)
+//  not_started= red     (#ef4444)
+// ─────────────────────────────────────────────
+const STATUS_COLOR = {
+  done:        '#22c55e',
+  in_progress: '#f97316',
+  not_started: '#ef4444',
+};
+
+// ─────────────────────────────────────────────
+//  DATA  (start / end are INCLUSIVE)
+//  status: 'done' | 'in_progress' | 'not_started'
+// ─────────────────────────────────────────────
+const PHASES = [
+  {
+    name: '1. Planning & Requirements',
+    tasks: [
+      { label: 'Stakeholder interviews & requirements (SRS)', s:'2025-12-15', e:'2026-01-05', status:'done' },
+      { label: 'Tech stack, architecture & scope sign-off',   s:'2025-12-20', e:'2026-01-06', status:'done', ms:'Scope Locked' },
+    ]
+  },
+  {
+    name: '2. Design & Architecture',
+    tasks: [
+      { label: 'Database schema & approval engine design',    s:'2025-12-22', e:'2026-01-12', status:'done' },
+      { label: 'UI/UX wireframes & API contracts',            s:'2026-01-05', e:'2026-01-20', status:'done', ms:'Design Approved' },
+    ]
+  },
+  {
+    name: '3. Development',
+    tasks: [
+      { label: 'Sprint 1 – Auth, database & base layout',     s:'2025-12-22', e:'2026-01-09', status:'done' },
+      { label: 'Sprint 2 – Request forms (Hotel, Travel, CAPEX)', s:'2026-01-10', e:'2026-01-26', status:'done' },
+      { label: 'Sprint 3 – Approval engine & notifications',  s:'2026-01-20', e:'2026-02-09', status:'done' },
+      { label: 'Sprint 4 – Admin panel, roles & workflows',   s:'2026-02-03', e:'2026-02-20', status:'done' },
+      { label: 'Sprint 5 – Archive, PDF generation & reports',s:'2026-02-16', e:'2026-03-05', status:'in_progress' },
+      { label: 'HRIMS organogram integration',                s:'2026-01-27', e:'2026-02-14', status:'done' },
+    ]
+  },
+  {
+    name: '4. Testing & Quality Assurance',
+    tasks: [
+      { label: 'Integration & end-to-end testing',            s:'2026-02-16', e:'2026-03-04', status:'in_progress' },
+      { label: 'User acceptance testing (UAT) & bug fixes',   s:'2026-02-23', e:'2026-03-10', status:'in_progress', ms:'UAT Sign-off' },
+    ]
+  },
+  {
+    name: '5. Management Presentation',
+    tasks: [
+      { label: 'Demo preparation & executive deck',           s:'2026-03-05', e:'2026-03-10', status:'in_progress' },
+      { label: 'MANAGEMENT DEMO & EXEC PRESENTATION',         s:'2026-03-11', e:'2026-03-11', status:'not_started', ms:'Demo Day' },
+    ]
+  },
+  {
+    name: '6. Deployment & Rollout',
+    tasks: [
+      { label: 'Production setup & pilot go-live (1 unit)',   s:'2026-03-10', e:'2026-03-16', status:'not_started', ms:'Pilot Live' },
+      { label: 'Pilot monitoring, feedback & adjustments',    s:'2026-03-16', e:'2026-04-30', status:'not_started' },
+      { label: 'Staff training & full organisation rollout',  s:'2026-05-01', e:'2026-05-16', status:'not_started', ms:'Full Rollout' },
+    ]
+  },
+];
+
+// ─────────────────────────────────────────────
+//  HELPERS
+// ─────────────────────────────────────────────
+function diffDays(a, b) {
+  return Math.round((new Date(b) - new Date(a)) / 86400000);
+}
+// offset in days from T_START (clamped to 0)
+function offset(dateStr) {
+  return Math.max(0, diffDays(T_START, new Date(dateStr)));
+}
+// left% and width% within chart area
+function pos(sStr, eStr) {
+  const s = offset(sStr);
+  const span = diffDays(new Date(sStr), new Date(eStr)) + 1;
+  return {
+    left:  (s    / T_DAYS * 100).toFixed(4) + '%',
+    width: (Math.max(span, 1) / T_DAYS * 100).toFixed(4) + '%',
+  };
+}
+// percentage for a single date
+function pctDate(dateStr) {
+  return (offset(dateStr) / T_DAYS * 100).toFixed(4) + '%';
+}
+
+// ─────────────────────────────────────────────
+//  BUILD HEADER
+// ─────────────────────────────────────────────
+function buildHeader(container) {
+  const hdr = document.createElement('div');
+  hdr.className = 'grid-header';
+
+  // Label column
+  const lbl = document.createElement('div');
+  lbl.className = 'gh-label';
+  lbl.style.width = LABEL_W + 'px';
+  lbl.style.minWidth = LABEL_W + 'px';
+  lbl.textContent = 'Task / Activity';
+  hdr.appendChild(lbl);
+
+  // Months container
+  const months = document.createElement('div');
+  months.className = 'gh-months';
+  months.style.flex = '1';
+
+  MONTHS.forEach(m => {
+    const mDays = diffDays(new Date(m.start), new Date(m.end)) + 1;
+    const mPct  = (mDays / T_DAYS * 100).toFixed(4) + '%';
+
+    const mEl = document.createElement('div');
+    mEl.className = 'gh-month' + (m.hi ? ' hi' : '');
+    mEl.style.width = mPct;
+
+    const name = document.createElement('div');
+    name.className = 'gh-month-name';
+    name.textContent = m.label;
+    mEl.appendChild(name);
+
+    // Week sub-labels
+    const weeksEl = document.createElement('div');
+    weeksEl.className = 'gh-weeks';
+
+    // Generate week starts within this month
+    const mStart = new Date(m.start);
+    const mEnd   = new Date(m.end);
+    let cur = new Date(mStart);
+    let weekNum = 0;
+    while (cur <= mEnd) {
+      const wk = document.createElement('div');
+      wk.className = 'gh-week';
+      // Label: day of month
+      wk.textContent = cur.getDate();
+      weeksEl.appendChild(wk);
+      cur.setDate(cur.getDate() + 7);
+      weekNum++;
+    }
+    mEl.appendChild(weeksEl);
+    months.appendChild(mEl);
+  });
+
+  hdr.appendChild(months);
+  container.appendChild(hdr);
+}
+
+// ─────────────────────────────────────────────
+//  BUILD ROWS
+// ─────────────────────────────────────────────
+function buildPhase(container, phase) {
+  // Phase header bar
+  const ph = document.createElement('div');
+  ph.className = 'phase-hdr';
+
+  const pLbl = document.createElement('div');
+  pLbl.className = 'phase-hdr-label';
+  pLbl.style.width = LABEL_W + 'px';
+  pLbl.style.minWidth = LABEL_W + 'px';
+  pLbl.textContent = phase.name;
+  ph.appendChild(pLbl);
+
+  const pBar = document.createElement('div');
+  pBar.className = 'phase-hdr-bar';
+  ph.appendChild(pBar);
+
+  container.appendChild(ph);
+
+  // Task rows
+  phase.tasks.forEach(task => {
+    const row = document.createElement('div');
+    row.className = 'task-row';
+
+    const lbl = document.createElement('div');
+    lbl.className = 'task-label';
+    lbl.style.width = LABEL_W + 'px';
+    lbl.style.minWidth = LABEL_W + 'px';
+    lbl.textContent = task.label;
+    row.appendChild(lbl);
+
+    const chart = document.createElement('div');
+    chart.className = 'task-chart';
+
+    // Month divider lines
+    MONTHS.forEach((m, i) => {
+      if (i > 0) {
+        const div = document.createElement('div');
+        div.className = 'month-div';
+        div.style.left = pctDate(m.start);
+        chart.appendChild(div);
+      }
+      // Week dividers within month
+      const mStart = new Date(m.start);
+      const mEnd   = new Date(m.end);
+      let cur = new Date(mStart);
+      cur.setDate(cur.getDate() + 7);
+      while (cur <= mEnd) {
+        const wd = document.createElement('div');
+        wd.className = 'week-div';
+        const dStr = cur.toISOString().slice(0,10);
+        wd.style.left = pctDate(dStr);
+        chart.appendChild(wd);
+        cur.setDate(cur.getDate() + 7);
+      }
+    });
+
+    // Always draw the bar if task has a span
+    if (task.status) {
+      const p = pos(task.s, task.e);
+      const bar = document.createElement('div');
+      bar.className = 'bar c-' + task.status;
+      bar.style.left  = p.left;
+      bar.style.width = p.width;
+      chart.appendChild(bar);
+    }
+
+    // Draw milestone diamond at the end date if present
+    if (task.ms) {
+      const wrap = document.createElement('div');
+      wrap.className = 'ms-wrap';
+      wrap.style.left = pctDate(task.e);
+
+      const diamond = document.createElement('div');
+      diamond.className = 'ms-diamond';
+      wrap.appendChild(diamond);
+
+      const mlbl = document.createElement('div');
+      mlbl.className = 'ms-label';
+      mlbl.textContent = task.ms;
+      wrap.appendChild(mlbl);
+
+      chart.appendChild(wrap);
+    }
+
+    row.appendChild(chart);
+    container.appendChild(row);
+  });
+}
+
+// ─────────────────────────────────────────────
+//  TODAY LINE  – injected as an overlay
+// ─────────────────────────────────────────────
+function buildTodayOverlay(container) {
+  // We'll add the today line to every task-chart after render
+  const todayPct = pctDate(TODAY.toISOString().slice(0,10));
+  const charts = container.querySelectorAll('.task-chart');
+  charts.forEach((chart, i) => {
+    const line = document.createElement('div');
+    line.className = 'today-line';
+    line.style.left = todayPct;
+    if (i === 0) {
+      const tag = document.createElement('div');
+      tag.className = 'today-tag';
+      tag.style.left = todayPct;
+      tag.textContent = '5 Mar';
+      chart.appendChild(tag);
+    }
+    chart.appendChild(line);
+  });
+}
+
+// ─────────────────────────────────────────────
+//  MAIN
+// ─────────────────────────────────────────────
+const ganttEl = document.getElementById('gantt');
+buildHeader(ganttEl);
+PHASES.forEach(p => buildPhase(ganttEl, p));
+buildTodayOverlay(ganttEl);
+</script>
+</body>
+</html>

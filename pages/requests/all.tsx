@@ -20,7 +20,7 @@ interface Request {
   updated_at: string;
   current_step: number;
   total_steps: number;
-  type: 'approval' | 'capex' | 'leave' | 'expense' | 'procurement' | 'it_request' | 'hotel_booking';
+  type: 'approval' | 'capex' | 'leave' | 'expense' | 'procurement' | 'it_request' | 'hotel_booking' | 'voucher_request';
   amount?: number;
   currency?: string;
   requester: {
@@ -393,7 +393,7 @@ const departmentColors: Record<string, string> = {
 };
 
 type StatusFilter = 'all' | 'pending' | 'in_review' | 'approved' | 'rejected' | 'withdrawn' | 'draft';
-type TypeFilter = 'all' | 'approval' | 'capex' | 'leave' | 'expense' | 'procurement' | 'it_request' | 'hotel_booking';
+type TypeFilter = 'all' | 'approval' | 'capex' | 'leave' | 'expense' | 'procurement' | 'it_request' | 'hotel_booking' | 'voucher_request';
 type SortOption = 'newest' | 'oldest' | 'amount_high' | 'amount_low' | 'priority';
 
 interface AllRequestsPageProps {
@@ -876,7 +876,7 @@ export default function AllRequestsPage({ initialRequests }: AllRequestsPageProp
                   className="cursor-pointer hover:shadow-card-hover transition-shadow"
                   onClick={() => {
                     // Route hotel booking requests to the comp detail page
-                    if (request.type === 'hotel_booking') {
+                    if (request.type === 'hotel_booking' || request.type === 'voucher_request') {
                       router.push(`/requests/comp/${request.id}`);
                     } else {
                       router.push(`/requests/${request.id}`);
