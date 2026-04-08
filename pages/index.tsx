@@ -3,8 +3,9 @@ import Head from "next/head";
 import dynamic from "next/dynamic";
 import { GetServerSideProps } from "next";
 import { useRouter } from "next/router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import Loader from "../components/Loader";
 
 // Dynamically import Lottie to avoid SSR issues
 const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
@@ -19,12 +20,27 @@ export const getServerSideProps: GetServerSideProps = async () => {
 export default function Home() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    if (status === 'authenticated' && sessionStorage.getItem('the_circle_active_session')) {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (status === 'authenticated') {
+      sessionStorage.setItem('the_circle_active_session', '1');
       router.replace('/dashboard');
     }
   }, [status, router]);
+
+  // Show loader during auth check, when authenticated, or before client mount (to prevent hydration flash)
+  if (!mounted || status === 'loading' || status === 'authenticated') {
+    return (
+      <div className="min-h-screen w-full bg-[#FAFAFA] flex items-center justify-center">
+        <Loader />
+      </div>
+    );
+  }
 
   return (
     <>
@@ -86,7 +102,7 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.2 }}
               className="text-lg sm:text-xl text-gray-500 leading-relaxed mb-10 max-w-lg mx-auto lg:mx-0"
             >
-              Experience the next generation of enterprise workflow automation. Fast, secure, and beautifully designed for modern teams.
+              Experience the next generation of enterprise workflow automation designed for Rainbow Tourism Group.
             </motion.p>
 
             <motion.div

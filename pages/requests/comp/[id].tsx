@@ -11,6 +11,7 @@ import { Card, Button, Input } from '../../../components/ui';
 import PinVerificationModal from '../../../components/PinVerificationModal';
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
+import RedirectApprovalModal from '../../../components/RedirectApprovalModal';
 
 interface RequestDetail {
     id: string;
@@ -122,9 +123,99 @@ function getApproverIds(metadata: Record<string, any> | undefined): string[] {
     return [];
 }
 
-function ApprovalTimeline({ request }: { request: RequestDetail }) {
+function ApprovalTimeline({ request, onRedirect, canRedirect }: { request: RequestDetail; onRedirect?: (step: any) => void; canRedirect?: boolean }) {
+    const { data: session } = useSession();
+    const currentUserId = session?.user?.id;
+    
+    // Check if current user is the requestor (creator of the request)
+    const isRequestor = request.creator?.id === currentUserId;
+    
     const [approvers, setApprovers] = useState<ApproverInfo[]>([]);
     const [loadingApprovers, setLoadingApprovers] = useState(true);
+    
+    // Delegation request state
+    const [showDelegationModal, setShowDelegationModal] = useState(false);
+    const [delegationTargetApprover, setDelegationTargetApprover] = useState<{ id: string; name: string } | null>(null);
+    const [delegationUsers, setDelegationUsers] = useState<Array<{ id: string; display_name: string; email: string }>>([]);
+    const [delegationForm, setDelegationForm] = useState({ delegate_id: '', reason: '', starts_at: '', ends_at: '' });
+    const [delegationSubmitting, setDelegationSubmitting] = useState(false);
+    const [delegationFeedback, setDelegationFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    
+    // Track submitted delegation requests for this request
+    const [pendingDelegations, setPendingDelegations] = useState<Array<{
+        approverId: string;
+        approverName: string;
+        delegateName: string;
+        submittedAt: string;
+    }>>([]);
+
+    // Fetch users for delegation modal - exclude current user and approvers already in timeline
+    useEffect(() => {
+        if (showDelegationModal && delegationUsers.length === 0) {
+            fetch('/api/users')
+                .then(res => res.json())
+                .then(data => {
+                    const approverIds = new Set(approvers.map(a => a.id));
+                    setDelegationUsers((data.users || []).filter((u: any) => 
+                        u.id !== currentUserId && 
+                        u.id !== delegationTargetApprover?.id &&
+                        !approverIds.has(u.id)
+                    ));
+                })
+                .catch(() => setDelegationUsers([]));
+        }
+    }, [showDelegationModal, currentUserId, delegationUsers.length, approvers, delegationTargetApprover]);
+
+    // Handle delegation request submission
+    const handleDelegationSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!delegationTargetApprover || !delegationForm.delegate_id) return;
+
+        setDelegationSubmitting(true);
+        setDelegationFeedback(null);
+        try {
+            const res = await fetch('/api/rbac/delegations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    delegator_id: delegationTargetApprover.id,
+                    delegate_id: delegationForm.delegate_id,
+                    reason: delegationForm.reason || undefined,
+                    starts_at: delegationForm.starts_at ? new Date(delegationForm.starts_at).toISOString() : new Date().toISOString(),
+                    ends_at: delegationForm.ends_at ? new Date(delegationForm.ends_at).toISOString() : undefined,
+                    requested_by: currentUserId,
+                    request_id: request.id,
+                }),
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.error || 'Failed to submit delegation request');
+            }
+            setDelegationFeedback({ type: 'success', text: 'Delegation request submitted. An admin will review it shortly.' });
+            
+            // Add to pending delegations list
+            const delegateUser = delegationUsers.find(u => u.id === delegationForm.delegate_id);
+            if (delegationTargetApprover) {
+                setPendingDelegations(prev => [...prev, {
+                    approverId: delegationTargetApprover.id,
+                    approverName: delegationTargetApprover.name,
+                    delegateName: delegateUser?.display_name || 'Unknown',
+                    submittedAt: new Date().toISOString(),
+                }]);
+            }
+            
+            setDelegationForm({ delegate_id: '', reason: '', starts_at: '', ends_at: '' });
+            setTimeout(() => {
+                setShowDelegationModal(false);
+                setDelegationTargetApprover(null);
+                setDelegationFeedback(null);
+            }, 2000);
+        } catch (err: any) {
+            setDelegationFeedback({ type: 'error', text: err.message || 'Failed to submit delegation request.' });
+        } finally {
+            setDelegationSubmitting(false);
+        }
+    };
 
     useEffect(() => {
         async function fetchApprovers() {
@@ -251,6 +342,21 @@ function ApprovalTimeline({ request }: { request: RequestDetail }) {
                                                 {approver.display_name}
                                             </h4>
                                             <p className="text-sm text-gray-500">{approver.email}</p>
+                                            {/* Show redirection indicator */}
+                                            {(() => {
+                                                const step = request.request_steps?.find(s => s.approver?.id === approver.id);
+                                                if (step && (step as any).is_redirected) {
+                                                    return (
+                                                        <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 border border-amber-200">
+                                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                                                            </svg>
+                                                            pp {(step as any).redirect_job_title || 'Redirected'}
+                                                        </div>
+                                                    );
+                                                }
+                                                return null;
+                                            })()}
                                         </div>
                                     </div>
 
@@ -264,9 +370,47 @@ function ApprovalTimeline({ request }: { request: RequestDetail }) {
                                                 Rejected
                                             </span>
                                         ) : isActive ? (
-                                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-primary-50 text-primary-700 border border-primary-100 animate-pulse">
-                                                Awaiting Action
-                                            </span>
+                                            <div className="flex flex-col items-end gap-2">
+                                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-primary-50 text-primary-700 border border-primary-100 animate-pulse">
+                                                    Awaiting Action
+                                                </span>
+                                                {/* Check if there's a pending delegation for this approver */}
+                                                {(() => {
+                                                    const pendingDelegation = pendingDelegations.find(d => d.approverId === approver.id);
+                                                    if (pendingDelegation) {
+                                                        return (
+                                                            <div className="flex flex-col items-end gap-1">
+                                                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                                                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                                    </svg>
+                                                                    Delegation Requested
+                                                                </span>
+                                                                <span className="text-xs text-gray-500">
+                                                                    Waiting for admin approval
+                                                                </span>
+                                                            </div>
+                                                        );
+                                                    }
+                                                    return null;
+                                                })()}
+                                                {/* Requestor can request delegation for the current approver - only if no pending delegation */}
+                                                {isRequestor && approver.id !== currentUserId && !pendingDelegations.find(d => d.approverId === approver.id) && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setDelegationTargetApprover({ id: approver.id, name: approver.display_name });
+                                                            setShowDelegationModal(true);
+                                                        }}
+                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors"
+                                                    >
+                                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                        </svg>
+                                                        Request Delegation
+                                                    </button>
+                                                )}
+                                            </div>
                                         ) : (
                                             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-gray-50 text-gray-500 border border-gray-100">
                                                 Pending
@@ -296,6 +440,118 @@ function ApprovalTimeline({ request }: { request: RequestDetail }) {
                     );
                 })}
             </div>
+
+            {/* Delegation Request Modal */}
+            {showDelegationModal && delegationTargetApprover && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl">
+                        <div className="border-b border-gray-100 bg-gray-50/50 px-6 py-4 rounded-t-2xl flex items-center justify-between">
+                            <div>
+                                <h2 className="text-lg font-bold text-gray-900">Request Delegation</h2>
+                                <p className="text-xs text-gray-500 mt-0.5">
+                                    Request someone to act on behalf of <span className="font-medium text-gray-700">{delegationTargetApprover.name}</span>
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setShowDelegationModal(false);
+                                    setDelegationTargetApprover(null);
+                                    setDelegationForm({ delegate_id: '', reason: '', starts_at: '', ends_at: '' });
+                                    setDelegationFeedback(null);
+                                }}
+                                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleDelegationSubmit} className="p-6 space-y-4">
+                            {delegationFeedback && (
+                                <div className={`px-4 py-3 rounded-xl text-sm font-medium ${
+                                    delegationFeedback.type === 'success' 
+                                        ? 'bg-green-50 text-green-700 border border-green-200' 
+                                        : 'bg-red-50 text-red-700 border border-red-200'
+                                }`}>
+                                    {delegationFeedback.text}
+                                </div>
+                            )}
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Delegate To</label>
+                                <select
+                                    value={delegationForm.delegate_id}
+                                    onChange={(e) => setDelegationForm(f => ({ ...f, delegate_id: e.target.value }))}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                                    required
+                                >
+                                    <option value="">Select a colleague...</option>
+                                    {delegationUsers.map((u) => (
+                                        <option key={u.id} value={u.id}>{u.display_name} ({u.email})</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+                                <textarea
+                                    value={delegationForm.reason}
+                                    onChange={(e) => setDelegationForm(f => ({ ...f, reason: e.target.value }))}
+                                    placeholder="e.g. Annual leave, business travel..."
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 resize-none"
+                                    rows={2}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                                    <input
+                                        type="date"
+                                        value={delegationForm.starts_at}
+                                        onChange={(e) => setDelegationForm(f => ({ ...f, starts_at: e.target.value }))}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                                    <input
+                                        type="date"
+                                        value={delegationForm.ends_at}
+                                        onChange={(e) => setDelegationForm(f => ({ ...f, ends_at: e.target.value }))}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                                <p className="text-xs text-amber-700">
+                                    <strong>Note:</strong> Your delegation request will be reviewed by an admin before taking effect. You will be notified once it's approved.
+                                </p>
+                            </div>
+
+                            <div className="flex gap-2 justify-end pt-2">
+                                <Button
+                                    variant="outline"
+                                    type="button"
+                                    onClick={() => {
+                                        setShowDelegationModal(false);
+                                        setDelegationTargetApprover(null);
+                                        setDelegationForm({ delegate_id: '', reason: '', starts_at: '', ends_at: '' });
+                                        setDelegationFeedback(null);
+                                    }}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button variant="primary" type="submit" disabled={delegationSubmitting || !delegationForm.delegate_id}>
+                                    {delegationSubmitting ? 'Submitting...' : 'Submit Request'}
+                                </Button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -359,6 +615,12 @@ export const getServerSideProps: GetServerSideProps<CompHotelBookingDetailsPageP
           status,
           due_at,
           created_at,
+          is_redirected,
+          original_approver_id,
+          redirected_by_id,
+          redirected_at,
+          redirect_reason,
+          redirect_job_title,
           approver:app_users!request_steps_approver_user_id_fkey (
             id,
             display_name,
@@ -516,6 +778,9 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
     const [userSignatureUrl, setUserSignatureUrl] = useState<string | null>(null);
     const [showPinModal, setShowPinModal] = useState(false);
     const [pendingApprovalAction, setPendingApprovalAction] = useState<'approve' | 'reject' | null>(null);
+    const [showRedirectModal, setShowRedirectModal] = useState(false);
+    const [redirectStepInfo, setRedirectStepInfo] = useState<{ stepId: string; stepIndex: number; approverRole?: string; currentApproverName?: string } | null>(null);
+    const [redirecting, setRedirecting] = useState(false);
 
     const currentUserId = (session?.user as any)?.id;
     const isCreator = request?.creator?.id === currentUserId;
@@ -642,6 +907,62 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
     const handlePinCancel = () => {
         setShowPinModal(false);
         setPendingApprovalAction(null);
+    };
+
+    // Check if user can redirect approvals (creator or any approver)
+    const canRedirectApprovals = (() => {
+        if (!request || request.status !== 'pending') return false;
+        if (isCreator) return true;
+        // Check if user is any approver on this request
+        return request.request_steps?.some(s => s.approver?.id === currentUserId);
+    })();
+
+    const handleOpenRedirectModal = (step: any) => {
+        setRedirectStepInfo({
+            stepId: step.id,
+            stepIndex: step.step_index,
+            approverRole: step.approver_role,
+            currentApproverName: step.approver?.display_name,
+        });
+        setShowRedirectModal(true);
+    };
+
+    const handleRedirectApproval = async (data: { newApproverId: string; reason: string; jobTitle: string }) => {
+        if (!redirectStepInfo || !id) return;
+
+        setRedirecting(true);
+        try {
+            const response = await fetch('/api/approvals/redirect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    requestId: id,
+                    stepId: redirectStepInfo.stepId,
+                    newApproverId: data.newApproverId,
+                    reason: data.reason,
+                    jobTitle: data.jobTitle,
+                }),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to redirect approval');
+            }
+
+            // Refresh the request data
+            const refreshResponse = await fetch(`/api/requests/${id}`);
+            if (refreshResponse.ok) {
+                const refreshData = await refreshResponse.json();
+                setRequest(refreshData.request);
+            }
+
+            setShowRedirectModal(false);
+            setRedirectStepInfo(null);
+        } catch (err: any) {
+            throw err;
+        } finally {
+            setRedirecting(false);
+        }
     };
 
     const handlePublish = async () => {
@@ -823,6 +1144,20 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                 title={pendingApprovalAction === 'approve' ? 'Confirm Approval' : 'Confirm Rejection'}
                 description="Enter your 4-digit PIN to sign this action"
             />
+
+            {/* Redirect Approval Modal */}
+            <RedirectApprovalModal
+                isOpen={showRedirectModal}
+                onClose={() => { setShowRedirectModal(false); setRedirectStepInfo(null); }}
+                onSubmit={handleRedirectApproval}
+                stepInfo={redirectStepInfo ? {
+                    stepIndex: redirectStepInfo.stepIndex,
+                    approverRole: redirectStepInfo.approverRole,
+                    currentApproverName: redirectStepInfo.currentApproverName,
+                } : undefined}
+                requestTitle={request?.title}
+            />
+
             <div className="max-w-[1400px] mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
 
                 {publishError && (
@@ -1218,19 +1553,11 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                                     </tr>
                                                                 </thead>
                                                                 <tbody>
-                                                                    {travelDocument.budget.fuel?.totalCost && parseFloat(travelDocument.budget.fuel.totalCost) > 0 && (
-                                                                        <tr className="border-t border-gray-100">
-                                                                            <td className="px-3 py-2 text-gray-900">Fuel (Litres)</td>
-                                                                            <td className="px-3 py-2 text-gray-900 text-right">{travelDocument.budget.fuel.quantity}</td>
-                                                                            <td className="px-3 py-2 text-gray-900 text-right">${travelDocument.budget.fuel.unitCost}</td>
-                                                                            <td className="px-3 py-2 text-gray-900 text-right font-medium">${travelDocument.budget.fuel.totalCost}</td>
-                                                                        </tr>
-                                                                    )}
                                                                     {travelDocument.budget.aaRates?.totalCost && parseFloat(travelDocument.budget.aaRates.totalCost) > 0 && (
-                                                                        <tr className="border-t border-gray-100">
-                                                                            <td className="px-3 py-2 text-gray-900">AA Rates (KM)</td>
-                                                                            <td className="px-3 py-2 text-gray-900 text-right">{travelDocument.budget.aaRates.quantity}</td>
-                                                                            <td className="px-3 py-2 text-gray-900 text-right">${travelDocument.budget.aaRates.unitCost}</td>
+                                                                        <tr className="border-t border-gray-100 bg-blue-50">
+                                                                            <td className="px-3 py-2 text-gray-900 font-medium">Travel Cost (AA Rate × Distance)</td>
+                                                                            <td className="px-3 py-2 text-gray-900 text-right">{travelDocument.budget.aaRates.quantity} km</td>
+                                                                            <td className="px-3 py-2 text-gray-900 text-right">${travelDocument.budget.aaRates.unitCost}/km</td>
                                                                             <td className="px-3 py-2 text-gray-900 text-right font-medium">${travelDocument.budget.aaRates.totalCost}</td>
                                                                         </tr>
                                                                     )}
@@ -1250,13 +1577,25 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                                             <td className="px-3 py-2 text-gray-900 text-right font-medium">${travelDocument.budget.conferencingCost.totalCost}</td>
                                                                         </tr>
                                                                     )}
-                                                                    {travelDocument.budget.tollgates?.totalCost && parseFloat(travelDocument.budget.tollgates.totalCost) > 0 && (
-                                                                        <tr className="border-t border-gray-100">
-                                                                            <td className="px-3 py-2 text-gray-900">Tollgates</td>
-                                                                            <td className="px-3 py-2 text-gray-900 text-right">{travelDocument.budget.tollgates.quantity}</td>
-                                                                            <td className="px-3 py-2 text-gray-900 text-right">${travelDocument.budget.tollgates.unitCost}</td>
-                                                                            <td className="px-3 py-2 text-gray-900 text-right font-medium">${travelDocument.budget.tollgates.totalCost}</td>
-                                                                        </tr>
+                                                                    {/* Tollgates - support both old format (single object) and new format (array) */}
+                                                                    {Array.isArray(travelDocument.budget.tollgates) ? (
+                                                                        travelDocument.budget.tollgates.filter((t: any) => t.totalCost && parseFloat(t.totalCost) > 0).map((toll: any, idx: number) => (
+                                                                            <tr key={idx} className="border-t border-gray-100 bg-orange-50/30">
+                                                                                <td className="px-3 py-2 text-gray-900">Tollgate{toll.road ? `: ${toll.road}` : ''}</td>
+                                                                                <td className="px-3 py-2 text-gray-900 text-right">{toll.quantity}</td>
+                                                                                <td className="px-3 py-2 text-gray-900 text-right">${toll.unitCost}</td>
+                                                                                <td className="px-3 py-2 text-gray-900 text-right font-medium">${toll.totalCost}</td>
+                                                                            </tr>
+                                                                        ))
+                                                                    ) : (
+                                                                        travelDocument.budget.tollgates?.totalCost && parseFloat(travelDocument.budget.tollgates.totalCost) > 0 && (
+                                                                            <tr className="border-t border-gray-100">
+                                                                                <td className="px-3 py-2 text-gray-900">Tollgates</td>
+                                                                                <td className="px-3 py-2 text-gray-900 text-right">{travelDocument.budget.tollgates.quantity}</td>
+                                                                                <td className="px-3 py-2 text-gray-900 text-right">${travelDocument.budget.tollgates.unitCost}</td>
+                                                                                <td className="px-3 py-2 text-gray-900 text-right font-medium">${travelDocument.budget.tollgates.totalCost}</td>
+                                                                            </tr>
+                                                                        )
                                                                     )}
                                                                     {travelDocument.budget.other?.totalCost && parseFloat(travelDocument.budget.other.totalCost) > 0 && (
                                                                         <tr className="border-t border-gray-100">
@@ -1273,8 +1612,11 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                                         <td className="px-3 py-3 text-right font-bold text-primary-800">
                                                                             ${(() => {
                                                                                 const b = travelDocument.budget;
-                                                                                const vals = [b.fuel?.totalCost, b.aaRates?.totalCost, b.airBusTickets?.totalCost, b.conferencingCost?.totalCost, b.tollgates?.totalCost, b.other?.totalCost];
-                                                                                return vals.reduce((sum: number, v: any) => sum + (parseFloat(v) || 0), 0).toFixed(2);
+                                                                                const tollgatesTotal = Array.isArray(b.tollgates) 
+                                                                                    ? b.tollgates.reduce((sum: number, t: any) => sum + (parseFloat(t.totalCost) || 0), 0)
+                                                                                    : parseFloat(b.tollgates?.totalCost) || 0;
+                                                                                const vals = [b.aaRates?.totalCost, b.airBusTickets?.totalCost, b.conferencingCost?.totalCost, b.other?.totalCost];
+                                                                                return vals.reduce((sum: number, v: any) => sum + (parseFloat(v) || 0), tollgatesTotal).toFixed(2);
                                                                             })()}
                                                                         </td>
                                                                     </tr>
@@ -1414,7 +1756,23 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                 <div className="space-y-6">
                                     <Card className="!p-6 border-gray-100 shadow-sm">
                                         <h3 className="text-lg font-bold text-text-primary mb-6 font-heading">Approval Timeline</h3>
-                                        <ApprovalTimeline request={request} />
+                                        {canRedirectApprovals && (
+                                            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                                                <div className="flex items-start gap-2">
+                                                    <svg className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    </svg>
+                                                    <p className="text-xs text-amber-700">
+                                                        You can redirect pending approvals to another person if the assigned approver is unavailable. Click the "Redirect" button next to any pending approver.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        )}
+                                        <ApprovalTimeline 
+                                            request={request} 
+                                            onRedirect={handleOpenRedirectModal}
+                                            canRedirect={canRedirectApprovals}
+                                        />
                                     </Card>
                                 </div>
                             )}

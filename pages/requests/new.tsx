@@ -2,9 +2,15 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import { useEffect, useState, useMemo } from 'react';
 import Lottie from 'lottie-react';
+import dynamic from 'next/dynamic';
 import sendingApprovalAnimation from '../../Sending approval lottie.json';
 import { AppLayout } from '../../components/layout';
 import { Card } from '../../components/ui';
+
+const ESignModal = dynamic(
+  () => import('../../components/esign/ESignModal'),
+  { ssr: false }
+);
 
 // Defined types for better type safety
 type RequestCategory = 'Finance' | 'Travel & Events' | 'BIS forms' | 'System & Design';
@@ -23,6 +29,17 @@ interface RequestItem {
 }
 
 const allRequestItems: RequestItem[] = [
+  // --- E-Sign ---
+  {
+    id: 'esign',
+    title: 'E-Sign PDF',
+    description: 'Electronically sign PDF documents',
+    icon: 'M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z',
+    color: 'success',
+    href: '#esign',
+    category: 'Finance',
+    popular: true,
+  },
   // --- Finance ---
   // {
   //   id: 'approval',
@@ -154,6 +171,19 @@ export default function NewRequestPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
+  const [showESignModal, setShowESignModal] = useState(false);
+
+  const handleESignComplete = async (signedPdfBlob: Blob, filename: string) => {
+    // Download the signed PDF
+    const url = URL.createObjectURL(signedPdfBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -188,6 +218,7 @@ export default function NewRequestPage() {
   if (!session) return null;
 
   return (
+    <>
     <AppLayout title="Create New">
       <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-8">
 
@@ -252,7 +283,13 @@ export default function NewRequestPage() {
                 return (
                   <div
                     key={item.id}
-                    onClick={() => router.push(item.href)}
+                    onClick={() => {
+                      if (item.id === 'esign') {
+                        setShowESignModal(true);
+                      } else {
+                        router.push(item.href);
+                      }
+                    }}
                     className={`
                       group relative overflow-hidden bg-white rounded-xl border border-gray-100 
                       p-4 cursor-pointer transition-all duration-300
@@ -326,5 +363,13 @@ export default function NewRequestPage() {
         </div> */}
       </div>
     </AppLayout>
+
+      {/* E-Sign Modal */}
+      <ESignModal
+        isOpen={showESignModal}
+        onClose={() => setShowESignModal(false)}
+        onComplete={handleESignComplete}
+      />
+    </>
   );
 }

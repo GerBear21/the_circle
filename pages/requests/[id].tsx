@@ -322,11 +322,34 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
     isEditing?: boolean;
     onApproversChange?: (approverIds: string[]) => void;
 }) {
+    const { data: session } = useSession();
+    const currentUserId = session?.user?.id;
+    
+    // Check if current user is the requestor (creator of the request)
+    const isRequestor = request.creator?.id === currentUserId;
+    
     const [approvers, setApprovers] = useState<ApproverInfo[]>([]);
     const [loadingApprovers, setLoadingApprovers] = useState(true);
     const [allUsers, setAllUsers] = useState<Array<{ id: string; display_name: string; email: string; profile_picture_url?: string }>>([]);
     const [approverSearch, setApproverSearch] = useState('');
     const [showApproverDropdown, setShowApproverDropdown] = useState(false);
+    
+    // Delegation request state - tracks which approver the requestor wants to delegate
+    const [showDelegationModal, setShowDelegationModal] = useState(false);
+    const [delegationTargetApprover, setDelegationTargetApprover] = useState<{ id: string; name: string } | null>(null);
+    const [delegationUsers, setDelegationUsers] = useState<Array<{ id: string; display_name: string; email: string }>>([]);
+    const [delegationForm, setDelegationForm] = useState({ delegate_id: '', reason: '', starts_at: '', ends_at: '' });
+    const [delegationSubmitting, setDelegationSubmitting] = useState(false);
+    const [delegationFeedback, setDelegationFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    
+    // Track delegation requests for approvers - fetched from server
+    const [approverDelegations, setApproverDelegations] = useState<Array<{
+        approverId: string;
+        delegateName: string;
+        status: 'pending' | 'approved' | 'rejected';
+        submittedAt: string;
+    }>>([]);
+    const [loadingDelegations, setLoadingDelegations] = useState(false);
 
     // Fetch all users for editing mode
     useEffect(() => {
@@ -337,6 +360,74 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
                 .catch(err => console.error('Error fetching users:', err));
         }
     }, [isEditing]);
+
+    // Fetch users for delegation modal - exclude current user and approvers already in timeline
+    useEffect(() => {
+        if (showDelegationModal && delegationUsers.length === 0) {
+            fetch('/api/users')
+                .then(res => res.json())
+                .then(data => {
+                    const approverIds = new Set(approvers.map(a => a.id));
+                    setDelegationUsers((data.users || []).filter((u: any) => 
+                        u.id !== currentUserId && 
+                        u.id !== delegationTargetApprover?.id &&
+                        !approverIds.has(u.id)
+                    ));
+                })
+                .catch(() => setDelegationUsers([]));
+        }
+    }, [showDelegationModal, currentUserId, delegationUsers.length, approvers, delegationTargetApprover]);
+
+    // Handle delegation request submission - requestor asks for someone to act on behalf of the current approver
+    const handleDelegationSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!delegationTargetApprover || !delegationForm.delegate_id) return;
+
+        setDelegationSubmitting(true);
+        setDelegationFeedback(null);
+        try {
+            const res = await fetch('/api/rbac/delegations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    delegator_id: delegationTargetApprover.id, // The approver who will be delegated
+                    delegate_id: delegationForm.delegate_id,   // The person who will act on their behalf
+                    reason: delegationForm.reason || undefined,
+                    starts_at: delegationForm.starts_at ? new Date(delegationForm.starts_at).toISOString() : new Date().toISOString(),
+                    ends_at: delegationForm.ends_at ? new Date(delegationForm.ends_at).toISOString() : undefined,
+                    requested_by: currentUserId, // Track who requested this delegation
+                    request_id: request.id,      // Link to the specific request
+                }),
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.error || 'Failed to submit delegation request');
+            }
+            setDelegationFeedback({ type: 'success', text: 'Delegation request submitted. An admin will review it shortly.' });
+            
+            // Add to local delegations list with pending status
+            const delegateUser = delegationUsers.find(u => u.id === delegationForm.delegate_id);
+            if (delegationTargetApprover) {
+                setApproverDelegations(prev => [...prev, {
+                    approverId: delegationTargetApprover.id,
+                    delegateName: delegateUser?.display_name || 'Unknown',
+                    status: 'pending',
+                    submittedAt: new Date().toISOString(),
+                }]);
+            }
+            
+            setDelegationForm({ delegate_id: '', reason: '', starts_at: '', ends_at: '' });
+            setTimeout(() => {
+                setShowDelegationModal(false);
+                setDelegationTargetApprover(null);
+                setDelegationFeedback(null);
+            }, 2000);
+        } catch (err: any) {
+            setDelegationFeedback({ type: 'error', text: err.message || 'Failed to submit delegation request.' });
+        } finally {
+            setDelegationSubmitting(false);
+        }
+    };
 
     useEffect(() => {
         async function fetchApprovers() {
@@ -412,6 +503,36 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
 
         fetchApprovers();
     }, [request]);
+
+    // Fetch delegation data for approvers from server
+    useEffect(() => {
+        async function fetchDelegations() {
+            if (approvers.length === 0) return;
+            
+            setLoadingDelegations(true);
+            try {
+                const approverIds = approvers.map(a => a.id).join(',');
+                const res = await fetch(`/api/rbac/delegations?user_ids=${approverIds}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    // Map delegations to approver IDs
+                    const mapped = data.map((d: any) => ({
+                        approverId: d.delegator_id,
+                        delegateName: d.delegate?.display_name || d.delegate?.email || 'Unknown',
+                        status: d.status,
+                        submittedAt: d.created_at,
+                    }));
+                    setApproverDelegations(mapped);
+                }
+            } catch (err) {
+                console.error('Error fetching delegations:', err);
+            } finally {
+                setLoadingDelegations(false);
+            }
+        }
+        
+        fetchDelegations();
+    }, [approvers.length]);
 
     const handleAddApprover = (userId: string) => {
         const user = allUsers.find(u => u.id === userId);
@@ -658,9 +779,72 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
                                                         Rejected
                                                     </span>
                                                 ) : isActive ? (
-                                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-primary-50 text-primary-700 border border-primary-100 animate-pulse">
-                                                        Awaiting Action
-                                                    </span>
+                                                    <div className="flex flex-col items-end gap-2">
+                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-primary-50 text-primary-700 border border-primary-100 animate-pulse">
+                                                            Awaiting Action
+                                                        </span>
+                                                        {/* Check if there's a delegation for this approver */}
+                                                        {(() => {
+                                                            const delegation = approverDelegations.find(d => d.approverId === approver.id);
+                                                            if (delegation) {
+                                                                if (delegation.status === 'approved') {
+                                                                    return (
+                                                                        <div className="flex flex-col items-end gap-1">
+                                                                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-green-50 text-green-700 border border-green-200">
+                                                                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                                                                </svg>
+                                                                                Delegated to {delegation.delegateName}
+                                                                            </span>
+                                                                        </div>
+                                                                    );
+                                                                }
+                                                                if (delegation.status === 'rejected') {
+                                                                    return (
+                                                                        <div className="flex flex-col items-end gap-1">
+                                                                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-200">
+                                                                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                                                </svg>
+                                                                                Delegation Rejected
+                                                                            </span>
+                                                                        </div>
+                                                                    );
+                                                                }
+                                                                // Pending status
+                                                                return (
+                                                                    <div className="flex flex-col items-end gap-1">
+                                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                                                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                                            </svg>
+                                                                            Delegation Requested
+                                                                        </span>
+                                                                        <span className="text-xs text-gray-500">
+                                                                            Waiting for admin approval
+                                                                        </span>
+                                                                    </div>
+                                                                );
+                                                            }
+                                                            return null;
+                                                        })()}
+                                                        {/* Requestor can request delegation for the current approver - only if no delegation exists */}
+                                                        {isRequestor && approver.id !== currentUserId && !approverDelegations.find(d => d.approverId === approver.id) && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setDelegationTargetApprover({ id: approver.id, name: approver.display_name });
+                                                                    setShowDelegationModal(true);
+                                                                }}
+                                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors"
+                                                            >
+                                                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                                </svg>
+                                                                Request Delegation
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 ) : (
                                                     <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-gray-50 text-gray-500 border border-gray-100">
                                                         Pending
@@ -695,6 +879,118 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
                     );
                 })}
             </div>
+
+            {/* Delegation Request Modal */}
+            {showDelegationModal && delegationTargetApprover && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl">
+                        <div className="border-b border-gray-100 bg-gray-50/50 px-6 py-4 rounded-t-2xl flex items-center justify-between">
+                            <div>
+                                <h2 className="text-lg font-bold text-gray-900">Request Delegation</h2>
+                                <p className="text-xs text-gray-500 mt-0.5">
+                                    Request someone to act on behalf of <span className="font-medium text-gray-700">{delegationTargetApprover.name}</span>
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setShowDelegationModal(false);
+                                    setDelegationTargetApprover(null);
+                                    setDelegationForm({ delegate_id: '', reason: '', starts_at: '', ends_at: '' });
+                                    setDelegationFeedback(null);
+                                }}
+                                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleDelegationSubmit} className="p-6 space-y-4">
+                            {delegationFeedback && (
+                                <div className={`px-4 py-3 rounded-xl text-sm font-medium ${
+                                    delegationFeedback.type === 'success' 
+                                        ? 'bg-green-50 text-green-700 border border-green-200' 
+                                        : 'bg-red-50 text-red-700 border border-red-200'
+                                }`}>
+                                    {delegationFeedback.text}
+                                </div>
+                            )}
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Delegate To</label>
+                                <select
+                                    value={delegationForm.delegate_id}
+                                    onChange={(e) => setDelegationForm(f => ({ ...f, delegate_id: e.target.value }))}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                                    required
+                                >
+                                    <option value="">Select a colleague...</option>
+                                    {delegationUsers.map((u) => (
+                                        <option key={u.id} value={u.id}>{u.display_name} ({u.email})</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+                                <textarea
+                                    value={delegationForm.reason}
+                                    onChange={(e) => setDelegationForm(f => ({ ...f, reason: e.target.value }))}
+                                    placeholder="e.g. Annual leave, business travel..."
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 resize-none"
+                                    rows={2}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                                    <input
+                                        type="date"
+                                        value={delegationForm.starts_at}
+                                        onChange={(e) => setDelegationForm(f => ({ ...f, starts_at: e.target.value }))}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                                    <input
+                                        type="date"
+                                        value={delegationForm.ends_at}
+                                        onChange={(e) => setDelegationForm(f => ({ ...f, ends_at: e.target.value }))}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                                <p className="text-xs text-amber-700">
+                                    <strong>Note:</strong> Your delegation request will be reviewed by an admin before taking effect. You will be notified once it's approved.
+                                </p>
+                            </div>
+
+                            <div className="flex gap-2 justify-end pt-2">
+                                <Button
+                                    variant="outline"
+                                    type="button"
+                                    onClick={() => {
+                                        setShowDelegationModal(false);
+                                        setDelegationTargetApprover(null);
+                                        setDelegationForm({ delegate_id: '', reason: '', starts_at: '', ends_at: '' });
+                                        setDelegationFeedback(null);
+                                    }}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button variant="primary" type="submit" disabled={delegationSubmitting || !delegationForm.delegate_id}>
+                                    {delegationSubmitting ? 'Submitting...' : 'Submit Request'}
+                                </Button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

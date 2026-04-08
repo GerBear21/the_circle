@@ -5,6 +5,7 @@ import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input } from '../../../components/ui';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
+import { calculateTollgatesForItinerary, getTollgateRouteInfo, TollgateRouteType } from '../../../lib/formConfig';
 
 interface ItineraryRow {
     date: string;
@@ -63,20 +64,32 @@ interface BudgetItem {
     description?: string;
 }
 
-interface AACalculatorData {
-    cylinderCapacity: string;
-    fuelPrice: string;
-    fuelEfficiency: string;
-    vehicleValue: string;
-    depreciationRate: string;
-    annualMileage: string;
+interface TollgateEntry {
+    road: string;
+    quantity: string;
+    unitCost: string;
+    totalCost: string;
 }
+
+interface AACalculatorData {
+    engineCapacity: string;
+    fuelType: 'petrol' | 'diesel';
+}
+
+// AA Rate table based on engine capacity and fuel type (USD per km)
+const AA_RATES: Record<string, { petrol: number; diesel: number }> = {
+    '1.1L-1.5L': { petrol: 0.28, diesel: 0.26 },
+    '1.6L-2.0L': { petrol: 0.35, diesel: 0.32 },
+    '2.1L-3.0L': { petrol: 0.48, diesel: 0.45 },
+    'Above 3.0L': { petrol: 0.59, diesel: 0.56 },
+};
 
 interface TravelData {
     dateOfIntendedTravel: string;
     purposeOfTravel: string;
     accompanyingAssociates: string;
     travelMode: string;
+    vehicleRegistration?: string;
     acceptConditions: boolean;
     itinerary: ItineraryRow[];
     budget: {
@@ -84,7 +97,7 @@ interface TravelData {
         aaRates: BudgetItem;
         airBusTickets: BudgetItem;
         conferencingCost: BudgetItem;
-        tollgates: BudgetItem;
+        tollgates: TollgateEntry[];
         other: BudgetItem;
     };
 }
@@ -108,90 +121,37 @@ export default function TravelAuthPage() {
     const [originalUseParallelApprovals, setOriginalUseParallelApprovals] = useState<boolean | null>(null);
     const [requestStatus, setRequestStatus] = useState<string>('draft');
 
-    // AA Rates Calculator state
-    const [showAACalculator, setShowAACalculator] = useState(false);
+    // AA Rates Calculator state (simplified)
     const [aaCalculator, setAACalculator] = useState<AACalculatorData>({
-        cylinderCapacity: '1600',
-        fuelPrice: '1.50',
-        fuelEfficiency: '12',
-        vehicleValue: '15000',
-        depreciationRate: '6',
-        annualMileage: '16000',
+        engineCapacity: '1.6L-2.0L',
+        fuelType: 'petrol',
     });
 
-    // Maintenance rates based on cylinder capacity (USD per km) - AA Zimbabwe standard rates
-    const getMaintenanceRate = (cc: number): number => {
-        if (cc <= 1000) return 0.04;
-        if (cc <= 1300) return 0.05;
-        if (cc <= 1600) return 0.06;
-        if (cc <= 2000) return 0.07;
-        if (cc <= 2500) return 0.08;
-        if (cc <= 3000) return 0.10;
-        return 0.12;
+    // Get AA Rate based on engine capacity and fuel type
+    const getAARate = (): number => {
+        const rates = AA_RATES[aaCalculator.engineCapacity];
+        if (!rates) return 0;
+        return rates[aaCalculator.fuelType];
     };
 
-    // Calculate AA Rate per KM
-    const calculateAARate = () => {
-        const cc = parseFloat(aaCalculator.cylinderCapacity) || 0;
-        const fuelPrice = parseFloat(aaCalculator.fuelPrice) || 0;
-        const fuelEfficiency = parseFloat(aaCalculator.fuelEfficiency) || 1;
-        const vehicleValue = parseFloat(aaCalculator.vehicleValue) || 0;
-        const depreciationRate = parseFloat(aaCalculator.depreciationRate) || 0;
-        const annualMileage = parseFloat(aaCalculator.annualMileage) || 1;
-
-        // Fixed Cost Rate (per km)
-        const annualDepreciation = vehicleValue * (depreciationRate / 100);
-        const annualInsurance = vehicleValue * 0.03; // ~3% of vehicle value
-        const annualLicensing = 150; // Estimated annual licensing
-        const annualInterest = vehicleValue * 0.05; // ~5% interest on capital
-        const fixedCostPerKm = (annualDepreciation + annualInsurance + annualLicensing + annualInterest) / annualMileage;
-
-        // Running Cost Rate (per km)
-        const fuelCostPerKm = fuelPrice / fuelEfficiency;
-        const maintenancePerKm = getMaintenanceRate(cc);
-        const tyresPerKm = 0.02; // Estimated tyre cost per km
-        const runningCostPerKm = fuelCostPerKm + maintenancePerKm + tyresPerKm;
-
-        // Total rate per km
-        const totalRatePerKm = fixedCostPerKm + runningCostPerKm;
-
-        return {
-            fixedCostPerKm: fixedCostPerKm.toFixed(4),
-            runningCostPerKm: runningCostPerKm.toFixed(4),
-            totalRatePerKm: totalRatePerKm.toFixed(2),
-            fuelCostPerKm: fuelCostPerKm.toFixed(4),
-            maintenancePerKm: maintenancePerKm.toFixed(4),
-        };
-    };
-
+    // Calculate and apply AA rate to travel budget
     const applyAARate = () => {
-        const rate = calculateAARate();
-        // Calculate total KM from itinerary
+        const rate = getAARate();
         const totalKm = travelData.itinerary.reduce((sum, row) => sum + (parseFloat(row.km) || 0), 0);
-        const aaRateTotalCost = (totalKm * parseFloat(rate.totalRatePerKm)).toFixed(2);
-        
-        // Calculate fuel cost separately (fuel price / fuel efficiency * total km)
-        const fuelCostPerKm = parseFloat(rate.fuelCostPerKm) || 0;
-        const fuelTotalCost = (totalKm * fuelCostPerKm).toFixed(2);
+        const travelCost = (totalKm * rate).toFixed(2);
         
         setTravelData(prev => ({
             ...prev,
             budget: {
                 ...prev.budget,
-                fuel: {
-                    quantity: totalKm.toString(),
-                    unitCost: rate.fuelCostPerKm,
-                    totalCost: fuelTotalCost,
-                },
                 aaRates: {
                     quantity: totalKm.toString(),
-                    unitCost: rate.totalRatePerKm,
-                    totalCost: aaRateTotalCost,
+                    unitCost: rate.toFixed(2),
+                    totalCost: travelCost,
                 }
             }
         }));
         setAaRatesLocked(true);
-        setShowAACalculator(false);
     };
 
     // State to track if AA rates are locked (applied from calculator)
@@ -212,7 +172,7 @@ export default function TravelAuthPage() {
             aaRates: { quantity: '', unitCost: '0.28', totalCost: '' },
             airBusTickets: { quantity: '', unitCost: '', totalCost: '' },
             conferencingCost: { quantity: '', unitCost: '', totalCost: '' },
-            tollgates: { quantity: '', unitCost: '', totalCost: '' },
+            tollgates: [{ road: '', quantity: '1', unitCost: '', totalCost: '' }],
             other: { description: '', quantity: '', unitCost: '', totalCost: '' },
         },
     });
@@ -238,6 +198,9 @@ export default function TravelAuthPage() {
     // Emergency request state (for travel within 7 days)
     const [isEmergencyRequest, setIsEmergencyRequest] = useState(false);
     const [emergencyReason, setEmergencyReason] = useState('');
+
+    // Tollgate route type selection (premium or standard)
+    const [tollgateRouteType, setTollgateRouteType] = useState<TollgateRouteType>('premium');
 
     // Cost allocation is now auto-calculated, no need for state
 
@@ -291,10 +254,16 @@ export default function TravelAuthPage() {
         }
     };
 
+    // Calculate total tollgates cost
+    const calculateTollgatesTotal = () => {
+        return travelData.budget.tollgates.reduce((sum, t) => sum + (parseFloat(t.totalCost) || 0), 0);
+    };
+
     const calculateGrandTotal = () => {
         const b = travelData.budget;
-        return [b.fuel.totalCost, b.aaRates.totalCost, b.airBusTickets.totalCost, b.conferencingCost.totalCost, b.tollgates.totalCost, b.other.totalCost]
-            .reduce((sum, val) => sum + (parseFloat(val) || 0), 0).toFixed(2);
+        const tollgatesTotal = calculateTollgatesTotal();
+        return [b.aaRates.totalCost, b.airBusTickets.totalCost, b.conferencingCost.totalCost, b.other.totalCost]
+            .reduce((sum, val) => sum + (parseFloat(val) || 0), tollgatesTotal).toFixed(2);
     };
 
     // Calculate cost allocation based on itinerary destinations
@@ -331,7 +300,7 @@ export default function TravelAuthPage() {
         return allocation;
     };
 
-    const updateBudgetItem = (item: keyof TravelData['budget'], field: string, value: string) => {
+    const updateBudgetItem = (item: 'fuel' | 'aaRates' | 'airBusTickets' | 'conferencingCost' | 'other', field: string, value: string) => {
         setTravelData(prev => {
             const currentItem = prev.budget[item];
             const updatedItem = { ...currentItem, [field]: value };
@@ -342,6 +311,70 @@ export default function TravelAuthPage() {
             }
             return { ...prev, budget: { ...prev.budget, [item]: updatedItem } };
         });
+    };
+
+    // Tollgate management functions
+    const addTollgateRow = () => {
+        setTravelData(prev => ({
+            ...prev,
+            budget: {
+                ...prev.budget,
+                tollgates: [...prev.budget.tollgates, { road: '', quantity: '1', unitCost: '', totalCost: '' }]
+            }
+        }));
+    };
+
+    const updateTollgateRow = (index: number, field: keyof TollgateEntry, value: string) => {
+        setTravelData(prev => {
+            const updatedTollgates = prev.budget.tollgates.map((t, i) => {
+                if (i !== index) return t;
+                const updated = { ...t, [field]: value };
+                if (field === 'quantity' || field === 'unitCost') {
+                    const qty = parseFloat(field === 'quantity' ? value : updated.quantity) || 0;
+                    const uc = parseFloat(field === 'unitCost' ? value : updated.unitCost) || 0;
+                    updated.totalCost = (qty * uc).toFixed(2);
+                }
+                return updated;
+            });
+            return { ...prev, budget: { ...prev.budget, tollgates: updatedTollgates } };
+        });
+    };
+
+    const removeTollgateRow = (index: number) => {
+        if (travelData.budget.tollgates.length > 1) {
+            setTravelData(prev => ({
+                ...prev,
+                budget: {
+                    ...prev.budget,
+                    tollgates: prev.budget.tollgates.filter((_, i) => i !== index)
+                }
+            }));
+        }
+    };
+
+    // Auto-calculate tollgates based on itinerary routes
+    const autoCalculateTollgates = () => {
+        const calculatedTollgates = calculateTollgatesForItinerary(travelData.itinerary, tollgateRouteType);
+        setTravelData(prev => ({
+            ...prev,
+            budget: {
+                ...prev.budget,
+                tollgates: calculatedTollgates,
+            }
+        }));
+    };
+
+    // Get tollgate summary for display
+    const getTollgateSummary = () => {
+        const routes: string[] = [];
+        for (const row of travelData.itinerary) {
+            if (!row.from || !row.to || row.from === 'OTHER' || row.to === 'OTHER') continue;
+            const info = getTollgateRouteInfo(row.from, row.to);
+            if (info && (info.premium > 0 || info.standard > 0)) {
+                routes.push(`${row.from}→${row.to}: ${info.premium} premium ($${info.premiumCost}), ${info.standard} standard ($${info.standardCost})`);
+            }
+        }
+        return routes;
     };
 
     useEffect(() => {
@@ -475,13 +508,18 @@ export default function TravelAuthPage() {
 
         if (!travelData.purposeOfTravel.trim()) errors.push('Purpose of travel is required');
         if (!travelData.travelMode.trim()) errors.push('Travel mode is required');
+        if (travelData.travelMode === 'personal_motor_vehicle' && !travelData.vehicleRegistration?.trim()) {
+            errors.push('Vehicle registration number is required for personal motor vehicle');
+        }
         if (!travelData.acceptConditions) errors.push('You must accept the travel conditions');
 
         const hasValidItinerary = travelData.itinerary.some(row => row.date || row.from || row.to);
         if (!hasValidItinerary) errors.push('At least one travel itinerary row is required');
 
         const b = travelData.budget;
-        const hasValidBudget = [b.fuel, b.aaRates, b.airBusTickets, b.conferencingCost, b.tollgates, b.other].some(item => parseFloat(item.totalCost) > 0);
+        const tollgatesTotal = calculateTollgatesTotal();
+        const hasValidBudget = [b.fuel.totalCost, b.aaRates.totalCost, b.airBusTickets.totalCost, b.conferencingCost.totalCost, b.other.totalCost]
+            .some(val => parseFloat(val) > 0) || tollgatesTotal > 0;
         if (!hasValidBudget) errors.push('At least one travel budget item is required');
 
         if (!selectedApprovers.line_manager) errors.push('Please select an approver for Line Manager');
@@ -822,8 +860,33 @@ export default function TravelAuthPage() {
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div><label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Accompanying Associates</label><textarea className="w-full px-4 py-2 rounded-xl border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all resize-none min-h-[60px]" value={travelData.accompanyingAssociates} onChange={(e) => setTravelData({ ...travelData, accompanyingAssociates: e.target.value })} placeholder="Enter names of accompanying associates (if any)" /></div>
-                                <Input label="Travel Mode (Vehicle Registration if Driving) *" value={travelData.travelMode} onChange={(e) => setTravelData({ ...travelData, travelMode: e.target.value })} placeholder="e.g., Company Vehicle ABC 1234" />
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Travel Mode <span className="text-danger-500">*</span></label>
+                                    <select
+                                        value={travelData.travelMode}
+                                        onChange={(e) => setTravelData({ ...travelData, travelMode: e.target.value })}
+                                        className="w-full px-4 py-2 rounded-xl border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all"
+                                        required
+                                    >
+                                        <option value="">Select Travel Mode</option>
+                                        <option value="personal_motor_vehicle">Personal Motor Vehicle</option>
+                                        <option value="air_transport">Air Transport</option>
+                                        <option value="bus_public_transport">Bus / Public Transport</option>
+                                    </select>
+                                </div>
                             </div>
+                            {/* Vehicle Registration - only for Personal Motor Vehicle */}
+                            {travelData.travelMode === 'personal_motor_vehicle' && (
+                                <div className="mt-4">
+                                    <Input
+                                        label="Vehicle Registration Number *"
+                                        value={travelData.vehicleRegistration || ''}
+                                        onChange={(e) => setTravelData({ ...travelData, vehicleRegistration: e.target.value })}
+                                        placeholder="e.g., ABC 1234"
+                                        required
+                                    />
+                                </div>
+                            )}
                         </div>
                     </Card>
 
@@ -969,155 +1032,110 @@ export default function TravelAuthPage() {
                         </div>
                     </Card>
 
-                    {/* AA Rates Calculator */}
-                    <Card className="p-6 bg-blue-50 border border-blue-200">
-                        <div className="flex items-center justify-between mb-4">
-                            <div className="flex items-center gap-2">
+                    {/* AA Rates Calculator - Only for Personal Motor Vehicle */}
+                    {travelData.travelMode === 'personal_motor_vehicle' && (
+                        <Card className="p-6 bg-blue-50 border border-blue-200">
+                            <div className="flex items-center gap-2 mb-4">
                                 <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                                 </svg>
-                                <h4 className="font-semibold text-blue-800 uppercase text-sm">AA Rates Calculator</h4>
+                                <h4 className="font-semibold text-blue-800 uppercase text-sm">Travel Cost Calculator</h4>
                             </div>
-                            <button
-                                type="button"
-                                onClick={() => setShowAACalculator(!showAACalculator)}
-                                className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
-                            >
-                                {showAACalculator ? (
-                                    <>
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
-                                        Hide Calculator
-                                    </>
-                                ) : (
-                                    <>
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                                        Calculate AA Rate
-                                    </>
-                                )}
-                            </button>
-                        </div>
-                        <p className="text-sm text-blue-700 mb-4">Calculate your AA mileage rate based on vehicle specifications. This follows the AA Zimbabwe formula for fixed and running costs.</p>
+                            <p className="text-sm text-blue-700 mb-4">Select your vehicle details to calculate travel cost using AA rates.</p>
 
-                        {showAACalculator && (
                             <div className="bg-white rounded-xl p-4 border border-blue-200 space-y-4">
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Cylinder Capacity (cc)</label>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Vehicle Engine Size <span className="text-danger-500">*</span></label>
                                         <select
-                                            value={aaCalculator.cylinderCapacity}
-                                            onChange={(e) => setAACalculator({ ...aaCalculator, cylinderCapacity: e.target.value })}
+                                            value={aaCalculator.engineCapacity}
+                                            onChange={(e) => { setAACalculator({ ...aaCalculator, engineCapacity: e.target.value }); setAaRatesLocked(false); }}
                                             className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
                                         >
-                                            <option value="1000">Up to 1000cc</option>
-                                            <option value="1300">1001 - 1300cc</option>
-                                            <option value="1600">1301 - 1600cc</option>
-                                            <option value="2000">1601 - 2000cc</option>
-                                            <option value="2500">2001 - 2500cc</option>
-                                            <option value="3000">2501 - 3000cc</option>
-                                            <option value="3500">Above 3000cc</option>
+                                            <option value="1.1L-1.5L">1.1L – 1.5L</option>
+                                            <option value="1.6L-2.0L">1.6L – 2.0L</option>
+                                            <option value="2.1L-3.0L">2.1L – 3.0L</option>
+                                            <option value="Above 3.0L">Above 3.0L</option>
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Current Fuel Price (USD/L)</label>
-                                        <input
-                                            type="number"
-                                            value={aaCalculator.fuelPrice}
-                                            onChange={(e) => setAACalculator({ ...aaCalculator, fuelPrice: e.target.value })}
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Fuel Type <span className="text-danger-500">*</span></label>
+                                        <select
+                                            value={aaCalculator.fuelType}
+                                            onChange={(e) => { setAACalculator({ ...aaCalculator, fuelType: e.target.value as 'petrol' | 'diesel' }); setAaRatesLocked(false); }}
                                             className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
-                                            placeholder="1.50"
-                                            step="0.01"
-                                            min="0"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Fuel Efficiency (km/L)</label>
-                                        <input
-                                            type="number"
-                                            value={aaCalculator.fuelEfficiency}
-                                            onChange={(e) => setAACalculator({ ...aaCalculator, fuelEfficiency: e.target.value })}
-                                            className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
-                                            placeholder="12"
-                                            step="0.1"
-                                            min="1"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Vehicle Value (USD)</label>
-                                        <input
-                                            type="number"
-                                            value={aaCalculator.vehicleValue}
-                                            onChange={(e) => setAACalculator({ ...aaCalculator, vehicleValue: e.target.value })}
-                                            className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
-                                            placeholder="15000"
-                                            step="100"
-                                            min="0"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Depreciation Rate (%/year)</label>
-                                        <input
-                                            type="number"
-                                            value={aaCalculator.depreciationRate}
-                                            onChange={(e) => setAACalculator({ ...aaCalculator, depreciationRate: e.target.value })}
-                                            className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
-                                            placeholder="6"
-                                            step="0.5"
-                                            min="0"
-                                            max="50"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Annual Mileage (km)</label>
-                                        <input
-                                            type="number"
-                                            value={aaCalculator.annualMileage}
-                                            onChange={(e) => setAACalculator({ ...aaCalculator, annualMileage: e.target.value })}
-                                            className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
-                                            placeholder="16000"
-                                            step="1000"
-                                            min="1000"
-                                        />
+                                        >
+                                            <option value="petrol">Petrol</option>
+                                            <option value="diesel">Diesel</option>
+                                        </select>
                                     </div>
                                 </div>
 
-                                {/* Calculated Results */}
+                                {/* Rate Display */}
                                 <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                                    <h5 className="font-semibold text-gray-800 mb-3 text-sm">Calculated Rates (per km)</h5>
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                    <div className="flex items-center justify-between">
                                         <div>
-                                            <span className="text-gray-500 block">Fixed Cost</span>
-                                            <span className="font-semibold text-gray-800">USD {calculateAARate().fixedCostPerKm}</span>
+                                            <span className="text-gray-500 text-sm block">AA Rate per km</span>
+                                            <span className="font-bold text-blue-900 text-xl">USD {getAARate().toFixed(2)}</span>
                                         </div>
-                                        <div>
-                                            <span className="text-gray-500 block">Fuel Cost</span>
-                                            <span className="font-semibold text-gray-800">USD {calculateAARate().fuelCostPerKm}</span>
+                                        <div className="text-right">
+                                            <span className="text-gray-500 text-sm block">Total Distance</span>
+                                            <span className="font-bold text-gray-800 text-xl">{travelData.itinerary.reduce((sum, row) => sum + (parseFloat(row.km) || 0), 0)} km</span>
                                         </div>
-                                        <div>
-                                            <span className="text-gray-500 block">Maintenance</span>
-                                            <span className="font-semibold text-gray-800">USD {calculateAARate().maintenancePerKm}</span>
+                                        <div className="text-right bg-blue-100 rounded-lg p-3">
+                                            <span className="text-blue-700 text-sm block font-medium">Estimated Travel Cost</span>
+                                            <span className="font-bold text-blue-900 text-xl">USD {(travelData.itinerary.reduce((sum, row) => sum + (parseFloat(row.km) || 0), 0) * getAARate()).toFixed(2)}</span>
                                         </div>
-                                        <div className="bg-blue-100 rounded-lg p-2 -m-2">
-                                            <span className="text-blue-700 block font-medium">Total Rate</span>
-                                            <span className="font-bold text-blue-900 text-lg">USD {calculateAARate().totalRatePerKm}</span>
-                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* AA Rate Reference Table */}
+                                <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                    <h5 className="font-medium text-gray-700 mb-2 text-xs uppercase">AA Rate Reference (USD/km)</h5>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-xs">
+                                            <thead>
+                                                <tr className="border-b border-gray-200">
+                                                    <th className="text-left py-1 px-2 font-medium text-gray-600">Engine Capacity</th>
+                                                    <th className="text-center py-1 px-2 font-medium text-gray-600">Petrol</th>
+                                                    <th className="text-center py-1 px-2 font-medium text-gray-600">Diesel</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr className={`border-b border-gray-100 ${aaCalculator.engineCapacity === '1.1L-1.5L' ? 'bg-blue-50' : ''}`}>
+                                                    <td className="py-1 px-2">1.1L – 1.5L</td>
+                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.1L-1.5L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-blue-700' : ''}`}>0.28</td>
+                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.1L-1.5L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-blue-700' : ''}`}>0.26</td>
+                                                </tr>
+                                                <tr className={`border-b border-gray-100 ${aaCalculator.engineCapacity === '1.6L-2.0L' ? 'bg-blue-50' : ''}`}>
+                                                    <td className="py-1 px-2">1.6L – 2.0L</td>
+                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.6L-2.0L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-blue-700' : ''}`}>0.35</td>
+                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.6L-2.0L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-blue-700' : ''}`}>0.32</td>
+                                                </tr>
+                                                <tr className={`border-b border-gray-100 ${aaCalculator.engineCapacity === '2.1L-3.0L' ? 'bg-blue-50' : ''}`}>
+                                                    <td className="py-1 px-2">2.1L – 3.0L</td>
+                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '2.1L-3.0L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-blue-700' : ''}`}>0.48</td>
+                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '2.1L-3.0L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-blue-700' : ''}`}>0.45</td>
+                                                </tr>
+                                                <tr className={`${aaCalculator.engineCapacity === 'Above 3.0L' ? 'bg-blue-50' : ''}`}>
+                                                    <td className="py-1 px-2">Above 3.0L</td>
+                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === 'Above 3.0L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-blue-700' : ''}`}>0.59</td>
+                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === 'Above 3.0L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-blue-700' : ''}`}>0.56</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
                                     </div>
                                 </div>
 
                                 <div className="flex justify-end mt-4">
-                                    <button
-                                        type="button"
-                                        onClick={applyAARate}
-                                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm flex items-center gap-2"
-                                    >
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                        </svg>
-                                        Apply Rate to Budget
+                                    <button type="button" onClick={applyAARate} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm flex items-center gap-2">
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                                        Apply to Budget
                                     </button>
                                 </div>
                             </div>
-                        )}
-                    </Card>
+                        </Card>
+                    )}
 
                     {/* Travel Budget */}
                     <Card className="p-6">
@@ -1126,25 +1144,102 @@ export default function TravelAuthPage() {
                             <table className="w-full text-sm">
                                 <thead><tr className="bg-gray-100"><th className="px-3 py-2 text-left font-semibold text-gray-700">Expenditure Item</th><th className="px-3 py-2 text-left font-semibold text-gray-700 w-24">Quantity</th><th className="px-3 py-2 text-left font-semibold text-gray-700 w-28">Unit Cost (USD)</th><th className="px-3 py-2 text-left font-semibold text-gray-700 w-28">Total Cost (USD)</th></tr></thead>
                                 <tbody>
-                                    <tr className="border-b border-gray-100"><td className="px-3 py-2 text-gray-700">Fuel (Litres)</td><td className="px-2 py-2"><input type="number" value={travelData.budget.fuel.quantity} onChange={(e) => updateBudgetItem('fuel', 'quantity', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="0" min="0" /></td><td className="px-2 py-2"><input type="number" value={travelData.budget.fuel.unitCost} onChange={(e) => updateBudgetItem('fuel', 'unitCost', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="0.00" step="0.01" min="0" /></td><td className="px-2 py-2"><input type="number" value={travelData.budget.fuel.totalCost} readOnly className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm" placeholder="0.00" /></td></tr>
-                                    <tr className={`border-b border-gray-100 ${aaRatesLocked ? 'bg-green-50' : ''}`}>
-                                        <td className="px-3 py-2 text-gray-700">
-                                            AA Rates (KM)
-                                            {aaRatesLocked && <span className="ml-2 text-xs text-green-600 font-medium">(Calculator Applied)</span>}
-                                        </td>
-                                        <td className="px-2 py-2">
-                                            <input type="number" value={travelData.budget.aaRates.quantity} onChange={(e) => !aaRatesLocked && updateBudgetItem('aaRates', 'quantity', e.target.value)} readOnly={aaRatesLocked} className={`w-full px-2 py-1 rounded border outline-none text-sm ${aaRatesLocked ? 'border-green-200 bg-green-50 text-green-800 font-medium' : 'border-gray-300 focus:ring-1 focus:ring-primary-500'}`} placeholder="0" min="0" />
-                                        </td>
-                                        <td className="px-2 py-2">
-                                            <input type="number" value={travelData.budget.aaRates.unitCost} onChange={(e) => !aaRatesLocked && updateBudgetItem('aaRates', 'unitCost', e.target.value)} readOnly={aaRatesLocked} className={`w-full px-2 py-1 rounded border outline-none text-sm ${aaRatesLocked ? 'border-green-200 bg-green-50 text-green-800 font-medium' : 'border-gray-300 focus:ring-1 focus:ring-primary-500'}`} placeholder="0.28" step="0.01" min="0" />
-                                        </td>
-                                        <td className="px-2 py-2">
-                                            <input type="number" value={travelData.budget.aaRates.totalCost} readOnly className={`w-full px-2 py-1 rounded border outline-none text-sm ${aaRatesLocked ? 'border-green-200 bg-green-50 text-green-800 font-medium' : 'border-gray-200 bg-gray-50'}`} placeholder="0.00" />
-                                        </td>
-                                    </tr>
+                                    {travelData.travelMode === 'personal_motor_vehicle' && (
+                                        <tr className={`border-b border-gray-100 ${aaRatesLocked ? 'bg-green-50' : ''}`}>
+                                            <td className="px-3 py-2 text-gray-700">
+                                                Travel Cost (AA Rate × Distance)
+                                                {aaRatesLocked && <span className="ml-2 text-xs text-green-600 font-medium">(Applied)</span>}
+                                            </td>
+                                            <td className="px-2 py-2">
+                                                <input type="number" value={travelData.budget.aaRates.quantity} onChange={(e) => !aaRatesLocked && updateBudgetItem('aaRates', 'quantity', e.target.value)} readOnly={aaRatesLocked} className={`w-full px-2 py-1 rounded border outline-none text-sm ${aaRatesLocked ? 'border-green-200 bg-green-50 text-green-800 font-medium' : 'border-gray-300 focus:ring-1 focus:ring-primary-500'}`} placeholder="0" min="0" />
+                                            </td>
+                                            <td className="px-2 py-2">
+                                                <input type="number" value={travelData.budget.aaRates.unitCost} onChange={(e) => !aaRatesLocked && updateBudgetItem('aaRates', 'unitCost', e.target.value)} readOnly={aaRatesLocked} className={`w-full px-2 py-1 rounded border outline-none text-sm ${aaRatesLocked ? 'border-green-200 bg-green-50 text-green-800 font-medium' : 'border-gray-300 focus:ring-1 focus:ring-primary-500'}`} placeholder="0.28" step="0.01" min="0" />
+                                            </td>
+                                            <td className="px-2 py-2">
+                                                <input type="number" value={travelData.budget.aaRates.totalCost} readOnly className={`w-full px-2 py-1 rounded border outline-none text-sm ${aaRatesLocked ? 'border-green-200 bg-green-50 text-green-800 font-medium' : 'border-gray-200 bg-gray-50'}`} placeholder="0.00" />
+                                            </td>
+                                        </tr>
+                                    )}
                                     <tr className="border-b border-gray-100"><td className="px-3 py-2 text-gray-700">Air/Bus Tickets</td><td className="px-2 py-2"><input type="number" value={travelData.budget.airBusTickets.quantity} onChange={(e) => updateBudgetItem('airBusTickets', 'quantity', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="0" min="0" /></td><td className="px-2 py-2"><input type="number" value={travelData.budget.airBusTickets.unitCost} onChange={(e) => updateBudgetItem('airBusTickets', 'unitCost', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="0.00" step="0.01" min="0" /></td><td className="px-2 py-2"><input type="number" value={travelData.budget.airBusTickets.totalCost} readOnly className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm" placeholder="0.00" /></td></tr>
                                     <tr className="border-b border-gray-100"><td className="px-3 py-2 text-gray-700">Conferencing Cost</td><td className="px-2 py-2"><input type="number" value={travelData.budget.conferencingCost.quantity} onChange={(e) => updateBudgetItem('conferencingCost', 'quantity', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="0" min="0" /></td><td className="px-2 py-2"><input type="number" value={travelData.budget.conferencingCost.unitCost} onChange={(e) => updateBudgetItem('conferencingCost', 'unitCost', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="0.00" step="0.01" min="0" /></td><td className="px-2 py-2"><input type="number" value={travelData.budget.conferencingCost.totalCost} readOnly className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm" placeholder="0.00" /></td></tr>
-                                    <tr className="border-b border-gray-100"><td className="px-3 py-2 text-gray-700">Tollgates</td><td className="px-2 py-2"><input type="number" value={travelData.budget.tollgates.quantity} onChange={(e) => updateBudgetItem('tollgates', 'quantity', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="0" min="0" /></td><td className="px-2 py-2"><input type="number" value={travelData.budget.tollgates.unitCost} onChange={(e) => updateBudgetItem('tollgates', 'unitCost', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="0.00" step="0.01" min="0" /></td><td className="px-2 py-2"><input type="number" value={travelData.budget.tollgates.totalCost} readOnly className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm" placeholder="0.00" /></td></tr>
+                                    {/* Tollgates Section - Only for Personal Motor Vehicle */}
+                                    {travelData.travelMode === 'personal_motor_vehicle' && (
+                                        <>
+                                            <tr className="bg-orange-50 border-b border-orange-200">
+                                                <td className="px-3 py-3 text-orange-800 font-medium" colSpan={4}>
+                                                    <div className="flex items-center justify-between flex-wrap gap-2">
+                                                        <div className="flex items-center gap-3 flex-wrap">
+                                                            <span className="font-semibold">Tollgates</span>
+                                                            <div className="flex items-center gap-2 text-xs">
+                                                                <label className="flex items-center gap-1 cursor-pointer">
+                                                                    <input
+                                                                        type="radio"
+                                                                        name="tollgateRouteType"
+                                                                        value="premium"
+                                                                        checked={tollgateRouteType === 'premium'}
+                                                                        onChange={(e) => setTollgateRouteType(e.target.value as TollgateRouteType)}
+                                                                        className="text-orange-600 focus:ring-orange-500"
+                                                                    />
+                                                                    <span>Premium ($4)</span>
+                                                                </label>
+                                                                <label className="flex items-center gap-1 cursor-pointer">
+                                                                    <input
+                                                                        type="radio"
+                                                                        name="tollgateRouteType"
+                                                                        value="standard"
+                                                                        checked={tollgateRouteType === 'standard'}
+                                                                        onChange={(e) => setTollgateRouteType(e.target.value as TollgateRouteType)}
+                                                                        className="text-orange-600 focus:ring-orange-500"
+                                                                    />
+                                                                    <span>Standard ($3)</span>
+                                                                </label>
+                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                onClick={autoCalculateTollgates}
+                                                                className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded-lg font-medium flex items-center gap-1 transition-colors"
+                                                            >
+                                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                                                                Auto-Calculate from Itinerary
+                                                            </button>
+                                                        </div>
+                                                        <button type="button" onClick={addTollgateRow} className="text-xs text-orange-600 hover:text-orange-700 font-medium flex items-center gap-1">
+                                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                                                            Add Tollgate
+                                                        </button>
+                                                    </div>
+                                                    {/* Tollgate route summary */}
+                                                    {getTollgateSummary().length > 0 && (
+                                                        <div className="mt-2 text-xs text-orange-700 bg-orange-100/50 rounded-lg px-2 py-1.5">
+                                                            <span className="font-medium">Available routes:</span> {getTollgateSummary().join('; ')}
+                                                        </div>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                            {travelData.budget.tollgates.map((toll, idx) => (
+                                                <tr key={idx} className="border-b border-gray-100 bg-orange-50/30">
+                                                    <td className="px-2 py-2">
+                                                        <input type="text" value={toll.road} onChange={(e) => updateTollgateRow(idx, 'road', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-orange-500 outline-none text-sm" placeholder="Road/Route name" />
+                                                    </td>
+                                                    <td className="px-2 py-2">
+                                                        <input type="number" value={toll.quantity} onChange={(e) => updateTollgateRow(idx, 'quantity', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-orange-500 outline-none text-sm" placeholder="1" min="1" />
+                                                    </td>
+                                                    <td className="px-2 py-2">
+                                                        <input type="number" value={toll.unitCost} onChange={(e) => updateTollgateRow(idx, 'unitCost', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-orange-500 outline-none text-sm" placeholder="0.00" step="0.01" min="0" />
+                                                    </td>
+                                                    <td className="px-2 py-2 flex items-center gap-1">
+                                                        <input type="number" value={toll.totalCost} readOnly className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm" placeholder="0.00" />
+                                                        {travelData.budget.tollgates.length > 1 && (
+                                                            <button type="button" onClick={() => removeTollgateRow(idx)} className="text-red-500 hover:text-red-700 p-1">
+                                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                            </button>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </>
+                                    )}
                                     <tr className="border-b border-gray-100"><td className="px-2 py-2"><input type="text" value={travelData.budget.other.description || ''} onChange={(e) => updateBudgetItem('other', 'description', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="Other (specify)" /></td><td className="px-2 py-2"><input type="number" value={travelData.budget.other.quantity} onChange={(e) => updateBudgetItem('other', 'quantity', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="0" min="0" /></td><td className="px-2 py-2"><input type="number" value={travelData.budget.other.unitCost} onChange={(e) => updateBudgetItem('other', 'unitCost', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="0.00" step="0.01" min="0" /></td><td className="px-2 py-2"><input type="number" value={travelData.budget.other.totalCost} readOnly className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm" placeholder="0.00" /></td></tr>
                                     <tr className="bg-gray-100 font-semibold"><td className="px-3 py-2 text-gray-900" colSpan={3}>GRAND TOTAL</td><td className="px-3 py-2 text-gray-900">USD {calculateGrandTotal()}</td></tr>
                                 </tbody>

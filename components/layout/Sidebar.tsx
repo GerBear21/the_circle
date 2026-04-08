@@ -1,18 +1,23 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
+import { useRBAC } from '../../contexts/RBACContext';
 
 interface NavItem {
   href?: string;
   label: string;
   icon: React.ReactNode;
   children?: NavItem[];
+  requiredPermissions?: string[];
+  requireAny?: boolean;
 }
 
 interface NavSection {
   title?: string;
   items: NavItem[];
+  requiredPermissions?: string[];
+  requireAny?: boolean;
 }
 
 const navSections: NavSection[] = [
@@ -52,7 +57,7 @@ const navSections: NavSection[] = [
         ),
       },
       {
-        href: 'requests/my-requests',
+        href: '/requests/my-requests',
         label: 'My requests',
         icon: (
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -77,6 +82,8 @@ const navSections: NavSection[] = [
       {
         href: '/archive',
         label: 'Archives',
+        requiredPermissions: ['archives.view_own', 'archives.view_all'],
+        requireAny: true,
         icon: (
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
@@ -86,6 +93,7 @@ const navSections: NavSection[] = [
       {
         href: '/archive/audit',
         label: 'Audit Trail and Compliance',
+        requiredPermissions: ['admin.audit_logs'],
         icon: (
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
@@ -95,6 +103,8 @@ const navSections: NavSection[] = [
       {
         href: '/reports',
         label: 'Reports',
+        requiredPermissions: ['reports.view_own', 'reports.view_team', 'reports.view_all', 'reports.analytics', 'reports.sla_compliance'],
+        requireAny: true,
         icon: (
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -108,11 +118,47 @@ const navSections: NavSection[] = [
     items: [
       {
         href: '/system/settings',
-        label: 'Settings',
+        label: 'My Settings',
+        requiredPermissions: ['settings.view', 'settings.edit'],
+        requireAny: true,
         icon: (
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        ),
+      },
+      {
+        href: '/admin/settings',
+        label: 'System Config',
+        requiredPermissions: ['admin.system_config'],
+        requireAny: true,
+        icon: (
+           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947z" />
+             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+           </svg>
+        ),
+      },
+      {
+        href: '/admin/roles',
+        label: 'Roles & Access',
+        requiredPermissions: ['admin.roles', 'users.assign_roles', 'users.manage_access'],
+        requireAny: true,
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+          </svg>
+        ),
+      },
+      {
+        href: '/admin/users',
+        label: 'User Management',
+        requiredPermissions: ['users.view', 'users.create', 'users.edit', 'users.assign_roles'],
+        requireAny: true,
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
           </svg>
         ),
       },
@@ -128,9 +174,26 @@ interface SidebarProps {
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const router = useRouter();
   const { data: session } = useSession();
+  const { hasPermission, hasAnyPermission, hasAllPermissions, loading: rbacLoading } = useRBAC();
   const [expandedSections, setExpandedSections] = useState<string[]>(['Requests', 'Reporting and Archives', 'System']);
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
+
+  // Filter nav items based on RBAC permissions
+  const filteredNavSections = useMemo(() => {
+    if (rbacLoading) return []; // Hide nav while RBAC loads to prevent unauthorized flash
+    return navSections
+      .map(section => ({
+        ...section,
+        items: section.items.filter(item => {
+          if (!item.requiredPermissions || item.requiredPermissions.length === 0) return true;
+          return item.requireAny
+            ? hasAnyPermission(item.requiredPermissions)
+            : hasAllPermissions(item.requiredPermissions);
+        }),
+      }))
+      .filter(section => section.items.length > 0);
+  }, [rbacLoading, hasAnyPermission, hasAllPermissions]);
 
   // Fetch profile data if session doesn't have it
   useEffect(() => {
@@ -222,7 +285,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
           {/* Navigation */}
           <nav className="flex-1 overflow-y-auto overflow-x-hidden py-4 px-2 custom-scrollbar">
-            {navSections.map((section, sectionIndex) => (
+            {filteredNavSections.map((section, sectionIndex) => (
               <div key={sectionIndex} className={sectionIndex > 0 ? 'mt-6' : ''}>
                 {section.title && (
                   <div className="px-2 py-2 mb-1 flex items-center justify-between whitespace-nowrap">

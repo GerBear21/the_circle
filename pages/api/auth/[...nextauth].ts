@@ -220,6 +220,14 @@ export const authOptions: NextAuthOptions = {
       }
       return session;
     },
+
+    async redirect({ url, baseUrl }) {
+      // Redirect to dashboard after successful sign in
+      if (url === baseUrl || url.startsWith(baseUrl + '/')) {
+        return baseUrl + '/dashboard';
+      }
+      return url;
+    },
   },
 };
 

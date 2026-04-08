@@ -1,0 +1,2 @@
+pages/requests/new/travel-auth.tsx(487,140): error TS2339: Property 'totalCost' does not exist on type 'BudgetItem | TollgateEntry[]'.
+  Property 'totalCost' does not exist on type 'TollgateEntry[]'.

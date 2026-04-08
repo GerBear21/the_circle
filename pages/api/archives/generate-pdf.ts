@@ -104,6 +104,12 @@ export async function generateAndStoreArchive(
           status,
           due_at,
           created_at,
+          is_redirected,
+          original_approver_id,
+          redirected_by_id,
+          redirected_at,
+          redirect_reason,
+          redirect_job_title,
           approver:app_users!request_steps_approver_user_id_fkey (
             id,
             display_name,
@@ -950,6 +956,10 @@ async function generatePdfBuffer(
           const approverName = step.approver?.display_name || approval?.approver?.display_name || 'Unknown';
           const signedAt = approval?.signed_at;
           const role = step.approver_role || `Approver ${index + 1}`;
+          
+          // Check if this step was redirected (approval on behalf of someone else)
+          const isRedirected = step.is_redirected === true;
+          const redirectJobTitle = step.redirect_job_title;
 
           // Calculate position (up to 3 per row)
           const colIndex = index % 3;
@@ -963,11 +973,13 @@ async function generatePdfBuffer(
 
           const xPos = 50 + colIndex * (sigBoxWidth + 15);
 
-          // Signature box
-          doc.rect(xPos, yPos, sigBoxWidth, sigBoxHeight).strokeColor('#e5e7eb').lineWidth(1).stroke();
+          // Signature box - amber border for redirected approvals
+          const boxColor = isRedirected ? '#f59e0b' : '#e5e7eb';
+          doc.rect(xPos, yPos, sigBoxWidth, sigBoxHeight).strokeColor(boxColor).lineWidth(isRedirected ? 2 : 1).stroke();
 
-          // Role label
-          doc.fontSize(8).fillColor('#6b7280').text(role.toUpperCase(), xPos + 5, yPos + 8, {
+          // Role label with 'pp' prefix if redirected
+          const roleLabel = isRedirected ? `pp ${redirectJobTitle || role}` : role;
+          doc.fontSize(8).fillColor(isRedirected ? '#b45309' : '#6b7280').text(roleLabel.toUpperCase(), xPos + 5, yPos + 8, {
             width: sigBoxWidth - 10,
             align: 'center',
           });
@@ -999,8 +1011,9 @@ async function generatePdfBuffer(
           // Signature line
           doc.moveTo(xPos + 15, yPos + 62).lineTo(xPos + sigBoxWidth - 15, yPos + 62).strokeColor('#374151').lineWidth(1).stroke();
 
-          // Approver name
-          doc.fontSize(9).fillColor('#111827').text(approverName, xPos + 5, yPos + 67, {
+          // Approver name (with 'pp' indicator if redirected)
+          const displayName = isRedirected ? `pp ${approverName}` : approverName;
+          doc.fontSize(9).fillColor('#111827').text(displayName, xPos + 5, yPos + 67, {
             width: sigBoxWidth - 10,
             align: 'center',
           });
