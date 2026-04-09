@@ -6,7 +6,7 @@ import { ArrowLeft } from "lucide-react";
 
 // Dynamically import Lottie to avoid SSR issues
 const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
-import notFoundAnimation from "../lotties/Page not found 404.json";
+import notFoundAnimation from "../lotties/PageNotFound404.json";
 
 export default function Custom404() {
   return (
@@ -57,13 +57,6 @@ export default function Custom404() {
             transition={{ duration: 0.6, delay: 0.2 }}
             className="space-y-6 flex flex-col items-center"
           >
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-gray-900 tracking-tight">
-              Aww, snap!
-            </h1>
-            
-            <p className="text-lg sm:text-xl text-gray-500 max-w-md mx-auto leading-relaxed">
-              We couldn't find the page you're looking for. It might have been moved, deleted, or perhaps it never existed.
-            </p>
 
             <Link href="/" passHref>
               <div className="mt-8 group relative overflow-hidden rounded-full p-[1px] focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 transition-transform active:scale-[0.98] inline-block cursor-pointer shadow-md hover:shadow-lg">
