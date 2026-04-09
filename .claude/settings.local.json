@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -n \"storage\\\\|bucket\" lib/supabaseAdmin.ts pages/api/signature/*.ts)",
+      "Bash(npx tsc:*)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)"
+    ]
+  }
+}
