@@ -154,7 +154,7 @@ export default function VoucherRequestPage() {
             overnightAccommodation: { quantity: '', unitCost: '', totalCost: '' },
             lunchDinner: { quantity: '', unitCost: '', totalCost: '' },
             conferencingCost: { quantity: '', unitCost: '', totalCost: '' },
-            tollgates: { quantity: '', unitCost: '', totalCost: '' },
+            tollgates: [{ road: '', quantity: '1', unitCost: '', totalCost: '' }],
             other: { description: '', quantity: '', unitCost: '', totalCost: '' },
         },
     });
@@ -184,20 +184,24 @@ export default function VoucherRequestPage() {
         }
     };
 
+    // Calculate total tollgates cost
+    const calculateTollgatesTotal = () => {
+        return travelData.budget.tollgates.reduce((sum: number, t: any) => sum + (parseFloat(t.totalCost) || 0), 0);
+    };
+
     const calculateGrandTotal = () => {
         const budget = travelData.budget;
+        const tollgatesTotal = calculateTollgatesTotal();
         const values = [
-            budget.fuel.totalCost,
             budget.aaRates.totalCost,
             budget.airBusTickets.totalCost,
             budget.conferencingCost.totalCost,
-            budget.tollgates.totalCost,
             budget.other.totalCost,
         ];
-        return values.reduce((sum, val) => sum + (parseFloat(val) || 0), 0).toFixed(2);
+        return values.reduce((sum, val) => sum + (parseFloat(val) || 0), tollgatesTotal).toFixed(2);
     };
 
-    const updateBudgetItem = (item: keyof typeof travelData.budget, field: string, value: string) => {
+    const updateBudgetItem = (item: 'fuel' | 'aaRates' | 'airBusTickets' | 'overnightAccommodation' | 'lunchDinner' | 'conferencingCost' | 'other', field: string, value: string) => {
         setTravelData(prev => {
             const currentItem = prev.budget[item];
             const updatedItem = { ...currentItem, [field]: value };
@@ -832,12 +836,12 @@ export default function VoucherRequestPage() {
             }
             // At least one budget row with data
             const budget = travelData.budget;
+            const tollgatesTotal = budget.tollgates.reduce((sum: number, t: any) => sum + (parseFloat(t.totalCost) || 0), 0);
             const hasValidBudget =
-                (budget.fuel.totalCost && parseFloat(budget.fuel.totalCost) > 0) ||
                 (budget.aaRates.totalCost && parseFloat(budget.aaRates.totalCost) > 0) ||
                 (budget.airBusTickets.totalCost && parseFloat(budget.airBusTickets.totalCost) > 0) ||
                 (budget.conferencingCost.totalCost && parseFloat(budget.conferencingCost.totalCost) > 0) ||
-                (budget.tollgates.totalCost && parseFloat(budget.tollgates.totalCost) > 0) ||
+                (tollgatesTotal > 0) ||
                 (budget.other.totalCost && parseFloat(budget.other.totalCost) > 0);
             if (!hasValidBudget) {
                 errors.push('At least one travel budget item is required');
@@ -1118,7 +1122,7 @@ export default function VoucherRequestPage() {
                                     placeholder="Enter full names of all guests"
                                     value={formData.guestNames}
                                     onChange={(e) => setFormData({ ...formData, guestNames: e.target.value })}
-                                    required
+                                   
                                 />
                             </div>
 

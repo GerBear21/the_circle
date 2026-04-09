@@ -1804,7 +1804,7 @@ export default function NewCapexRequestPage() {
             Select users for each approval role. <span className="text-red-500 font-medium">All 8 approvers are required.</span>
           </p>
 
-          {/* Parallel vs Sequential Approval Toggle */}
+          {/* Parallel vs Sequential Approval Toggle
           <div className="mb-6 p-4 bg-gray-50 rounded-xl border border-gray-200">
             <label className="flex items-start gap-3 cursor-pointer">
               <input
@@ -1822,7 +1822,7 @@ export default function NewCapexRequestPage() {
                 </span>
               </div>
             </label>
-          </div>
+          </div> */}
 
           {/* Role-based Approver Selection */}
           <div className="space-y-4">

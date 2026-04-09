@@ -17,12 +17,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const userId = session.user.id;
 
-    // SEQUENTIAL APPROVAL: Only fetch requests where user's specific step is 'pending'
-    // First, get the step IDs where this user is the approver AND status is pending
+    // Fetch active delegations where current user is the delegate
+    const now = new Date().toISOString();
+    const { data: activeDelegations } = await supabaseAdmin
+      .from('approval_delegations')
+      .select('delegator_id')
+      .eq('delegate_id', userId)
+      .eq('is_active', true)
+      .eq('status', 'approved')
+      .lte('starts_at', now)
+      .or(`ends_at.is.null,ends_at.gte.${now}`);
+
+    const delegatorIds = (activeDelegations || []).map(d => d.delegator_id);
+    const approverIds = [userId, ...delegatorIds];
+
+    // Fetch pending steps for the user AND any delegators
     const { data: pendingSteps, error: stepsError } = await supabaseAdmin
       .from('request_steps')
       .select('request_id')
-      .eq('approver_user_id', userId)
+      .in('approver_user_id', approverIds)
       .eq('status', 'pending');
 
     if (stepsError) {
@@ -34,7 +47,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json([]);
     }
 
-    const requestIds = pendingSteps.map(s => s.request_id);
+    const requestIds = [...new Set(pendingSteps.map(s => s.request_id))];
 
     // Now fetch the full request data for those specific requests
     const { data, error: fetchError } = await supabaseAdmin
@@ -75,10 +88,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(500).json({ error: 'Failed to fetch pending approvals' });
     }
 
-    // Double-check: only return requests where user's step is actually pending
+    // Only return requests where user's step (or delegated step) is actually pending
     const filteredData = (data || []).filter((req: any) => {
       const userStep = req.request_steps?.find(
-        (step: any) => step.approver_user_id === userId && step.status === 'pending'
+        (step: any) => approverIds.includes(step.approver_user_id) && step.status === 'pending'
       );
       return !!userStep;
     });

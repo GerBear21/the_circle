@@ -5,8 +5,10 @@ import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input } from '../../../components/ui';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
+import { calculateTollgatesForItinerary, getTollgateRouteInfo, TollgateRouteType } from '../../../lib/formConfig';
 
 interface SelectedBusinessUnit {
+    instanceId: string; // Unique ID for each booking instance (allows same hotel multiple times)
     id: string;
     name: string;
     bookingMade: boolean;
@@ -17,6 +19,66 @@ interface SelectedBusinessUnit {
     accommodationType: string;
     specialArrangements: string;
 }
+
+interface AACalculatorData {
+    engineCapacity: string;
+    fuelType: 'petrol' | 'diesel';
+}
+
+interface TollgateEntry {
+    road: string;
+    quantity: string;
+    unitCost: string;
+    totalCost: string;
+}
+
+// AA Rate table based on engine capacity and fuel type (USD per km)
+const AA_RATES: Record<string, { petrol: number; diesel: number }> = {
+    '1.1L-1.5L': { petrol: 0.28, diesel: 0.26 },
+    '1.6L-2.0L': { petrol: 0.35, diesel: 0.32 },
+    '2.1L-3.0L': { petrol: 0.48, diesel: 0.45 },
+    'Above 3.0L': { petrol: 0.59, diesel: 0.56 },
+};
+
+interface CostAllocation {
+    corp: string;
+    mrc: string;
+    nah: string;
+    rth: string;
+    khcc: string;
+    brh: string;
+    vfrh: string;
+    azam: string;
+}
+
+// Business units for travel itinerary (excluding RTG SA, Heritage Expeditions, Gateway Stream, Head Office)
+const TRAVEL_LOCATIONS = [
+    { code: 'MRC', name: 'Montclaire Resort and Conferencing (MRC)', city: 'Nyanga' },
+    { code: 'NAH', name: 'New Ambassador Hotel (NAH)', city: 'Harare' },
+    { code: 'RTH', name: 'Rainbow Towers Hotel (RTH)', city: 'Harare' },
+    { code: 'KHCC', name: 'KHCC Conference Centre', city: 'Kadoma' },
+    { code: 'BRH', name: 'Bulawayo Rainbow Hotel (BRH)', city: 'Bulawayo' },
+    { code: 'VFRH', name: 'Victoria Falls Rainbow Hotel (VFRH)', city: 'Victoria Falls' },
+    { code: 'AZAM', name: 'A\'Zambezi River Lodge (AZAM)', city: 'Victoria Falls' },
+    { code: 'OTHER', name: 'Other (Manual Entry)', city: '' },
+];
+
+// Inter-business unit distances in KM (exact values from distance matrix)
+const DISTANCE_MATRIX: Record<string, Record<string, number>> = {
+    'RTH':  { 'RTH': 0,   'NAH': 2.1,   'KHCC': 139,   'BRH': 440,   'AZAM': 713,   'VFRH': 709,   'MRC': 272 },
+    'NAH':  { 'RTH': 2.1, 'NAH': 0,     'KHCC': 136.9, 'BRH': 437.9, 'AZAM': 710.9, 'VFRH': 706.9, 'MRC': 269.9 },
+    'KHCC': { 'RTH': 139, 'NAH': 140, 'KHCC': 0,     'BRH': 301,   'AZAM': 574,   'VFRH': 570,   'MRC': 133 },
+    'BRH':  { 'RTH': 440, 'NAH': 437.9, 'KHCC': 301,   'BRH': 0,     'AZAM': 273,   'VFRH': 269,   'MRC': 168 },
+    'AZAM': { 'RTH': 713, 'NAH': 710.9, 'KHCC': 574,   'BRH': 273,   'AZAM': 0,     'VFRH': 4,     'MRC': 441 },
+    'VFRH': { 'RTH': 709, 'NAH': 706.9, 'KHCC': 570,   'BRH': 269,   'AZAM': 4,     'VFRH': 0,     'MRC': 437 },
+    'MRC':  { 'RTH': 272, 'NAH': 269.9, 'KHCC': 133,   'BRH': 168,   'AZAM': 441,   'VFRH': 437,   'MRC': 0 },
+};
+
+// Get distance between two locations
+const getDistance = (from: string, to: string): number => {
+    if (!from || !to) return 0;
+    return DISTANCE_MATRIX[from]?.[to] || 0;
+};
 
 export default function HotelBookingPage() {
     const { data: session, status } = useSession();
@@ -63,27 +125,83 @@ export default function HotelBookingPage() {
 
     // Approver selection state - 4 fixed roles
     const approvalRoles = [
-        { key: 'hod', label: 'Head of Department', description: 'Department Approval' },
-        { key: 'hr_director', label: 'HR Director', description: 'HR Review' },
-        { key: 'finance_director', label: 'Finance Director', description: 'Financial Review' },
-        { key: 'ceo', label: 'CEO', description: 'Final Authorization' },
+        { key: 'line_manager', label: 'Line Manager', description: 'Recommendation' },
+        { key: 'functional_head', label: 'Functional Head', description: 'Functional Approval' },
+        { key: 'hrd', label: 'HRD', description: 'HRD Approval' },
+        { key: 'ceo', label: 'CEO', description: 'Authorisation' },
     ];
     const [users, setUsers] = useState<Array<{ id: string; display_name: string; email: string; job_title?: string }>>([]);
     const [loadingUsers, setLoadingUsers] = useState(true);
     const [selectedApprovers, setSelectedApprovers] = useState<Record<string, string>>({
-        hod: '',
-        hr_director: '',
-        finance_director: '',
+        line_manager: '',
+        functional_head: '',
+        hrd: '',
         ceo: '',
     });
     const [approverSearch, setApproverSearch] = useState<Record<string, string>>({
-        hod: '',
-        hr_director: '',
-        finance_director: '',
+        line_manager: '',
+        functional_head: '',
+        hrd: '',
         ceo: '',
     });
     const [showApproverDropdown, setShowApproverDropdown] = useState<string | null>(null);
     const [useParallelApprovals, setUseParallelApprovals] = useState(false);
+
+    // AA Rates Calculator state (simplified)
+    const [aaCalculator, setAACalculator] = useState<AACalculatorData>({
+        engineCapacity: '1.6L-2.0L',
+        fuelType: 'petrol',
+    });
+
+    // Get AA Rate based on engine capacity and fuel type
+    const getAARate = (): number => {
+        const rates = AA_RATES[aaCalculator.engineCapacity];
+        if (!rates) return 0;
+        return rates[aaCalculator.fuelType];
+    };
+
+    // Calculate and apply AA rate to travel budget
+    const applyAARate = () => {
+        const rate = getAARate();
+        const totalKm = travelData.itinerary.reduce((sum, row) => sum + (parseFloat(row.km) || 0), 0);
+        const travelCost = (totalKm * rate).toFixed(2);
+        
+        setTravelData(prev => ({
+            ...prev,
+            budget: {
+                ...prev.budget,
+                aaRates: {
+                    quantity: totalKm.toString(),
+                    unitCost: rate.toFixed(2),
+                    totalCost: travelCost,
+                }
+            }
+        }));
+        setAaRatesLocked(true);
+    };
+
+    // State to track if AA rates are locked (applied from calculator)
+    const [aaRatesLocked, setAaRatesLocked] = useState(false);
+
+    // Cost allocation is now auto-calculated, no need for state
+
+    // Emergency request state (for travel within 7 days)
+    const [isEmergencyRequest, setIsEmergencyRequest] = useState(false);
+    const [emergencyReason, setEmergencyReason] = useState('');
+
+    // Tollgate route type selection (premium or standard)
+    const [tollgateRouteType, setTollgateRouteType] = useState<TollgateRouteType>('premium');
+
+    // Check if travel date is within 7 days
+    const isTravelWithin7Days = () => {
+        if (!travelData.dateOfIntendedTravel) return false;
+        const travelDate = new Date(travelData.dateOfIntendedTravel);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const diffTime = travelDate.getTime() - today.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        return diffDays < 7 && diffDays >= 0;
+    };
 
     // Travel document state
     const [travelData, setTravelData] = useState({
@@ -91,8 +209,9 @@ export default function HotelBookingPage() {
         purposeOfTravel: '',
         accompanyingAssociates: '',
         travelMode: '',
+        vehicleRegistration: '',
         acceptConditions: false,
-        itinerary: [{ date: '', from: '', to: '', km: '', justification: '' }],
+        itinerary: [{ date: '', from: '', fromCustom: '', to: '', toCustom: '', km: '', justification: '' }],
         hotelReservation: '',
         budget: {
             fuel: { quantity: '', unitCost: '', totalCost: '' },
@@ -101,7 +220,7 @@ export default function HotelBookingPage() {
             overnightAccommodation: { quantity: '', unitCost: '', totalCost: '' },
             lunchDinner: { quantity: '', unitCost: '', totalCost: '' },
             conferencingCost: { quantity: '', unitCost: '', totalCost: '' },
-            tollgates: { quantity: '', unitCost: '', totalCost: '' },
+            tollgates: [{ road: '', quantity: '1', unitCost: '', totalCost: '' }] as TollgateEntry[],
             other: { description: '', quantity: '', unitCost: '', totalCost: '' },
         },
     });
@@ -109,17 +228,34 @@ export default function HotelBookingPage() {
     const addItineraryRow = () => {
         setTravelData(prev => ({
             ...prev,
-            itinerary: [...prev.itinerary, { date: '', from: '', to: '', km: '', justification: '' }]
+            itinerary: [...prev.itinerary, { date: '', from: '', fromCustom: '', to: '', toCustom: '', km: '', justification: '' }]
         }));
     };
 
     const updateItineraryRow = (index: number, field: string, value: string) => {
-        setTravelData(prev => ({
-            ...prev,
-            itinerary: prev.itinerary.map((row, i) => 
-                i === index ? { ...row, [field]: value } : row
-            )
-        }));
+        setTravelData(prev => {
+            const updatedItinerary = prev.itinerary.map((row, i) => {
+                if (i !== index) return row;
+                const updatedRow = { ...row, [field]: value };
+                // Auto-calculate KM when From or To changes (only if neither is 'OTHER')
+                if (field === 'from' || field === 'to') {
+                    const fromCode = field === 'from' ? value : row.from;
+                    const toCode = field === 'to' ? value : row.to;
+                    if (fromCode && toCode && fromCode !== 'OTHER' && toCode !== 'OTHER') {
+                        updatedRow.km = getDistance(fromCode, toCode).toString();
+                    } else if (fromCode === 'OTHER' || toCode === 'OTHER') {
+                        // Clear KM when switching to OTHER so user can enter manually
+                        updatedRow.km = '';
+                    }
+                }
+                return updatedRow;
+            });
+            return { ...prev, itinerary: updatedItinerary };
+        });
+        // Unlock AA rates if itinerary changes (user needs to recalculate)
+        if (field === 'from' || field === 'to' || field === 'km') {
+            setAaRatesLocked(false);
+        }
     };
 
     const removeItineraryRow = (index: number) => {
@@ -131,20 +267,58 @@ export default function HotelBookingPage() {
         }
     };
 
+    // Calculate total tollgates cost
+    const calculateTollgatesTotal = () => {
+        return travelData.budget.tollgates.reduce((sum, t) => sum + (parseFloat(t.totalCost) || 0), 0);
+    };
+
     const calculateGrandTotal = () => {
         const budget = travelData.budget;
+        const tollgatesTotal = calculateTollgatesTotal();
         const values = [
-            budget.fuel.totalCost,
             budget.aaRates.totalCost,
             budget.airBusTickets.totalCost,
             budget.conferencingCost.totalCost,
-            budget.tollgates.totalCost,
             budget.other.totalCost,
         ];
-        return values.reduce((sum, val) => sum + (parseFloat(val) || 0), 0).toFixed(2);
+        return values.reduce((sum, val) => sum + (parseFloat(val) || 0), tollgatesTotal).toFixed(2);
     };
 
-    const updateBudgetItem = (item: keyof typeof travelData.budget, field: string, value: string) => {
+    // Calculate cost allocation based on itinerary destinations
+    const calculateCostAllocation = (): CostAllocation => {
+        const grandTotal = parseFloat(calculateGrandTotal()) || 0;
+        const unitCodes = ['MRC', 'NAH', 'RTH', 'KHCC', 'BRH', 'VFRH', 'AZAM'];
+        const unitKeys: (keyof CostAllocation)[] = ['mrc', 'nah', 'rth', 'khcc', 'brh', 'vfrh', 'azam'];
+        
+        // Count visits to each unit from itinerary (both from and to)
+        const visitCounts: Record<string, number> = {};
+        travelData.itinerary.forEach(row => {
+            if (row.from && row.from !== 'OTHER') {
+                visitCounts[row.from] = (visitCounts[row.from] || 0) + 1;
+            }
+            if (row.to && row.to !== 'OTHER') {
+                visitCounts[row.to] = (visitCounts[row.to] || 0) + 1;
+            }
+        });
+        
+        const totalVisits = Object.values(visitCounts).reduce((sum, count) => sum + count, 0);
+        
+        const allocation: CostAllocation = { corp: '', mrc: '', nah: '', rth: '', khcc: '', brh: '', vfrh: '', azam: '' };
+        
+        if (totalVisits > 0 && grandTotal > 0) {
+            unitCodes.forEach((code, idx) => {
+                const visits = visitCounts[code] || 0;
+                if (visits > 0) {
+                    const share = (visits / totalVisits) * grandTotal;
+                    allocation[unitKeys[idx]] = share.toFixed(2);
+                }
+            });
+        }
+        
+        return allocation;
+    };
+
+    const updateBudgetItem = (item: 'fuel' | 'aaRates' | 'airBusTickets' | 'overnightAccommodation' | 'lunchDinner' | 'conferencingCost' | 'other', field: string, value: string) => {
         setTravelData(prev => {
             const currentItem = prev.budget[item];
             const updatedItem = { ...currentItem, [field]: value };
@@ -164,6 +338,70 @@ export default function HotelBookingPage() {
                 },
             };
         });
+    };
+
+    // Tollgate management functions
+    const addTollgateRow = () => {
+        setTravelData(prev => ({
+            ...prev,
+            budget: {
+                ...prev.budget,
+                tollgates: [...prev.budget.tollgates, { road: '', quantity: '1', unitCost: '', totalCost: '' }]
+            }
+        }));
+    };
+
+    const updateTollgateRow = (index: number, field: keyof TollgateEntry, value: string) => {
+        setTravelData(prev => {
+            const updatedTollgates = prev.budget.tollgates.map((t, i) => {
+                if (i !== index) return t;
+                const updated = { ...t, [field]: value };
+                if (field === 'quantity' || field === 'unitCost') {
+                    const qty = parseFloat(field === 'quantity' ? value : updated.quantity) || 0;
+                    const uc = parseFloat(field === 'unitCost' ? value : updated.unitCost) || 0;
+                    updated.totalCost = (qty * uc).toFixed(2);
+                }
+                return updated;
+            });
+            return { ...prev, budget: { ...prev.budget, tollgates: updatedTollgates } };
+        });
+    };
+
+    const removeTollgateRow = (index: number) => {
+        if (travelData.budget.tollgates.length > 1) {
+            setTravelData(prev => ({
+                ...prev,
+                budget: {
+                    ...prev.budget,
+                    tollgates: prev.budget.tollgates.filter((_, i) => i !== index)
+                }
+            }));
+        }
+    };
+
+    // Auto-calculate tollgates based on itinerary routes
+    const autoCalculateTollgates = () => {
+        const calculatedTollgates = calculateTollgatesForItinerary(travelData.itinerary, tollgateRouteType);
+        setTravelData(prev => ({
+            ...prev,
+            budget: {
+                ...prev.budget,
+                tollgates: calculatedTollgates,
+            }
+        }));
+    };
+
+    // Get tollgate summary for display
+    const getTollgateSummary = () => {
+        const routes: string[] = [];
+        for (const row of travelData.itinerary) {
+            if (!row.from || !row.to || row.from === 'OTHER' || row.to === 'OTHER') continue;
+            const info = getTollgateRouteInfo(row.from, row.to);
+            if (info && (info.premium > 0 || info.standard > 0)) {
+                routes.push(`${row.from}→${row.to}: ${info.premium} premium ($${info.premiumCost}), ${info.standard} standard ($${info.standardCost})`);
+            }
+        }
+        return routes;
     };
 
     useEffect(() => {
@@ -309,30 +547,32 @@ export default function HotelBookingPage() {
         setSelectedApprovers(prev => ({ ...prev, [roleKey]: '' }));
     };
 
-    const handleBusinessUnitToggle = (unitId: string, unitName: string) => {
-        setSelectedBusinessUnits(prev => {
-            const exists = prev.find(u => u.id === unitId);
-            if (exists) {
-                return prev.filter(u => u.id !== unitId);
-            }
-            return [...prev, {
-                id: unitId,
-                name: unitName,
-                bookingMade: false,
-                arrivalDate: '',
-                departureDate: '',
-                numberOfNights: '',
-                numberOfRooms: '',
-                accommodationType: 'accommodation_only',
-                specialArrangements: 'N/A',
-            }];
-        });
+    // Add a new booking instance for a business unit (allows same hotel multiple times)
+    const handleAddBusinessUnit = (unitId: string, unitName: string) => {
+        const instanceId = `${unitId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        setSelectedBusinessUnits(prev => [...prev, {
+            instanceId,
+            id: unitId,
+            name: unitName,
+            bookingMade: false,
+            arrivalDate: '',
+            departureDate: '',
+            numberOfNights: '',
+            numberOfRooms: '',
+            accommodationType: 'accommodation_only',
+            specialArrangements: 'N/A',
+        }]);
     };
 
-    const handleBusinessUnitFieldChange = (unitId: string, field: keyof SelectedBusinessUnit, value: string | boolean) => {
+    // Remove a specific booking instance
+    const handleRemoveBusinessUnit = (instanceId: string) => {
+        setSelectedBusinessUnits(prev => prev.filter(u => u.instanceId !== instanceId));
+    };
+
+    const handleBusinessUnitFieldChange = (instanceId: string, field: keyof SelectedBusinessUnit, value: string | boolean) => {
         setSelectedBusinessUnits(prev =>
             prev.map(u => {
-                if (u.id !== unitId) return u;
+                if (u.instanceId !== instanceId) return u;
                 const updated = { ...u, [field]: value };
                 // Auto-calculate nights when dates change
                 if ((field === 'arrivalDate' || field === 'departureDate') && updated.arrivalDate && updated.departureDate) {
@@ -420,7 +660,7 @@ export default function HotelBookingPage() {
 
         try {
             const fieldChanges = collectFieldChanges();
-            const approversArray = [selectedApprovers.hod, selectedApprovers.hr_director, selectedApprovers.finance_director, selectedApprovers.ceo].filter(Boolean);
+            const approversArray = [selectedApprovers.line_manager, selectedApprovers.functional_head, selectedApprovers.hrd, selectedApprovers.ceo].filter(Boolean);
 
             const response = await fetch(`/api/requests/${editRequestId}`, {
                 method: 'PUT',
@@ -473,7 +713,7 @@ export default function HotelBookingPage() {
         setError(null);
 
         try {
-            const approversArray = [selectedApprovers.hod, selectedApprovers.hr_director, selectedApprovers.finance_director, selectedApprovers.ceo].filter(Boolean);
+            const approversArray = [selectedApprovers.line_manager, selectedApprovers.functional_head, selectedApprovers.hrd, selectedApprovers.ceo].filter(Boolean);
 
             const response = await fetch(`/api/requests/${editRequestId}`, {
                 method: 'PUT',
@@ -562,14 +802,14 @@ export default function HotelBookingPage() {
         }
 
         // Required: All 4 approvers
-        if (!selectedApprovers.hod) {
-            errors.push('Please select an approver for Head of Department');
+        if (!selectedApprovers.line_manager) {
+            errors.push('Please select an approver for Line Manager');
         }
-        if (!selectedApprovers.hr_director) {
-            errors.push('Please select an approver for HR Director');
+        if (!selectedApprovers.functional_head) {
+            errors.push('Please select an approver for Functional Head');
         }
-        if (!selectedApprovers.finance_director) {
-            errors.push('Please select an approver for Finance Director');
+        if (!selectedApprovers.hrd) {
+            errors.push('Please select an approver for HRD');
         }
         if (!selectedApprovers.ceo) {
             errors.push('Please select an approver for CEO');
@@ -604,11 +844,22 @@ export default function HotelBookingPage() {
                     errors.push('Date of intended travel cannot be in the past');
                 }
             }
+            // 7-day advance validation
+            if (travelData.dateOfIntendedTravel && isTravelWithin7Days()) {
+                if (!isEmergencyRequest) {
+                    errors.push('Travel within 7 days requires flagging as an emergency request');
+                } else if (!emergencyReason.trim()) {
+                    errors.push('Emergency reason is required for travel within 7 days');
+                }
+            }
             if (!travelData.purposeOfTravel.trim()) {
                 errors.push('Purpose of travel is required');
             }
             if (!travelData.travelMode.trim()) {
                 errors.push('Travel mode is required');
+            }
+            if (travelData.travelMode === 'personal_motor_vehicle' && !travelData.vehicleRegistration?.trim()) {
+                errors.push('Vehicle registration number is required for personal motor vehicle');
             }
             if (!travelData.acceptConditions) {
                 errors.push('You must accept the travel conditions');
@@ -622,12 +873,12 @@ export default function HotelBookingPage() {
             }
             // At least one budget row with data
             const budget = travelData.budget;
+            const tollgatesTotal = budget.tollgates.reduce((sum, t) => sum + (parseFloat(t.totalCost) || 0), 0);
             const hasValidBudget = 
-                (budget.fuel.totalCost && parseFloat(budget.fuel.totalCost) > 0) ||
                 (budget.aaRates.totalCost && parseFloat(budget.aaRates.totalCost) > 0) ||
                 (budget.airBusTickets.totalCost && parseFloat(budget.airBusTickets.totalCost) > 0) ||
                 (budget.conferencingCost.totalCost && parseFloat(budget.conferencingCost.totalCost) > 0) ||
-                (budget.tollgates.totalCost && parseFloat(budget.tollgates.totalCost) > 0) ||
+                (tollgatesTotal > 0) ||
                 (budget.other.totalCost && parseFloat(budget.other.totalCost) > 0);
             if (!hasValidBudget) {
                 errors.push('At least one travel budget item is required');
@@ -644,9 +895,9 @@ export default function HotelBookingPage() {
             // Convert approvers object to ordered array for sequential approval
             // Order: HOD -> HR Director -> Finance Director -> CEO
             const approversArray = [
-                selectedApprovers.hod,
-                selectedApprovers.hr_director,
-                selectedApprovers.finance_director,
+                selectedApprovers.line_manager,
+                selectedApprovers.functional_head,
+                selectedApprovers.hrd,
                 selectedApprovers.ceo,
             ].filter(Boolean); // Remove any empty values
 
@@ -670,10 +921,15 @@ export default function HotelBookingPage() {
                         percentageDiscount: formData.percentageDiscount,
                         reason: formData.reason,
                         processTravelDocument: formData.processTravelDocument,
-                        ...(formData.processTravelDocument && { travelDocument: travelData }),
-                        approvers: approversArray, // Sequential array of approver IDs
-                        approverRoles: selectedApprovers, // Keep original object for reference
-                        useParallelApprovals: useParallelApprovals, // Parallel or sequential approval mode
+                        ...(formData.processTravelDocument && { 
+                            travelDocument: travelData,
+                            costAllocation: calculateCostAllocation(),
+                            isEmergencyRequest: isTravelWithin7Days() ? isEmergencyRequest : false,
+                            emergencyReason: isTravelWithin7Days() && isEmergencyRequest ? emergencyReason : '',
+                        }),
+                        approvers: approversArray,
+                        approverRoles: selectedApprovers,
+                        useParallelApprovals: useParallelApprovals,
                     },
                 }),
             });
@@ -699,9 +955,9 @@ export default function HotelBookingPage() {
         try {
             // Convert approvers object to ordered array for sequential approval
             const approversArray = [
-                selectedApprovers.hod,
-                selectedApprovers.hr_director,
-                selectedApprovers.finance_director,
+                selectedApprovers.line_manager,
+                selectedApprovers.functional_head,
+                selectedApprovers.hrd,
                 selectedApprovers.ceo,
             ].filter(Boolean);
 
@@ -725,7 +981,12 @@ export default function HotelBookingPage() {
                         percentageDiscount: formData.percentageDiscount,
                         reason: formData.reason,
                         processTravelDocument: formData.processTravelDocument,
-                        ...(formData.processTravelDocument && { travelDocument: travelData }),
+                        ...(formData.processTravelDocument && { 
+                            travelDocument: travelData,
+                            costAllocation: calculateCostAllocation(),
+                            isEmergencyRequest: isTravelWithin7Days() ? isEmergencyRequest : false,
+                            emergencyReason: isTravelWithin7Days() && isEmergencyRequest ? emergencyReason : '',
+                        }),
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
                         useParallelApprovals: useParallelApprovals,
@@ -847,161 +1108,185 @@ export default function HotelBookingPage() {
                     {/* Business Units Selection */}
                     <Card className="p-6">
                         <h3 className="text-sm font-semibold text-gray-700 mb-4 uppercase border-b pb-2">Select Business Units <span className="text-danger-500">*</span></h3>
-                        <p className="text-sm text-gray-500 mb-4">Select at least one business unit for this booking. Each unit has its own booking details.</p>
-                        <div className="space-y-4">
-                            {businessUnits.map((unit) => {
-                                const isSelected = selectedBusinessUnits.some(u => u.id === unit.id);
-                                const selectedUnit = selectedBusinessUnits.find(u => u.id === unit.id);
-                                return (
-                                    <div
-                                        key={unit.id}
-                                        className={`rounded-xl border transition-all ${
-                                            isSelected
-                                                ? 'border-primary-300 bg-primary-50/50'
-                                                : 'border-gray-200 bg-white hover:border-gray-300'
-                                        }`}
-                                    >
-                                        <div className="p-4">
-                                            <div className="flex items-center justify-between flex-wrap gap-4">
-                                                <label className="flex items-center gap-3 cursor-pointer flex-1 min-w-[200px]">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={isSelected}
-                                                        onChange={() => handleBusinessUnitToggle(unit.id, unit.name)}
-                                                        className="w-5 h-5 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
-                                                    />
-                                                    <span className="font-semibold text-gray-900">{unit.name}</span>
-                                                </label>
-                                                {isSelected && (
-                                                    <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-lg border border-gray-200">
-                                                        <span className="text-sm text-gray-600">Tel / Telex / Booking Made?</span>
-                                                        <label className="flex items-center gap-2 cursor-pointer">
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={selectedUnit?.bookingMade || false}
-                                                                onChange={() => handleBusinessUnitFieldChange(unit.id, 'bookingMade', !selectedUnit?.bookingMade)}
-                                                                className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
-                                                            />
-                                                            <span className="text-sm font-medium text-gray-700">Yes</span>
-                                                        </label>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        {isSelected && selectedUnit && (
-                                            <div className="border-t border-primary-200 bg-white p-4 rounded-b-xl space-y-4">
-                                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                                                    <Input 
-                                                        type="date"
-                                                        label ="Arrival Date *"
-                                                        value={selectedUnit.arrivalDate}
-                                                        onChange={(e) => handleBusinessUnitFieldChange(unit.id, 'arrivalDate', e.target.value)}
-                                                        required
-                                                        min={todayISO}
-                                                    />
-                                                    <Input
-                                                        type="date"
-                                                        label="Departure Date *"
-                                                        value={selectedUnit.departureDate}
-                                                        onChange={(e) => handleBusinessUnitFieldChange(unit.id, 'departureDate', e.target.value)}
-                                                        required
-                                                        min={selectedUnit.arrivalDate || todayISO}
-                                                    />
-                                                    <Input
-                                                        type="number"
-                                                        label="No. Of Nights *"
-                                                        value={selectedUnit.numberOfNights}
-                                                        placeholder="Auto-calculated"
-                                                        readOnly
-                                                        className="bg-gray-50"
-                                                    />
-                                                    <Input
-                                                        type="number"
-                                                        label="No. Of Rooms *"
-                                                        value={selectedUnit.numberOfRooms}
-                                                        onChange={(e) => handleBusinessUnitFieldChange(unit.id, 'numberOfRooms', e.target.value)}
-                                                        required
-                                                        min="1"
-                                                    />
-                                                </div>
-
-                                                <div>
-                                                    <label className="block text-sm font-semibold text-gray-700 mb-2 uppercase">Accommodation Type <span className="text-danger-500">*</span></label>
-                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                                        <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200">
-                                                            <input
-                                                                type="radio"
-                                                                name={`accommodationType_${unit.id}`}
-                                                                value="accommodation_only"
-                                                                checked={selectedUnit.accommodationType === 'accommodation_only'}
-                                                                onChange={(e) => handleBusinessUnitFieldChange(unit.id, 'accommodationType', e.target.value)}
-                                                                className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300"
-                                                            />
-                                                            <span className="text-sm text-gray-700">Accommodation Only (Bed only)</span>
-                                                        </label>
-                                                        <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200">
-                                                            <input
-                                                                type="radio"
-                                                                name={`accommodationType_${unit.id}`}
-                                                                value="accommodation_and_breakfast"
-                                                                checked={selectedUnit.accommodationType === 'accommodation_and_breakfast'}
-                                                                onChange={(e) => handleBusinessUnitFieldChange(unit.id, 'accommodationType', e.target.value)}
-                                                                className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300"
-                                                            />
-                                                            <span className="text-sm text-gray-700">Bed & Breakfast</span>
-                                                        </label>
-                                                        <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200">
-                                                            <input
-                                                                type="radio"
-                                                                name={`accommodationType_${unit.id}`}
-                                                                value="accommodation_and_meals"
-                                                                checked={selectedUnit.accommodationType === 'accommodation_and_meals'}
-                                                                onChange={(e) => handleBusinessUnitFieldChange(unit.id, 'accommodationType', e.target.value)}
-                                                                className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300"
-                                                            />
-                                                            <span className="text-sm text-gray-700">Accommodation & Meals</span>
-                                                        </label>
-                                                        <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200">
-                                                            <input
-                                                                type="radio"
-                                                                name={`accommodationType_${unit.id}`}
-                                                                value="accommodation_meals_drink"
-                                                                checked={selectedUnit.accommodationType === 'accommodation_meals_drink'}
-                                                                onChange={(e) => handleBusinessUnitFieldChange(unit.id, 'accommodationType', e.target.value)}
-                                                                className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300"
-                                                            />
-                                                            <span className="text-sm text-gray-700">Accommodation, Meals & Soft Drink</span>
-                                                        </label>
-                                                    </div>
-                                                </div>
-
-                                                <div>
-                                                    <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Special Arrangements</label>
-                                                    <textarea
-                                                        className="w-full px-4 py-2 rounded-xl border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all resize-none min-h-[60px]"
-                                                        value={selectedUnit.specialArrangements}
-                                                        onChange={(e) => handleBusinessUnitFieldChange(unit.id, 'specialArrangements', e.target.value)}
-                                                        placeholder="Any special arrangements for this business unit..."
-                                                    />
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
+                        <p className="text-sm text-gray-500 mb-4">Add business units for this booking. You can add the same hotel multiple times if visiting on different dates.</p>
+                        
+                        {/* Available Hotels - Add Buttons */}
+                        <div className="mb-6">
+                            <label className="block text-sm font-medium text-gray-600 mb-2">Add a Hotel:</label>
+                            <div className="flex flex-wrap gap-2">
+                                {businessUnits.map((unit) => {
+                                    const instanceCount = selectedBusinessUnits.filter(u => u.id === unit.id).length;
+                                    return (
+                                        <button
+                                            key={unit.id}
+                                            type="button"
+                                            onClick={() => handleAddBusinessUnit(unit.id, unit.name)}
+                                            className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:border-primary-400 hover:bg-primary-50 transition-all text-sm font-medium text-gray-700"
+                                        >
+                                            <svg className="w-4 h-4 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                            </svg>
+                                            {unit.name}
+                                            {instanceCount > 0 && (
+                                                <span className="ml-1 px-1.5 py-0.5 bg-primary-100 text-primary-700 text-xs rounded-full">{instanceCount}</span>
+                                            )}
+                                        </button>
+                                    );
+                                })}
+                            </div>
                             {businessUnitsLoading && (
-                                <div className="text-center py-8 text-gray-500">
-                                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-500 mx-auto mb-2" />
-                                    <p>Loading business units...</p>
-                                </div>
-                            )}
-                            {!businessUnitsLoading && businessUnits.length === 0 && (
-                                <div className="text-center py-8 text-gray-500">
-                                    <p>No business units available.</p>
+                                <div className="text-center py-4 text-gray-500">
+                                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary-500 mx-auto mb-2" />
+                                    <p className="text-sm">Loading hotels...</p>
                                 </div>
                             )}
                         </div>
+
+                        {/* Selected Booking Entries */}
+                        {selectedBusinessUnits.length > 0 ? (
+                            <div className="space-y-4">
+                                <label className="block text-sm font-medium text-gray-600">Selected Bookings ({selectedBusinessUnits.length}):</label>
+                                {selectedBusinessUnits.map((selectedUnit, index) => (
+                                    <div
+                                        key={selectedUnit.instanceId}
+                                        className="rounded-xl border border-primary-300 bg-primary-50/50 overflow-hidden"
+                                    >
+                                        <div className="p-4 bg-primary-100/50 flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <span className="w-6 h-6 rounded-full bg-primary-600 text-white text-xs flex items-center justify-center font-bold">{index + 1}</span>
+                                                <span className="font-semibold text-gray-900">{selectedUnit.name}</span>
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-gray-200">
+                                                    <span className="text-xs text-gray-600">Booking Made?</span>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedUnit.bookingMade}
+                                                        onChange={() => handleBusinessUnitFieldChange(selectedUnit.instanceId, 'bookingMade', !selectedUnit.bookingMade)}
+                                                        className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                                                    />
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRemoveBusinessUnit(selectedUnit.instanceId)}
+                                                    className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                    title="Remove this booking"
+                                                >
+                                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-white p-4 space-y-4">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                                <Input 
+                                                    type="date"
+                                                    label="Arrival Date *"
+                                                    value={selectedUnit.arrivalDate}
+                                                    onChange={(e) => handleBusinessUnitFieldChange(selectedUnit.instanceId, 'arrivalDate', e.target.value)}
+                                                    required
+                                                    min={todayISO}
+                                                />
+                                                <Input
+                                                    type="date"
+                                                    label="Departure Date *"
+                                                    value={selectedUnit.departureDate}
+                                                    onChange={(e) => handleBusinessUnitFieldChange(selectedUnit.instanceId, 'departureDate', e.target.value)}
+                                                    required
+                                                    min={selectedUnit.arrivalDate || todayISO}
+                                                />
+                                                <Input
+                                                    type="number"
+                                                    label="No. Of Nights *"
+                                                    value={selectedUnit.numberOfNights}
+                                                    placeholder="Auto-calculated"
+                                                    readOnly
+                                                    className="bg-gray-50"
+                                                />
+                                                <Input
+                                                    type="number"
+                                                    label="No. Of Rooms *"
+                                                    value={selectedUnit.numberOfRooms}
+                                                    onChange={(e) => handleBusinessUnitFieldChange(selectedUnit.instanceId, 'numberOfRooms', e.target.value)}
+                                                    required
+                                                    min="1"
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-sm font-semibold text-gray-700 mb-2 uppercase">Accommodation Type <span className="text-danger-500">*</span></label>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                    <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200">
+                                                        <input
+                                                            type="radio"
+                                                            name={`accommodationType_${selectedUnit.instanceId}`}
+                                                            value="accommodation_only"
+                                                            checked={selectedUnit.accommodationType === 'accommodation_only'}
+                                                            onChange={(e) => handleBusinessUnitFieldChange(selectedUnit.instanceId, 'accommodationType', e.target.value)}
+                                                            className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300"
+                                                        />
+                                                        <span className="text-sm text-gray-700">Accommodation Only (Bed only)</span>
+                                                    </label>
+                                                    <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200">
+                                                        <input
+                                                            type="radio"
+                                                            name={`accommodationType_${selectedUnit.instanceId}`}
+                                                            value="accommodation_and_breakfast"
+                                                            checked={selectedUnit.accommodationType === 'accommodation_and_breakfast'}
+                                                            onChange={(e) => handleBusinessUnitFieldChange(selectedUnit.instanceId, 'accommodationType', e.target.value)}
+                                                            className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300"
+                                                        />
+                                                        <span className="text-sm text-gray-700">Bed & Breakfast</span>
+                                                    </label>
+                                                    <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200">
+                                                        <input
+                                                            type="radio"
+                                                            name={`accommodationType_${selectedUnit.instanceId}`}
+                                                            value="accommodation_and_meals"
+                                                            checked={selectedUnit.accommodationType === 'accommodation_and_meals'}
+                                                            onChange={(e) => handleBusinessUnitFieldChange(selectedUnit.instanceId, 'accommodationType', e.target.value)}
+                                                            className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300"
+                                                        />
+                                                        <span className="text-sm text-gray-700">Accommodation & Meals</span>
+                                                    </label>
+                                                    <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200">
+                                                        <input
+                                                            type="radio"
+                                                            name={`accommodationType_${selectedUnit.instanceId}`}
+                                                            value="accommodation_meals_drink"
+                                                            checked={selectedUnit.accommodationType === 'accommodation_meals_drink'}
+                                                            onChange={(e) => handleBusinessUnitFieldChange(selectedUnit.instanceId, 'accommodationType', e.target.value)}
+                                                            className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300"
+                                                        />
+                                                        <span className="text-sm text-gray-700">Accommodation, Meals & Soft Drink</span>
+                                                    </label>
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Special Arrangements</label>
+                                                <textarea
+                                                    className="w-full px-4 py-2 rounded-xl border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all resize-none min-h-[60px]"
+                                                    value={selectedUnit.specialArrangements}
+                                                    onChange={(e) => handleBusinessUnitFieldChange(selectedUnit.instanceId, 'specialArrangements', e.target.value)}
+                                                    placeholder="Any special arrangements for this booking..."
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="text-center py-8 text-gray-500 border-2 border-dashed border-gray-200 rounded-xl">
+                                <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                </svg>
+                                <p className="font-medium">No hotels selected yet</p>
+                                <p className="text-sm mt-1">Click on a hotel above to add it to your booking</p>
+                            </div>
+                        )}
                     </Card>
 
                     {/* Allocation */}
@@ -1067,7 +1352,7 @@ export default function HotelBookingPage() {
                         <Card className="p-6 border-primary-200 bg-primary-50/30">
                             <div className="mb-4 text-center border-b pb-4">
                                 <h3 className="text-lg font-bold text-gray-800 uppercase">Local Travel Authorization</h3>
-                                <p className="text-xs text-gray-500 mt-1">DOC NO: HR APX – 1 LOCAL TRAVEL AUTHORISATION</p>
+                                <p className="text-xs text-gray-500 mt-1">DOC NO: HR APX – 27 LOCAL TRAVEL AUTHORISATION</p>
                             </div>
 
                             <div className="space-y-6">
@@ -1103,13 +1388,33 @@ export default function HotelBookingPage() {
                                             placeholder="Enter names of accompanying associates (if any)"
                                         />
                                     </div>
-                                    <Input
-                                        label="Travel Mode (Vehicle Registration if Driving) *"
-                                        value={travelData.travelMode}
-                                        onChange={(e) => setTravelData({ ...travelData, travelMode: e.target.value })}
-                                        placeholder="e.g., Company Vehicle ABC 1234"
-                                    />
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Travel Mode <span className="text-danger-500">*</span></label>
+                                        <select
+                                            value={travelData.travelMode}
+                                            onChange={(e) => setTravelData({ ...travelData, travelMode: e.target.value })}
+                                            className="w-full px-4 py-2 rounded-xl border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all"
+                                            required
+                                        >
+                                            <option value="">Select Travel Mode</option>
+                                            <option value="personal_motor_vehicle">Personal Motor Vehicle</option>
+                                            <option value="air_transport">Air Transport</option>
+                                            <option value="bus_public_transport">Bus / Public Transport</option>
+                                        </select>
+                                    </div>
                                 </div>
+                                {/* Vehicle Registration - only for Personal Motor Vehicle */}
+                                {travelData.travelMode === 'personal_motor_vehicle' && (
+                                    <div className="mt-4">
+                                        <Input
+                                            label="Vehicle Registration Number *"
+                                            value={travelData.vehicleRegistration || ''}
+                                            onChange={(e) => setTravelData({ ...travelData, vehicleRegistration: e.target.value })}
+                                            placeholder="e.g., ABC 1234"
+                                            required
+                                        />
+                                    </div>
+                                )}
 
                                 {/* Conditions */}
                                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
@@ -1134,18 +1439,58 @@ export default function HotelBookingPage() {
                                     </div>
                                 </div>
 
+                                {/* Emergency Request Warning - Shows when travel is within 7 days */}
+                                {isTravelWithin7Days() && (
+                                    <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4">
+                                        <div className="flex items-start gap-3 mb-4">
+                                            <svg className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                            </svg>
+                                            <div>
+                                                <h4 className="font-bold text-red-800 uppercase text-sm">Emergency Travel Request Required</h4>
+                                                <p className="text-sm text-red-700 mt-1">
+                                                    Your travel date is within 7 days. Per company policy, authorization must be sought at least 7 days prior to departure. 
+                                                    To proceed, you must flag this as an emergency request and provide a valid reason.
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-4 bg-white rounded-xl p-4 border border-red-200">
+                                            <div className="flex items-center gap-3">
+                                                <input
+                                                    type="checkbox"
+                                                    id="isEmergencyRequestHotel"
+                                                    checked={isEmergencyRequest}
+                                                    onChange={(e) => setIsEmergencyRequest(e.target.checked)}
+                                                    className="w-5 h-5 text-red-600 focus:ring-red-500 border-gray-300 rounded"
+                                                />
+                                                <label htmlFor="isEmergencyRequestHotel" className="text-sm font-semibold text-red-800 cursor-pointer">
+                                                    I confirm this is an emergency travel request <span className="text-red-600">*</span>
+                                                </label>
+                                            </div>
+                                            {isEmergencyRequest && (
+                                                <div>
+                                                    <label className="block text-sm font-semibold text-red-800 mb-1 uppercase">
+                                                        Reason for Emergency Travel <span className="text-red-600">*</span>
+                                                    </label>
+                                                    <textarea
+                                                        className="w-full px-4 py-2 rounded-xl border border-red-300 focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-all resize-none min-h-[80px]"
+                                                        value={emergencyReason}
+                                                        onChange={(e) => setEmergencyReason(e.target.value)}
+                                                        placeholder="Please explain why this travel request could not be submitted 7 days in advance..."
+                                                        required
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
                                 {/* Travel Itinerary */}
                                 <div>
                                     <div className="flex items-center justify-between mb-3">
                                         <h4 className="font-semibold text-gray-700 uppercase text-sm">Travel Itinerary <span className="text-danger-500">*</span></h4>
-                                        <button
-                                            type="button"
-                                            onClick={addItineraryRow}
-                                            className="text-sm text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1"
-                                        >
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                            </svg>
+                                        <button type="button" onClick={addItineraryRow} className="text-sm text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1">
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
                                             Add Row
                                         </button>
                                     </div>
@@ -1156,79 +1501,176 @@ export default function HotelBookingPage() {
                                                     <th className="px-3 py-2 text-left font-semibold text-gray-700">Date/Time</th>
                                                     <th className="px-3 py-2 text-left font-semibold text-gray-700">From</th>
                                                     <th className="px-3 py-2 text-left font-semibold text-gray-700">To</th>
-                                                    <th className="px-3 py-2 text-left font-semibold text-gray-700">KM</th>
+                                                    <th className="px-3 py-2 text-left font-semibold text-gray-700 w-20">KM</th>
                                                     <th className="px-3 py-2 text-left font-semibold text-gray-700">Justification</th>
                                                     <th className="px-3 py-2 w-10"></th>
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                {travelData.itinerary.map((row, index) => (
-                                                    <tr key={index} className="border-b border-gray-100">
-                                                        <td className="px-2 py-2">
-                                                            <input
-                                                                type="date"
-                                                                value={row.date}
-                                                                onChange={(e) => updateItineraryRow(index, 'date', e.target.value)}
-                                                                className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
-                                                            />
-                                                        </td>
-                                                        <td className="px-2 py-2">
-                                                            <input
-                                                                type="text"
-                                                                value={row.from}
-                                                                onChange={(e) => updateItineraryRow(index, 'from', e.target.value)}
-                                                                className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
-                                                                placeholder="Origin"
-                                                            />
-                                                        </td>
-                                                        <td className="px-2 py-2">
-                                                            <input
-                                                                type="text"
-                                                                value={row.to}
-                                                                onChange={(e) => updateItineraryRow(index, 'to', e.target.value)}
-                                                                className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
-                                                                placeholder="Destination"
-                                                            />
-                                                        </td>
-                                                        <td className="px-2 py-2">
-                                                            <input
-                                                                type="number"
-                                                                value={row.km}
-                                                                onChange={(e) => updateItineraryRow(index, 'km', e.target.value)}
-                                                                className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
-                                                                placeholder="0"
-                                                            />
-                                                        </td>
-                                                        <td className="px-2 py-2">
-                                                            <input
-                                                                type="text"
-                                                                value={row.justification}
-                                                                onChange={(e) => updateItineraryRow(index, 'justification', e.target.value)}
-                                                                className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
-                                                                placeholder="Reason"
-                                                            />
-                                                        </td>
-                                                        <td className="px-2 py-2">
-                                                            {travelData.itinerary.length > 1 && (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => removeItineraryRow(index)}
-                                                                    className="text-red-500 hover:text-red-700"
-                                                                >
-                                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                                                    </svg>
-                                                                </button>
-                                                            )}
-                                                        </td>
-                                                    </tr>
-                                                ))}
+                                                {travelData.itinerary.map((row, index) => {
+                                                    const isFromOther = row.from === 'OTHER';
+                                                    const isToOther = row.to === 'OTHER';
+                                                    const isManualEntry = isFromOther || isToOther;
+                                                    return (
+                                                        <tr key={index} className="border-b border-gray-100">
+                                                            <td className="px-2 py-2">
+                                                                <input type="date" value={row.date} onChange={(e) => updateItineraryRow(index, 'date', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" />
+                                                            </td>
+                                                            <td className="px-2 py-2">
+                                                                <div className="space-y-1">
+                                                                    <select value={row.from} onChange={(e) => updateItineraryRow(index, 'from', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm">
+                                                                        <option value="">Select Origin</option>
+                                                                        {TRAVEL_LOCATIONS.map(loc => (<option key={loc.code} value={loc.code}>{loc.name}</option>))}
+                                                                    </select>
+                                                                    {isFromOther && (
+                                                                        <input type="text" value={row.fromCustom || ''} onChange={(e) => updateItineraryRow(index, 'fromCustom', e.target.value)} className="w-full px-2 py-1 rounded border border-orange-300 focus:ring-1 focus:ring-orange-500 outline-none text-sm bg-orange-50" placeholder="Enter custom origin" />
+                                                                    )}
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-2 py-2">
+                                                                <div className="space-y-1">
+                                                                    <select value={row.to} onChange={(e) => updateItineraryRow(index, 'to', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm">
+                                                                        <option value="">Select Destination</option>
+                                                                        {TRAVEL_LOCATIONS.map(loc => (<option key={loc.code} value={loc.code}>{loc.name}</option>))}
+                                                                    </select>
+                                                                    {isToOther && (
+                                                                        <input type="text" value={row.toCustom || ''} onChange={(e) => updateItineraryRow(index, 'toCustom', e.target.value)} className="w-full px-2 py-1 rounded border border-orange-300 focus:ring-1 focus:ring-orange-500 outline-none text-sm bg-orange-50" placeholder="Enter custom destination" />
+                                                                    )}
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-2 py-2">
+                                                                <input type="number" value={row.km} readOnly={!isManualEntry} onChange={(e) => isManualEntry && updateItineraryRow(index, 'km', e.target.value)} className={`w-full px-2 py-1 rounded border outline-none text-sm text-center font-medium ${isManualEntry ? 'border-orange-300 bg-orange-50 focus:ring-1 focus:ring-orange-500' : 'border-gray-200 bg-gray-50'}`} placeholder="0" />
+                                                            </td>
+                                                            <td className="px-2 py-2">
+                                                                <input type="text" value={row.justification} onChange={(e) => updateItineraryRow(index, 'justification', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="Reason" />
+                                                            </td>
+                                                            <td className="px-2 py-2">
+                                                                {travelData.itinerary.length > 1 && (
+                                                                    <button type="button" onClick={() => removeItineraryRow(index)} className="text-red-500 hover:text-red-700">
+                                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                                    </button>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                                <tr className="bg-primary-50 font-semibold">
+                                                    <td colSpan={3} className="px-3 py-2 text-right text-primary-700">Total Distance:</td>
+                                                    <td className="px-2 py-2 text-center text-primary-900">{travelData.itinerary.reduce((sum, row) => sum + (parseFloat(row.km) || 0), 0)} km</td>
+                                                    <td colSpan={2}></td>
+                                                </tr>
                                             </tbody>
                                         </table>
                                     </div>
-                                </div>
+
+                                    </div>
 
                                 
+
+                                {/* AA Rates Calculator - Only for Personal Motor Vehicle */}
+                                {travelData.travelMode === 'personal_motor_vehicle' && (
+                                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                                        <div className="flex items-center gap-2 mb-4">
+                                            <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                            </svg>
+                                            <h4 className="font-semibold text-blue-800 uppercase text-sm">Travel Cost Calculator</h4>
+                                        </div>
+                                        <p className="text-sm text-blue-700 mb-4">Select your vehicle details to calculate travel cost using AA rates.</p>
+
+                                        <div className="bg-white rounded-xl p-4 border border-blue-200 space-y-4">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">Vehicle Engine Size <span className="text-danger-500">*</span></label>
+                                                    <select
+                                                        value={aaCalculator.engineCapacity}
+                                                        onChange={(e) => { setAACalculator({ ...aaCalculator, engineCapacity: e.target.value }); setAaRatesLocked(false); }}
+                                                        className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
+                                                    >
+                                                        <option value="1.1L-1.5L">1.1L – 1.5L</option>
+                                                        <option value="1.6L-2.0L">1.6L – 2.0L</option>
+                                                        <option value="2.1L-3.0L">2.1L – 3.0L</option>
+                                                        <option value="Above 3.0L">Above 3.0L</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">Fuel Type <span className="text-danger-500">*</span></label>
+                                                    <select
+                                                        value={aaCalculator.fuelType}
+                                                        onChange={(e) => { setAACalculator({ ...aaCalculator, fuelType: e.target.value as 'petrol' | 'diesel' }); setAaRatesLocked(false); }}
+                                                        className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
+                                                    >
+                                                        <option value="petrol">Petrol</option>
+                                                        <option value="diesel">Diesel</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            {/* Rate Display */}
+                                            <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                                                <div className="flex items-center justify-between">
+                                                    <div>
+                                                        <span className="text-gray-500 text-sm block">AA Rate per km</span>
+                                                        <span className="font-bold text-blue-900 text-xl">USD {getAARate().toFixed(2)}</span>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <span className="text-gray-500 text-sm block">Total Distance</span>
+                                                        <span className="font-bold text-gray-800 text-xl">{travelData.itinerary.reduce((sum, row) => sum + (parseFloat(row.km) || 0), 0)} km</span>
+                                                    </div>
+                                                    <div className="text-right bg-blue-100 rounded-lg p-3">
+                                                        <span className="text-blue-700 text-sm block font-medium">Estimated Travel Cost</span>
+                                                        <span className="font-bold text-blue-900 text-xl">USD {(travelData.itinerary.reduce((sum, row) => sum + (parseFloat(row.km) || 0), 0) * getAARate()).toFixed(2)}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* AA Rate Reference Table */}
+                                            <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                                <h5 className="font-medium text-gray-700 mb-2 text-xs uppercase">AA Rate Reference (USD/km)</h5>
+                                                <div className="overflow-x-auto">
+                                                    <table className="w-full text-xs">
+                                                        <thead>
+                                                            <tr className="border-b border-gray-200">
+                                                                <th className="text-left py-1 px-2 font-medium text-gray-600">Engine Capacity</th>
+                                                                <th className="text-center py-1 px-2 font-medium text-gray-600">Petrol</th>
+                                                                <th className="text-center py-1 px-2 font-medium text-gray-600">Diesel</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            <tr className={`border-b border-gray-100 ${aaCalculator.engineCapacity === '1.1L-1.5L' ? 'bg-blue-50' : ''}`}>
+                                                                <td className="py-1 px-2">1.1L – 1.5L</td>
+                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.1L-1.5L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-blue-700' : ''}`}>0.28</td>
+                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.1L-1.5L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-blue-700' : ''}`}>0.26</td>
+                                                            </tr>
+                                                            <tr className={`border-b border-gray-100 ${aaCalculator.engineCapacity === '1.6L-2.0L' ? 'bg-blue-50' : ''}`}>
+                                                                <td className="py-1 px-2">1.6L – 2.0L</td>
+                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.6L-2.0L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-blue-700' : ''}`}>0.35</td>
+                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.6L-2.0L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-blue-700' : ''}`}>0.32</td>
+                                                            </tr>
+                                                            <tr className={`border-b border-gray-100 ${aaCalculator.engineCapacity === '2.1L-3.0L' ? 'bg-blue-50' : ''}`}>
+                                                                <td className="py-1 px-2">2.1L – 3.0L</td>
+                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '2.1L-3.0L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-blue-700' : ''}`}>0.48</td>
+                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '2.1L-3.0L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-blue-700' : ''}`}>0.45</td>
+                                                            </tr>
+                                                            <tr className={`${aaCalculator.engineCapacity === 'Above 3.0L' ? 'bg-blue-50' : ''}`}>
+                                                                <td className="py-1 px-2">Above 3.0L</td>
+                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === 'Above 3.0L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-blue-700' : ''}`}>0.59</td>
+                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === 'Above 3.0L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-blue-700' : ''}`}>0.56</td>
+                                                            </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex justify-end mt-4">
+                                                <button type="button" onClick={applyAARate} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm flex items-center gap-2">
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                                                    Apply to Budget
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
 
                                 {/* Travel Budget */}
                                 <div>
@@ -1244,72 +1686,23 @@ export default function HotelBookingPage() {
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                <tr className="border-b border-gray-100">
-                                                    <td className="px-3 py-2 text-gray-700">Fuel (Litres)</td>
-                                                    <td className="px-2 py-2">
-                                                        <input
-                                                            type="number"
-                                                            value={travelData.budget.fuel.quantity}
-                                                            onChange={(e) => updateBudgetItem('fuel', 'quantity', e.target.value)}
-                                                            className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
-                                                            placeholder="0"
-                                                            min="0"
-                                                        />
-                                                    </td>
-                                                    <td className="px-2 py-2">
-                                                        <input
-                                                            type="number"
-                                                            value={travelData.budget.fuel.unitCost}
-                                                            onChange={(e) => updateBudgetItem('fuel', 'unitCost', e.target.value)}
-                                                            className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
-                                                            placeholder="0.00"
-                                                            step="0.01"
-                                                            min="0"
-                                                        />
-                                                    </td>
-                                                    <td className="px-2 py-2">
-                                                        <input
-                                                            type="number"
-                                                            value={travelData.budget.fuel.totalCost}
-                                                            readOnly
-                                                            className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm"
-                                                            placeholder="0.00"
-                                                        />
-                                                    </td>
-                                                </tr>
-                                                <tr className="border-b border-gray-100">
-                                                    <td className="px-3 py-2 text-gray-700">AA Rates (KM)</td>
-                                                    <td className="px-2 py-2">
-                                                        <input
-                                                            type="number"
-                                                            value={travelData.budget.aaRates.quantity}
-                                                            onChange={(e) => updateBudgetItem('aaRates', 'quantity', e.target.value)}
-                                                            className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
-                                                            placeholder="0"
-                                                            min="0"
-                                                        />
-                                                    </td>
-                                                    <td className="px-2 py-2">
-                                                        <input
-                                                            type="number"
-                                                            value={travelData.budget.aaRates.unitCost}
-                                                            onChange={(e) => updateBudgetItem('aaRates', 'unitCost', e.target.value)}
-                                                            className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
-                                                            placeholder="0.28"
-                                                            step="0.01"
-                                                            min="0"
-                                                        />
-                                                    </td>
-                                                    <td className="px-2 py-2">
-                                                        <input
-                                                            type="number"
-                                                            value={travelData.budget.aaRates.totalCost}
-                                                            readOnly
-                                                            className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm"
-                                                            placeholder="0.00"
-                                                        />
-                                                    </td>
-                                                </tr>
+                                                {travelData.travelMode === 'personal_motor_vehicle' && (
+                                                    <tr className={`border-b border-gray-100 ${aaRatesLocked ? 'bg-green-50' : ''}`}>
+                                                        <td className="px-3 py-2 text-gray-700">
+                                                            Travel Cost (AA Rate × Distance)
+                                                            {aaRatesLocked && <span className="ml-2 text-xs text-green-600 font-medium">(Applied)</span>}
+                                                        </td>
+                                                        <td className="px-2 py-2">
+                                                            <input type="number" value={travelData.budget.aaRates.quantity} onChange={(e) => !aaRatesLocked && updateBudgetItem('aaRates', 'quantity', e.target.value)} readOnly={aaRatesLocked} className={`w-full px-2 py-1 rounded border outline-none text-sm ${aaRatesLocked ? 'border-green-200 bg-green-50 text-green-800 font-medium' : 'border-gray-300 focus:ring-1 focus:ring-primary-500'}`} placeholder="0" min="0" />
+                                                        </td>
+                                                        <td className="px-2 py-2">
+                                                            <input type="number" value={travelData.budget.aaRates.unitCost} onChange={(e) => !aaRatesLocked && updateBudgetItem('aaRates', 'unitCost', e.target.value)} readOnly={aaRatesLocked} className={`w-full px-2 py-1 rounded border outline-none text-sm ${aaRatesLocked ? 'border-green-200 bg-green-50 text-green-800 font-medium' : 'border-gray-300 focus:ring-1 focus:ring-primary-500'}`} placeholder="0.28" step="0.01" min="0" />
+                                                        </td>
+                                                        <td className="px-2 py-2">
+                                                            <input type="number" value={travelData.budget.aaRates.totalCost} readOnly className={`w-full px-2 py-1 rounded border outline-none text-sm ${aaRatesLocked ? 'border-green-200 bg-green-50 text-green-800 font-medium' : 'border-gray-200 bg-gray-50'}`} placeholder="0.00" />
+                                                        </td>
+                                                    </tr>
+                                                )}
                                                 <tr className="border-b border-gray-100">
                                                     <td className="px-3 py-2 text-gray-700">Air/Bus Tickets</td>
                                                     <td className="px-2 py-2">
@@ -1442,39 +1835,83 @@ export default function HotelBookingPage() {
                                                         />
                                                     </td>
                                                 </tr>
-                                                <tr className="border-b border-gray-100">
-                                                    <td className="px-3 py-2 text-gray-700">Tollgates</td>
-                                                    <td className="px-2 py-2">
-                                                        <input
-                                                            type="number"
-                                                            value={travelData.budget.tollgates.quantity}
-                                                            onChange={(e) => updateBudgetItem('tollgates', 'quantity', e.target.value)}
-                                                            className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
-                                                            placeholder="0"
-                                                            min="0"
-                                                        />
-                                                    </td>
-                                                    <td className="px-2 py-2">
-                                                        <input
-                                                            type="number"
-                                                            value={travelData.budget.tollgates.unitCost}
-                                                            onChange={(e) => updateBudgetItem('tollgates', 'unitCost', e.target.value)}
-                                                            className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 focus:border-transparent outline-none text-sm"
-                                                            placeholder="0.00"
-                                                            step="0.01"
-                                                            min="0"
-                                                        />
-                                                    </td>
-                                                    <td className="px-2 py-2">
-                                                        <input
-                                                            type="number"
-                                                            value={travelData.budget.tollgates.totalCost}
-                                                            readOnly
-                                                            className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm"
-                                                            placeholder="0.00"
-                                                        />
-                                                    </td>
-                                                </tr>
+                                                {/* Tollgates Section - Only for Personal Motor Vehicle */}
+                                                {travelData.travelMode === 'personal_motor_vehicle' && (
+                                                    <>
+                                                        <tr className="bg-orange-50 border-b border-orange-200">
+                                                            <td className="px-3 py-3 text-orange-800 font-medium" colSpan={4}>
+                                                                <div className="flex items-center justify-between flex-wrap gap-2">
+                                                                    <div className="flex items-center gap-3 flex-wrap">
+                                                                        <span className="font-semibold">Tollgates</span>
+                                                                        <div className="flex items-center gap-2 text-xs">
+                                                                            <label className="flex items-center gap-1 cursor-pointer">
+                                                                                <input
+                                                                                    type="radio"
+                                                                                    name="tollgateRouteTypeHotel"
+                                                                                    value="premium"
+                                                                                    checked={tollgateRouteType === 'premium'}
+                                                                                    onChange={(e) => setTollgateRouteType(e.target.value as TollgateRouteType)}
+                                                                                    className="text-orange-600 focus:ring-orange-500"
+                                                                                />
+                                                                                <span>Premium ($4)</span>
+                                                                            </label>
+                                                                            <label className="flex items-center gap-1 cursor-pointer">
+                                                                                <input
+                                                                                    type="radio"
+                                                                                    name="tollgateRouteTypeHotel"
+                                                                                    value="standard"
+                                                                                    checked={tollgateRouteType === 'standard'}
+                                                                                    onChange={(e) => setTollgateRouteType(e.target.value as TollgateRouteType)}
+                                                                                    className="text-orange-600 focus:ring-orange-500"
+                                                                                />
+                                                                                <span>Standard ($3)</span>
+                                                                            </label>
+                                                                        </div>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={autoCalculateTollgates}
+                                                                            className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded-lg font-medium flex items-center gap-1 transition-colors"
+                                                                        >
+                                                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                                                                            Auto-Calculate from Itinerary
+                                                                        </button>
+                                                                    </div>
+                                                                    <button type="button" onClick={addTollgateRow} className="text-xs text-orange-600 hover:text-orange-700 font-medium flex items-center gap-1">
+                                                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                                                                        Add Tollgate
+                                                                    </button>
+                                                                </div>
+                                                                {/* Tollgate route summary */}
+                                                                {getTollgateSummary().length > 0 && (
+                                                                    <div className="mt-2 text-xs text-orange-700 bg-orange-100/50 rounded-lg px-2 py-1.5">
+                                                                        <span className="font-medium">Available routes:</span> {getTollgateSummary().join('; ')}
+                                                                    </div>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                        {travelData.budget.tollgates.map((toll, idx) => (
+                                                            <tr key={idx} className="border-b border-gray-100 bg-orange-50/30">
+                                                                <td className="px-2 py-2">
+                                                                    <input type="text" value={toll.road} onChange={(e) => updateTollgateRow(idx, 'road', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-orange-500 outline-none text-sm" placeholder="Road/Route name" />
+                                                                </td>
+                                                                <td className="px-2 py-2">
+                                                                    <input type="number" value={toll.quantity} onChange={(e) => updateTollgateRow(idx, 'quantity', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-orange-500 outline-none text-sm" placeholder="1" min="1" />
+                                                                </td>
+                                                                <td className="px-2 py-2">
+                                                                    <input type="number" value={toll.unitCost} onChange={(e) => updateTollgateRow(idx, 'unitCost', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-orange-500 outline-none text-sm" placeholder="0.00" step="0.01" min="0" />
+                                                                </td>
+                                                                <td className="px-2 py-2 flex items-center gap-1">
+                                                                    <input type="number" value={toll.totalCost} readOnly className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm" placeholder="0.00" />
+                                                                    {travelData.budget.tollgates.length > 1 && (
+                                                                        <button type="button" onClick={() => removeTollgateRow(idx)} className="text-red-500 hover:text-red-700 p-1">
+                                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                                        </button>
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </>
+                                                )}
                                                 <tr className="border-b border-gray-100">
                                                     <td className="px-2 py-2">
                                                         <input
@@ -1523,6 +1960,40 @@ export default function HotelBookingPage() {
                                             </tbody>
                                         </table>
                                     </div>
+
+                                    {/* Cost Allocation Table - Auto-filled based on itinerary */}
+                                    <div className="mt-6 pt-6 border-t border-gray-200">
+                                        <h4 className="font-semibold text-gray-700 uppercase text-sm mb-3">Allocation Cost to Unit <span className="text-gray-500 text-xs font-normal">(Auto-calculated based on itinerary destinations)</span></h4>
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm border border-gray-200">
+                                                <thead>
+                                                    <tr className="bg-gray-100">
+                                                        <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">Corp</th>
+                                                        <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">MRC</th>
+                                                        <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">NAH</th>
+                                                        <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">RTH</th>
+                                                        <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">KHCC</th>
+                                                        <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">BRH</th>
+                                                        <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">VFRH</th>
+                                                        <th className="px-2 py-2 text-center font-semibold text-gray-700">AZAM</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr>
+                                                        {(() => {
+                                                            const allocation = calculateCostAllocation();
+                                                            return (['corp', 'mrc', 'nah', 'rth', 'khcc', 'brh', 'vfrh', 'azam'] as const).map((unit, idx) => (
+                                                                <td key={unit} className={`px-1 py-2 text-center ${idx < 7 ? 'border-r border-gray-200' : ''} ${allocation[unit] ? 'bg-green-50 text-green-800 font-medium' : 'text-gray-400'}`}>
+                                                                    {allocation[unit] ? `$${allocation[unit]}` : '-'}
+                                                                </td>
+                                                            ));
+                                                        })()}
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <p className="text-xs text-gray-500 mt-2">* Costs are automatically distributed based on the proportion of visits to each business unit in your itinerary.</p>
+                                    </div>
                                 </div>
                             </div>
                         </Card>
@@ -1540,26 +2011,7 @@ export default function HotelBookingPage() {
                             Select a user to act as each approver role. All 4 approvers are required.
                         </p>
 
-                        {/* Parallel vs Sequential Approval Toggle */}
-                        <div className="mb-6 p-4 bg-gray-50 rounded-xl border border-gray-200">
-                            <label className="flex items-start gap-3 cursor-pointer">
-                                <input
-                                    type="checkbox"
-                                    checked={useParallelApprovals}
-                                    onChange={(e) => setUseParallelApprovals(e.target.checked)}
-                                    className="mt-1 w-5 h-5 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
-                                />
-                                <div>
-                                    <span className="font-semibold text-gray-900 block">Use Parallel Approvals</span>
-                                    <span className="text-sm text-gray-500 mt-1 block">
-                                        {useParallelApprovals 
-                                            ? 'All approvers will be notified immediately and can review the request simultaneously. Any approver can approve or reject at any time.'
-                                            : 'Approvals will be processed sequentially in the order shown below. Each approver must complete their review before the next approver is notified.'}
-                                    </span>
-                                </div>
-                            </label>
-                        </div>
-
+                        
                         {/* Click outside to close any dropdown */}
                         {showApproverDropdown && (
                             <div

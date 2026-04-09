@@ -25,7 +25,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Parse query parameters
     const { limit = '50', offset = '0', search, category, dateRange } = req.query;
 
-    // Build query
+    const userId = user.id;
+
+    // Build query with visibility filtering
+    // Users can only see archives they are involved in (creator, approver, or watcher)
     let query = supabaseAdmin
       .from('archived_documents')
       .select(`
@@ -46,9 +49,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         attached_documents,
         folder_name,
         template_id,
-        category
+        category,
+        creator_id,
+        approver_ids,
+        watcher_ids
       `)
       .eq('organization_id', organizationId)
+      .or(`creator_id.eq.${userId},approver_ids.cs.{${userId}},watcher_ids.cs.{${userId}},archived_by.eq.${userId}`)
       .order('archived_at', { ascending: false });
 
     // Apply search filter

@@ -8,3 +8,5 @@ export { useOrganizationData } from './useOrganizationData';
 export { useWorkflowDefinitions, useWorkflowDefinition } from './useWorkflowDefinitions';
 export { useHrimsOrganogram, useHrimsEmployees, useHrimsBusinessUnits, useHrimsDepartments, useHrimsApprovalChain } from './useHrimsOrganogram';
 export { useFormTemplates, useFormTemplate } from './useFormTemplates';
+export { useRBACRoles } from './useRBACRoles';
+export { useDelegations } from './useDelegations';

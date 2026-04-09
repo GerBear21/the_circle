@@ -4,11 +4,14 @@ import { GetServerSideProps } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../api/auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { fetchHrimsEmployeeByEmail } from '@/lib/hrimsClient';
 import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input } from '../../../components/ui';
+import PinVerificationModal from '../../../components/PinVerificationModal';
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
+import RedirectApprovalModal from '../../../components/RedirectApprovalModal';
 
 interface RequestDetail {
     id: string;
@@ -120,9 +123,99 @@ function getApproverIds(metadata: Record<string, any> | undefined): string[] {
     return [];
 }
 
-function ApprovalTimeline({ request }: { request: RequestDetail }) {
+function ApprovalTimeline({ request, onRedirect, canRedirect }: { request: RequestDetail; onRedirect?: (step: any) => void; canRedirect?: boolean }) {
+    const { data: session } = useSession();
+    const currentUserId = session?.user?.id;
+    
+    // Check if current user is the requestor (creator of the request)
+    const isRequestor = request.creator?.id === currentUserId;
+    
     const [approvers, setApprovers] = useState<ApproverInfo[]>([]);
     const [loadingApprovers, setLoadingApprovers] = useState(true);
+    
+    // Delegation request state
+    const [showDelegationModal, setShowDelegationModal] = useState(false);
+    const [delegationTargetApprover, setDelegationTargetApprover] = useState<{ id: string; name: string } | null>(null);
+    const [delegationUsers, setDelegationUsers] = useState<Array<{ id: string; display_name: string; email: string }>>([]);
+    const [delegationForm, setDelegationForm] = useState({ delegate_id: '', reason: '', starts_at: '', ends_at: '' });
+    const [delegationSubmitting, setDelegationSubmitting] = useState(false);
+    const [delegationFeedback, setDelegationFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    
+    // Track submitted delegation requests for this request
+    const [pendingDelegations, setPendingDelegations] = useState<Array<{
+        approverId: string;
+        approverName: string;
+        delegateName: string;
+        submittedAt: string;
+    }>>([]);
+
+    // Fetch users for delegation modal - exclude current user and approvers already in timeline
+    useEffect(() => {
+        if (showDelegationModal && delegationUsers.length === 0) {
+            fetch('/api/users')
+                .then(res => res.json())
+                .then(data => {
+                    const approverIds = new Set(approvers.map(a => a.id));
+                    setDelegationUsers((data.users || []).filter((u: any) => 
+                        u.id !== currentUserId && 
+                        u.id !== delegationTargetApprover?.id &&
+                        !approverIds.has(u.id)
+                    ));
+                })
+                .catch(() => setDelegationUsers([]));
+        }
+    }, [showDelegationModal, currentUserId, delegationUsers.length, approvers, delegationTargetApprover]);
+
+    // Handle delegation request submission
+    const handleDelegationSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!delegationTargetApprover || !delegationForm.delegate_id) return;
+
+        setDelegationSubmitting(true);
+        setDelegationFeedback(null);
+        try {
+            const res = await fetch('/api/rbac/delegations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    delegator_id: delegationTargetApprover.id,
+                    delegate_id: delegationForm.delegate_id,
+                    reason: delegationForm.reason || undefined,
+                    starts_at: delegationForm.starts_at ? new Date(delegationForm.starts_at).toISOString() : new Date().toISOString(),
+                    ends_at: delegationForm.ends_at ? new Date(delegationForm.ends_at).toISOString() : undefined,
+                    requested_by: currentUserId,
+                    request_id: request.id,
+                }),
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.error || 'Failed to submit delegation request');
+            }
+            setDelegationFeedback({ type: 'success', text: 'Delegation request submitted. An admin will review it shortly.' });
+            
+            // Add to pending delegations list
+            const delegateUser = delegationUsers.find(u => u.id === delegationForm.delegate_id);
+            if (delegationTargetApprover) {
+                setPendingDelegations(prev => [...prev, {
+                    approverId: delegationTargetApprover.id,
+                    approverName: delegationTargetApprover.name,
+                    delegateName: delegateUser?.display_name || 'Unknown',
+                    submittedAt: new Date().toISOString(),
+                }]);
+            }
+            
+            setDelegationForm({ delegate_id: '', reason: '', starts_at: '', ends_at: '' });
+            setTimeout(() => {
+                setShowDelegationModal(false);
+                setDelegationTargetApprover(null);
+                setDelegationFeedback(null);
+            }, 2000);
+        } catch (err: any) {
+            setDelegationFeedback({ type: 'error', text: err.message || 'Failed to submit delegation request.' });
+        } finally {
+            setDelegationSubmitting(false);
+        }
+    };
 
     useEffect(() => {
         async function fetchApprovers() {
@@ -249,6 +342,21 @@ function ApprovalTimeline({ request }: { request: RequestDetail }) {
                                                 {approver.display_name}
                                             </h4>
                                             <p className="text-sm text-gray-500">{approver.email}</p>
+                                            {/* Show redirection indicator */}
+                                            {(() => {
+                                                const step = request.request_steps?.find(s => s.approver?.id === approver.id);
+                                                if (step && (step as any).is_redirected) {
+                                                    return (
+                                                        <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 border border-amber-200">
+                                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                                                            </svg>
+                                                            pp {(step as any).redirect_job_title || 'Redirected'}
+                                                        </div>
+                                                    );
+                                                }
+                                                return null;
+                                            })()}
                                         </div>
                                     </div>
 
@@ -262,9 +370,47 @@ function ApprovalTimeline({ request }: { request: RequestDetail }) {
                                                 Rejected
                                             </span>
                                         ) : isActive ? (
-                                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-primary-50 text-primary-700 border border-primary-100 animate-pulse">
-                                                Awaiting Action
-                                            </span>
+                                            <div className="flex flex-col items-end gap-2">
+                                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-primary-50 text-primary-700 border border-primary-100 animate-pulse">
+                                                    Awaiting Action
+                                                </span>
+                                                {/* Check if there's a pending delegation for this approver */}
+                                                {(() => {
+                                                    const pendingDelegation = pendingDelegations.find(d => d.approverId === approver.id);
+                                                    if (pendingDelegation) {
+                                                        return (
+                                                            <div className="flex flex-col items-end gap-1">
+                                                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                                                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                                    </svg>
+                                                                    Delegation Requested
+                                                                </span>
+                                                                <span className="text-xs text-gray-500">
+                                                                    Waiting for admin approval
+                                                                </span>
+                                                            </div>
+                                                        );
+                                                    }
+                                                    return null;
+                                                })()}
+                                                {/* Requestor can request delegation for the current approver - only if no pending delegation */}
+                                                {isRequestor && approver.id !== currentUserId && !pendingDelegations.find(d => d.approverId === approver.id) && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setDelegationTargetApprover({ id: approver.id, name: approver.display_name });
+                                                            setShowDelegationModal(true);
+                                                        }}
+                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors"
+                                                    >
+                                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                        </svg>
+                                                        Request Delegation
+                                                    </button>
+                                                )}
+                                            </div>
                                         ) : (
                                             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-gray-50 text-gray-500 border border-gray-100">
                                                 Pending
@@ -294,6 +440,118 @@ function ApprovalTimeline({ request }: { request: RequestDetail }) {
                     );
                 })}
             </div>
+
+            {/* Delegation Request Modal */}
+            {showDelegationModal && delegationTargetApprover && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl">
+                        <div className="border-b border-gray-100 bg-gray-50/50 px-6 py-4 rounded-t-2xl flex items-center justify-between">
+                            <div>
+                                <h2 className="text-lg font-bold text-gray-900">Request Delegation</h2>
+                                <p className="text-xs text-gray-500 mt-0.5">
+                                    Request someone to act on behalf of <span className="font-medium text-gray-700">{delegationTargetApprover.name}</span>
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setShowDelegationModal(false);
+                                    setDelegationTargetApprover(null);
+                                    setDelegationForm({ delegate_id: '', reason: '', starts_at: '', ends_at: '' });
+                                    setDelegationFeedback(null);
+                                }}
+                                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleDelegationSubmit} className="p-6 space-y-4">
+                            {delegationFeedback && (
+                                <div className={`px-4 py-3 rounded-xl text-sm font-medium ${
+                                    delegationFeedback.type === 'success' 
+                                        ? 'bg-green-50 text-green-700 border border-green-200' 
+                                        : 'bg-red-50 text-red-700 border border-red-200'
+                                }`}>
+                                    {delegationFeedback.text}
+                                </div>
+                            )}
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Delegate To</label>
+                                <select
+                                    value={delegationForm.delegate_id}
+                                    onChange={(e) => setDelegationForm(f => ({ ...f, delegate_id: e.target.value }))}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                                    required
+                                >
+                                    <option value="">Select a colleague...</option>
+                                    {delegationUsers.map((u) => (
+                                        <option key={u.id} value={u.id}>{u.display_name} ({u.email})</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+                                <textarea
+                                    value={delegationForm.reason}
+                                    onChange={(e) => setDelegationForm(f => ({ ...f, reason: e.target.value }))}
+                                    placeholder="e.g. Annual leave, business travel..."
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 resize-none"
+                                    rows={2}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                                    <input
+                                        type="date"
+                                        value={delegationForm.starts_at}
+                                        onChange={(e) => setDelegationForm(f => ({ ...f, starts_at: e.target.value }))}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                                    <input
+                                        type="date"
+                                        value={delegationForm.ends_at}
+                                        onChange={(e) => setDelegationForm(f => ({ ...f, ends_at: e.target.value }))}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                                <p className="text-xs text-amber-700">
+                                    <strong>Note:</strong> Your delegation request will be reviewed by an admin before taking effect. You will be notified once it's approved.
+                                </p>
+                            </div>
+
+                            <div className="flex gap-2 justify-end pt-2">
+                                <Button
+                                    variant="outline"
+                                    type="button"
+                                    onClick={() => {
+                                        setShowDelegationModal(false);
+                                        setDelegationTargetApprover(null);
+                                        setDelegationForm({ delegate_id: '', reason: '', starts_at: '', ends_at: '' });
+                                        setDelegationFeedback(null);
+                                    }}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button variant="primary" type="submit" disabled={delegationSubmitting || !delegationForm.delegate_id}>
+                                    {delegationSubmitting ? 'Submitting...' : 'Submit Request'}
+                                </Button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -345,7 +603,8 @@ export const getServerSideProps: GetServerSideProps<CompHotelBookingDetailsPageP
           id,
           display_name,
           email,
-          profile_picture_url
+          profile_picture_url,
+          job_title
         ),
         request_steps (
           id,
@@ -356,6 +615,12 @@ export const getServerSideProps: GetServerSideProps<CompHotelBookingDetailsPageP
           status,
           due_at,
           created_at,
+          is_redirected,
+          original_approver_id,
+          redirected_by_id,
+          redirected_at,
+          redirect_reason,
+          redirect_job_title,
           approver:app_users!request_steps_approver_user_id_fkey (
             id,
             display_name,
@@ -446,9 +711,28 @@ export const getServerSideProps: GetServerSideProps<CompHotelBookingDetailsPageP
       approver: Array.isArray(step.approver) ? step.approver[0] : step.approver,
     }));
 
+    // Normalize creator
+    let creator = Array.isArray(request.creator) ? request.creator[0] : request.creator;
+
+    // If job_title is missing, try to fetch from HRIMS
+    if (creator && !creator.job_title && creator.email) {
+      try {
+        const hrimsData = await fetchHrimsEmployeeByEmail(creator.email);
+        if (hrimsData) {
+          // Use position_title from organogram if available, otherwise use job_title from employee
+          creator = {
+            ...creator,
+            job_title: hrimsData.position?.position_title || hrimsData.employee?.job_title || null,
+          };
+        }
+      } catch (hrimsError) {
+        console.log('Could not fetch HRIMS data for creator:', hrimsError);
+      }
+    }
+
     const enrichedRequest = {
       ...request,
-      creator: Array.isArray(request.creator) ? request.creator[0] : request.creator,
+      creator,
       status: actualStatus as RequestDetail['status'],
       current_step: currentStepIndex >= 0 ? currentStepIndex + 1 : request.request_steps?.length || 0,
       total_steps: request.request_steps?.length || 0,
@@ -492,6 +776,11 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
     const [reviewProcessing, setReviewProcessing] = useState(false);
     const [reviewError, setReviewError] = useState<string | null>(null);
     const [userSignatureUrl, setUserSignatureUrl] = useState<string | null>(null);
+    const [showPinModal, setShowPinModal] = useState(false);
+    const [pendingApprovalAction, setPendingApprovalAction] = useState<'approve' | 'reject' | null>(null);
+    const [showRedirectModal, setShowRedirectModal] = useState(false);
+    const [redirectStepInfo, setRedirectStepInfo] = useState<{ stepId: string; stepIndex: number; approverRole?: string; currentApproverName?: string } | null>(null);
+    const [redirecting, setRedirecting] = useState(false);
 
     const currentUserId = (session?.user as any)?.id;
     const isCreator = request?.creator?.id === currentUserId;
@@ -566,6 +855,14 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
             return;
         }
 
+        // Store the action and show PIN verification modal
+        setPendingApprovalAction(action);
+        setShowPinModal(true);
+    };
+
+    const executeApprovalAction = async () => {
+        if (!id || !effectivePendingStep || !pendingApprovalAction) return;
+
         setReviewProcessing(true);
         setReviewError(null);
 
@@ -576,14 +873,14 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                 body: JSON.stringify({
                     requestId: id,
                     stepId: effectivePendingStep.id,
-                    action,
+                    action: pendingApprovalAction,
                     comment: reviewComment || undefined,
                 }),
             });
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.error || `Failed to ${action} request`);
+                throw new Error(errorData.error || `Failed to ${pendingApprovalAction} request`);
             }
 
             const refreshResponse = await fetch(`/api/requests/${id}`);
@@ -594,10 +891,77 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
 
             setShowReviewModal(false);
             setReviewComment('');
+            setPendingApprovalAction(null);
         } catch (err: any) {
-            setReviewError(err.message || `Failed to ${action} request`);
+            setReviewError(err.message || `Failed to ${pendingApprovalAction} request`);
         } finally {
             setReviewProcessing(false);
+        }
+    };
+
+    const handlePinVerified = () => {
+        setShowPinModal(false);
+        executeApprovalAction();
+    };
+
+    const handlePinCancel = () => {
+        setShowPinModal(false);
+        setPendingApprovalAction(null);
+    };
+
+    // Check if user can redirect approvals (creator or any approver)
+    const canRedirectApprovals = (() => {
+        if (!request || request.status !== 'pending') return false;
+        if (isCreator) return true;
+        // Check if user is any approver on this request
+        return request.request_steps?.some(s => s.approver?.id === currentUserId);
+    })();
+
+    const handleOpenRedirectModal = (step: any) => {
+        setRedirectStepInfo({
+            stepId: step.id,
+            stepIndex: step.step_index,
+            approverRole: step.approver_role,
+            currentApproverName: step.approver?.display_name,
+        });
+        setShowRedirectModal(true);
+    };
+
+    const handleRedirectApproval = async (data: { newApproverId: string; reason: string; jobTitle: string }) => {
+        if (!redirectStepInfo || !id) return;
+
+        setRedirecting(true);
+        try {
+            const response = await fetch('/api/approvals/redirect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    requestId: id,
+                    stepId: redirectStepInfo.stepId,
+                    newApproverId: data.newApproverId,
+                    reason: data.reason,
+                    jobTitle: data.jobTitle,
+                }),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to redirect approval');
+            }
+
+            // Refresh the request data
+            const refreshResponse = await fetch(`/api/requests/${id}`);
+            if (refreshResponse.ok) {
+                const refreshData = await refreshResponse.json();
+                setRequest(refreshData.request);
+            }
+
+            setShowRedirectModal(false);
+            setRedirectStepInfo(null);
+        } catch (err: any) {
+            throw err;
+        } finally {
+            setRedirecting(false);
         }
     };
 
@@ -772,6 +1136,28 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
 
     return (
         <AppLayout title={`Request #${request.id.substring(0, 8)}`}>
+            {/* PIN Verification Modal */}
+            <PinVerificationModal
+                isOpen={showPinModal}
+                onVerified={handlePinVerified}
+                onCancel={handlePinCancel}
+                title={pendingApprovalAction === 'approve' ? 'Confirm Approval' : 'Confirm Rejection'}
+                description="Enter your 4-digit PIN to sign this action"
+            />
+
+            {/* Redirect Approval Modal */}
+            <RedirectApprovalModal
+                isOpen={showRedirectModal}
+                onClose={() => { setShowRedirectModal(false); setRedirectStepInfo(null); }}
+                onSubmit={handleRedirectApproval}
+                stepInfo={redirectStepInfo ? {
+                    stepIndex: redirectStepInfo.stepIndex,
+                    approverRole: redirectStepInfo.approverRole,
+                    currentApproverName: redirectStepInfo.currentApproverName,
+                } : undefined}
+                requestTitle={request?.title}
+            />
+
             <div className="max-w-[1400px] mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
 
                 {publishError && (
@@ -831,6 +1217,17 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                         <h1 className="text-3xl font-bold text-text-primary font-heading leading-tight mb-2">
                             {request.title}
                         </h1>
+                        {/* Show guest name or identifier if available */}
+                        {metadata.guestNames && (
+                            <p className="text-primary-600 font-medium text-lg mt-1">
+                                {metadata.guestNames}
+                            </p>
+                        )}
+                        {!metadata.guestNames && (metadata.guestTitle || metadata.guestFirstName) && (
+                            <p className="text-primary-600 font-medium text-lg mt-1">
+                                {metadata.guestTitle} {metadata.guestFirstName}
+                            </p>
+                        )}
                         <div className="text-text-secondary text-lg leading-relaxed max-w-3xl">
                             {request.description}
                         </div>
@@ -919,7 +1316,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                 <div>
                                                     <span className="text-xs font-semibold text-primary-600 uppercase tracking-wider">Guest Information</span>
                                                     <h2 className="text-2xl font-bold text-text-primary mt-1 font-heading">
-                                                        {metadata.guestNames || 'N/A'}
+                                                        {metadata.guestNames || (metadata.guestTitle && metadata.guestFirstName ? `${metadata.guestTitle} ${metadata.guestFirstName}` : metadata.voucherNumber ? `Voucher #${metadata.voucherNumber}` : `Request #${request.id.substring(0, 8)}`)}
                                                     </h2>
                                                     <div className="flex items-center gap-2 mt-2">
                                                         {metadata.isExternalGuest ? (
@@ -1156,19 +1553,11 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                                     </tr>
                                                                 </thead>
                                                                 <tbody>
-                                                                    {travelDocument.budget.fuel?.totalCost && parseFloat(travelDocument.budget.fuel.totalCost) > 0 && (
-                                                                        <tr className="border-t border-gray-100">
-                                                                            <td className="px-3 py-2 text-gray-900">Fuel (Litres)</td>
-                                                                            <td className="px-3 py-2 text-gray-900 text-right">{travelDocument.budget.fuel.quantity}</td>
-                                                                            <td className="px-3 py-2 text-gray-900 text-right">${travelDocument.budget.fuel.unitCost}</td>
-                                                                            <td className="px-3 py-2 text-gray-900 text-right font-medium">${travelDocument.budget.fuel.totalCost}</td>
-                                                                        </tr>
-                                                                    )}
                                                                     {travelDocument.budget.aaRates?.totalCost && parseFloat(travelDocument.budget.aaRates.totalCost) > 0 && (
-                                                                        <tr className="border-t border-gray-100">
-                                                                            <td className="px-3 py-2 text-gray-900">AA Rates (KM)</td>
-                                                                            <td className="px-3 py-2 text-gray-900 text-right">{travelDocument.budget.aaRates.quantity}</td>
-                                                                            <td className="px-3 py-2 text-gray-900 text-right">${travelDocument.budget.aaRates.unitCost}</td>
+                                                                        <tr className="border-t border-gray-100 bg-blue-50">
+                                                                            <td className="px-3 py-2 text-gray-900 font-medium">Travel Cost (AA Rate × Distance)</td>
+                                                                            <td className="px-3 py-2 text-gray-900 text-right">{travelDocument.budget.aaRates.quantity} km</td>
+                                                                            <td className="px-3 py-2 text-gray-900 text-right">${travelDocument.budget.aaRates.unitCost}/km</td>
                                                                             <td className="px-3 py-2 text-gray-900 text-right font-medium">${travelDocument.budget.aaRates.totalCost}</td>
                                                                         </tr>
                                                                     )}
@@ -1188,13 +1577,25 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                                             <td className="px-3 py-2 text-gray-900 text-right font-medium">${travelDocument.budget.conferencingCost.totalCost}</td>
                                                                         </tr>
                                                                     )}
-                                                                    {travelDocument.budget.tollgates?.totalCost && parseFloat(travelDocument.budget.tollgates.totalCost) > 0 && (
-                                                                        <tr className="border-t border-gray-100">
-                                                                            <td className="px-3 py-2 text-gray-900">Tollgates</td>
-                                                                            <td className="px-3 py-2 text-gray-900 text-right">{travelDocument.budget.tollgates.quantity}</td>
-                                                                            <td className="px-3 py-2 text-gray-900 text-right">${travelDocument.budget.tollgates.unitCost}</td>
-                                                                            <td className="px-3 py-2 text-gray-900 text-right font-medium">${travelDocument.budget.tollgates.totalCost}</td>
-                                                                        </tr>
+                                                                    {/* Tollgates - support both old format (single object) and new format (array) */}
+                                                                    {Array.isArray(travelDocument.budget.tollgates) ? (
+                                                                        travelDocument.budget.tollgates.filter((t: any) => t.totalCost && parseFloat(t.totalCost) > 0).map((toll: any, idx: number) => (
+                                                                            <tr key={idx} className="border-t border-gray-100 bg-orange-50/30">
+                                                                                <td className="px-3 py-2 text-gray-900">Tollgate{toll.road ? `: ${toll.road}` : ''}</td>
+                                                                                <td className="px-3 py-2 text-gray-900 text-right">{toll.quantity}</td>
+                                                                                <td className="px-3 py-2 text-gray-900 text-right">${toll.unitCost}</td>
+                                                                                <td className="px-3 py-2 text-gray-900 text-right font-medium">${toll.totalCost}</td>
+                                                                            </tr>
+                                                                        ))
+                                                                    ) : (
+                                                                        travelDocument.budget.tollgates?.totalCost && parseFloat(travelDocument.budget.tollgates.totalCost) > 0 && (
+                                                                            <tr className="border-t border-gray-100">
+                                                                                <td className="px-3 py-2 text-gray-900">Tollgates</td>
+                                                                                <td className="px-3 py-2 text-gray-900 text-right">{travelDocument.budget.tollgates.quantity}</td>
+                                                                                <td className="px-3 py-2 text-gray-900 text-right">${travelDocument.budget.tollgates.unitCost}</td>
+                                                                                <td className="px-3 py-2 text-gray-900 text-right font-medium">${travelDocument.budget.tollgates.totalCost}</td>
+                                                                            </tr>
+                                                                        )
                                                                     )}
                                                                     {travelDocument.budget.other?.totalCost && parseFloat(travelDocument.budget.other.totalCost) > 0 && (
                                                                         <tr className="border-t border-gray-100">
@@ -1211,8 +1612,11 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                                         <td className="px-3 py-3 text-right font-bold text-primary-800">
                                                                             ${(() => {
                                                                                 const b = travelDocument.budget;
-                                                                                const vals = [b.fuel?.totalCost, b.aaRates?.totalCost, b.airBusTickets?.totalCost, b.conferencingCost?.totalCost, b.tollgates?.totalCost, b.other?.totalCost];
-                                                                                return vals.reduce((sum: number, v: any) => sum + (parseFloat(v) || 0), 0).toFixed(2);
+                                                                                const tollgatesTotal = Array.isArray(b.tollgates) 
+                                                                                    ? b.tollgates.reduce((sum: number, t: any) => sum + (parseFloat(t.totalCost) || 0), 0)
+                                                                                    : parseFloat(b.tollgates?.totalCost) || 0;
+                                                                                const vals = [b.aaRates?.totalCost, b.airBusTickets?.totalCost, b.conferencingCost?.totalCost, b.other?.totalCost];
+                                                                                return vals.reduce((sum: number, v: any) => sum + (parseFloat(v) || 0), tollgatesTotal).toFixed(2);
                                                                             })()}
                                                                         </td>
                                                                     </tr>
@@ -1269,6 +1673,82 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                             </div>
                                         </Card>
                                     )}
+
+                                    {/* Administration Section - Only shows when request is fully approved */}
+                                    {actualStatus === 'approved' && (
+                                        <Card className="!p-0 overflow-hidden border-emerald-200 shadow-sm">
+                                            <div className="bg-emerald-50 px-6 py-4 border-b border-emerald-100">
+                                                <h3 className="font-semibold text-emerald-800 flex items-center gap-2">
+                                                    <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                    </svg>
+                                                    Administration
+                                                    <span className="ml-2 text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Post-Approval</span>
+                                                </h3>
+                                            </div>
+                                            <div className="p-6 space-y-4">
+                                                <p className="text-sm text-gray-600 mb-4">This section is for administrative use after the request has been fully approved.</p>
+                                                
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-gray-700 mb-1">Funds Issued By</label>
+                                                        <div className="px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700">
+                                                            {metadata.administration?.fundsIssuedBy || <span className="text-gray-400 italic">Not yet recorded</span>}
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-gray-700 mb-1">Funds Collected By</label>
+                                                        <div className="px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700">
+                                                            {metadata.administration?.fundsCollectedBy || <span className="text-gray-400 italic">Not yet recorded</span>}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">Additional Comments</label>
+                                                    <div className="px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700 min-h-[60px]">
+                                                        {metadata.administration?.additionalComments || <span className="text-gray-400 italic">No additional comments</span>}
+                                                    </div>
+                                                </div>
+
+                                                {/* Scanned Document Upload Section */}
+                                                <div className="mt-6 pt-4 border-t border-gray-200">
+                                                    <h4 className="font-medium text-gray-700 mb-3 flex items-center gap-2">
+                                                        <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                                                        </svg>
+                                                        Attached Travel Document
+                                                    </h4>
+                                                    <p className="text-xs text-gray-500 mb-3">Upload a scanned copy of the signed travel document or any supporting forms.</p>
+                                                    
+                                                    {metadata.administration?.scannedDocument ? (
+                                                        <div className="flex items-center gap-3 p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                                                            <svg className="w-8 h-8 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                            </svg>
+                                                            <div className="flex-1">
+                                                                <p className="font-medium text-emerald-800">{metadata.administration.scannedDocument.filename}</p>
+                                                                <p className="text-xs text-emerald-600">Uploaded on {new Date(metadata.administration.scannedDocument.uploadedAt).toLocaleDateString()}</p>
+                                                            </div>
+                                                            <a href={metadata.administration.scannedDocument.url} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 transition-colors">
+                                                                View
+                                                            </a>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex items-center justify-center p-6 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                                                            <div className="text-center">
+                                                                <svg className="w-10 h-10 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                                                </svg>
+                                                                <p className="text-sm text-gray-500">No document uploaded yet</p>
+                                                                <p className="text-xs text-gray-400 mt-1">Document upload will be available soon</p>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </Card>
+                                    )}
                                 </div>
                             )}
 
@@ -1276,46 +1756,206 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                 <div className="space-y-6">
                                     <Card className="!p-6 border-gray-100 shadow-sm">
                                         <h3 className="text-lg font-bold text-text-primary mb-6 font-heading">Approval Timeline</h3>
-                                        <ApprovalTimeline request={request} />
+                                        {canRedirectApprovals && (
+                                            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                                                <div className="flex items-start gap-2">
+                                                    <svg className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    </svg>
+                                                    <p className="text-xs text-amber-700">
+                                                        You can redirect pending approvals to another person if the assigned approver is unavailable. Click the "Redirect" button next to any pending approver.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        )}
+                                        <ApprovalTimeline 
+                                            request={request} 
+                                            onRedirect={handleOpenRedirectModal}
+                                            canRedirect={canRedirectApprovals}
+                                        />
                                     </Card>
                                 </div>
                             )}
 
                             {activeTab === 'documents' && (
                                 <div className="space-y-6">
+                                    {/* Request Summary Card for Approvers */}
+                                    <Card className="!p-0 overflow-hidden border-primary-100 shadow-sm bg-gradient-to-br from-primary-50/50 via-white to-white">
+                                        <div className="bg-primary-50/80 px-6 py-4 border-b border-primary-100">
+                                            <h3 className="font-semibold text-primary-800 flex items-center gap-2">
+                                                <svg className="w-5 h-5 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                </svg>
+                                                Request Summary
+                                            </h3>
+                                        </div>
+                                        <div className="p-6 space-y-4">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div className="space-y-1">
+                                                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Request Title</span>
+                                                    <p className="text-gray-900 font-medium">{request.title}</p>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Request ID</span>
+                                                    <p className="text-gray-900 font-mono text-sm">#{request.id.substring(0, 8).toUpperCase()}</p>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Submitted By</span>
+                                                    <div className="flex items-center gap-2">
+                                                        <img
+                                                            src={request.creator.profile_picture_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(request.creator.display_name || 'User')}&background=random&size=24`}
+                                                            alt={request.creator.display_name}
+                                                            className="w-6 h-6 rounded-full"
+                                                        />
+                                                        <div>
+                                                            <p className="text-gray-900 font-medium">{request.creator.display_name}</p>
+                                                            <p className="text-xs text-gray-500">{request.creator.job_title || 'Employee'}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Submitted On</span>
+                                                    <p className="text-gray-900">{new Date(request.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                                                </div>
+                                            </div>
+                                            {request.description && (
+                                                <div className="pt-3 border-t border-gray-100">
+                                                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Description</span>
+                                                    <p className="text-gray-700 mt-1">{request.description}</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </Card>
+
                                     {loadingDocuments ? (
                                         <div className="flex items-center justify-center py-12">
                                             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
                                         </div>
                                     ) : documents.length > 0 ? (
                                         <Card className="!p-0 overflow-hidden border-gray-200 shadow-sm">
-                                            <div className="bg-gray-50/50 px-6 py-4 border-b border-gray-100">
-                                                <h3 className="font-semibold text-text-primary font-heading">Uploaded Documents</h3>
+                                            <div className="bg-gray-50/50 px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                                                <h3 className="font-semibold text-text-primary font-heading flex items-center gap-2">
+                                                    <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                                                    </svg>
+                                                    Uploaded Documents
+                                                </h3>
+                                                <span className="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{documents.length} file{documents.length !== 1 ? 's' : ''}</span>
                                             </div>
-                                            <div className="p-4 space-y-3">
-                                                {documents.map((doc: any) => (
-                                                    <div key={doc.id} className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-200 hover:border-gray-300 transition-colors">
-                                                        <div className="flex items-center gap-3 flex-1 min-w-0">
-                                                            <div className="w-12 h-12 bg-primary-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                                                                <svg className="w-6 h-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                                                </svg>
-                                                            </div>
-                                                            <div className="flex-1 min-w-0">
-                                                                <p className="font-medium text-gray-900 truncate">{doc.filename}</p>
-                                                                <p className="text-xs text-gray-500">{doc.file_size ? `${(doc.file_size / 1024).toFixed(1)} KB` : ''}</p>
+                                            <div className="p-4 space-y-4">
+                                                {documents.map((doc: any, index: number) => {
+                                                    const fileExt = doc.filename?.split('.').pop()?.toLowerCase() || '';
+                                                    const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(fileExt);
+                                                    const isPdf = fileExt === 'pdf';
+                                                    const isWord = ['doc', 'docx'].includes(fileExt);
+                                                    const isExcel = ['xls', 'xlsx', 'csv'].includes(fileExt);
+                                                    
+                                                    const getFileIcon = () => {
+                                                        if (isImage) return (
+                                                            <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                                            </svg>
+                                                        );
+                                                        if (isPdf) return (
+                                                            <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                                            </svg>
+                                                        );
+                                                        if (isWord) return (
+                                                            <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                            </svg>
+                                                        );
+                                                        if (isExcel) return (
+                                                            <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+                                                            </svg>
+                                                        );
+                                                        return (
+                                                            <svg className="w-6 h-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                            </svg>
+                                                        );
+                                                    };
+                                                    
+                                                    const getFileBgColor = () => {
+                                                        if (isImage) return 'bg-purple-50';
+                                                        if (isPdf) return 'bg-red-50';
+                                                        if (isWord) return 'bg-blue-50';
+                                                        if (isExcel) return 'bg-green-50';
+                                                        return 'bg-primary-50';
+                                                    };
+
+                                                    const formatFileSize = (bytes: number) => {
+                                                        if (!bytes) return 'Unknown size';
+                                                        if (bytes < 1024) return `${bytes} B`;
+                                                        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+                                                        return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+                                                    };
+
+                                                    return (
+                                                        <div key={doc.id} className="p-4 bg-white rounded-xl border border-gray-200 hover:border-gray-300 hover:shadow-sm transition-all">
+                                                            <div className="flex items-start gap-4">
+                                                                <div className={`w-14 h-14 ${getFileBgColor()} rounded-xl flex items-center justify-center flex-shrink-0`}>
+                                                                    {getFileIcon()}
+                                                                </div>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="flex items-start justify-between gap-4">
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <p className="font-semibold text-gray-900 truncate text-lg">{doc.filename}</p>
+                                                                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-sm text-gray-500">
+                                                                                <span className="inline-flex items-center gap-1">
+                                                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+                                                                                    </svg>
+                                                                                    {formatFileSize(doc.file_size)}
+                                                                                </span>
+                                                                                <span className="inline-flex items-center gap-1">
+                                                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                                                                    </svg>
+                                                                                    {fileExt.toUpperCase() || 'FILE'}
+                                                                                </span>
+                                                                                {doc.mime_type && (
+                                                                                    <span className="inline-flex items-center gap-1 text-xs bg-gray-100 px-2 py-0.5 rounded">
+                                                                                        {doc.mime_type}
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+                                                                            <div className="flex items-center gap-2 mt-2 text-xs text-gray-400">
+                                                                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                                                </svg>
+                                                                                Uploaded {new Date(doc.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="flex flex-col gap-2 flex-shrink-0">
+                                                                            {doc.download_url && (
+                                                                                <>
+                                                                                    <Button variant="primary" size="sm" className="gap-1.5" onClick={() => window.open(doc.download_url, '_blank')}>
+                                                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                                                        </svg>
+                                                                                        Download
+                                                                                    </Button>
+                                                                                    {(isImage || isPdf) && (
+                                                                                        <Button variant="outline" size="sm" className="gap-1.5 bg-white" onClick={() => window.open(doc.download_url, '_blank')}>
+                                                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                                                            </svg>
+                                                                                            Preview
+                                                                                        </Button>
+                                                                                    )}
+                                                                                </>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
                                                             </div>
                                                         </div>
-                                                        {doc.download_url && (
-                                                            <Button variant="outline" size="sm" className="bg-white" onClick={() => window.open(doc.download_url, '_blank')}>
-                                                                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                                                </svg>
-                                                                Download
-                                                            </Button>
-                                                        )}
-                                                    </div>
-                                                ))}
+                                                    );
+                                                })}
                                             </div>
                                         </Card>
                                     ) : (

@@ -25,6 +25,9 @@ interface AppUser {
   first_name?: string | null;
   last_name?: string | null;
   organization?: Organization;
+  // PIN security fields
+  pin_setup_completed?: boolean;
+  pin_last_changed?: string | null;
 }
 
 interface UserContextType {
