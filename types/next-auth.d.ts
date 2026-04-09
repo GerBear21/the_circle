@@ -27,5 +27,10 @@ declare module 'next-auth/jwt' {
     azure_oid?: string;
     user_id?: string;
     role?: string;
+    /** Microsoft Graph delegated access token (Mail.Send etc.). */
+    ms_access_token?: string;
+    ms_refresh_token?: string;
+    /** Expiry in milliseconds since epoch. */
+    ms_expires_at?: number;
   }
 }

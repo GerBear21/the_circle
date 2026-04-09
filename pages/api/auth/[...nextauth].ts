@@ -26,7 +26,7 @@ export const authOptions: NextAuthOptions = {
       tenantId: process.env.AZURE_TENANT || "common",
       authorization: {
         params: {
-          scope: "openid profile email User.Read",
+          scope: "openid profile email offline_access User.Read Mail.Send",
           prompt: "select_account",
         },
       },
@@ -99,6 +99,53 @@ export const authOptions: NextAuthOptions = {
 
     async jwt({ token, user, account, profile }) {
       try {
+        // On first sign in, capture Microsoft Graph tokens for downstream
+        // delegated calls (e.g. /me/sendMail used by the e-sign invite flow).
+        if (account?.access_token) {
+          token.ms_access_token = account.access_token;
+          token.ms_refresh_token = account.refresh_token ?? token.ms_refresh_token;
+          token.ms_expires_at = account.expires_at
+            ? account.expires_at * 1000
+            : Date.now() + 55 * 60 * 1000;
+        } else if (
+          token.ms_refresh_token &&
+          typeof token.ms_expires_at === "number" &&
+          Date.now() > token.ms_expires_at - 60 * 1000
+        ) {
+          // Token expired (or about to) — refresh silently using offline_access
+          try {
+            const tenant = process.env.AZURE_TENANT || "common";
+            const params = new URLSearchParams({
+              client_id: process.env.AZURE_CLIENT_ID || "",
+              client_secret: process.env.AZURE_CLIENT_SECRET || "",
+              grant_type: "refresh_token",
+              refresh_token: token.ms_refresh_token as string,
+              scope: "openid profile email offline_access User.Read Mail.Send",
+            });
+            const resp = await fetch(
+              `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: params.toString(),
+              }
+            );
+            if (resp.ok) {
+              const refreshed = await resp.json();
+              token.ms_access_token = refreshed.access_token;
+              token.ms_expires_at = Date.now() + refreshed.expires_in * 1000;
+              if (refreshed.refresh_token) {
+                token.ms_refresh_token = refreshed.refresh_token;
+              }
+            } else {
+              console.error("MS token refresh failed:", await resp.text());
+              token.ms_access_token = undefined;
+            }
+          } catch (refreshErr) {
+            console.error("MS token refresh error:", refreshErr);
+          }
+        }
+
         // On first sign in, add org_id and azure_oid to token
         if (profile && supabaseAdmin) {
           const tid = (profile as any)?.tid;
