@@ -1,11 +1,71 @@
-import { useState, useRef, useCallback } from 'react';
-import { Document, Page, pdfjs } from 'react-pdf';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { PDFDocument, rgb } from 'pdf-lib';
 import PinVerificationModal from '../PinVerificationModal';
 import { useUserSignature } from '../../hooks/useUserSignature';
 
-// Use the worker matching react-pdf's bundled pdfjs-dist (5.4.296)
-pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+// =============================================================================
+// pdf.js loader — bypasses webpack entirely.
+//
+// Background: react-pdf v10 + pdfjs-dist v5 ships an ESM-only `pdf.mjs`. When
+// webpack bundles it, the CJS interop wrapper crashes with
+// "Object.defineProperty called on non-object" inside `__webpack_require__.r`,
+// the chunk fails to load, and the e-sign editor hangs forever. We tried
+// `transpilePackages`, `type: 'javascript/auto'`, `fullySpecified: false`, and
+// none of them fix it for Next 14.2 + react-pdf 10.
+//
+// The fix: load pdfjs-dist at runtime from /public via a dynamic import marked
+// with /* webpackIgnore: true */. Webpack leaves the import statement alone,
+// the browser fetches /pdf.min.mjs natively as an ES module, and we get a real
+// ESM namespace back — no CJS interop, no webpack runtime involved at all.
+//
+// Make sure these two files exist in public/ and are the SAME version:
+//   public/pdf.min.mjs        (the library)
+//   public/pdf.worker.min.mjs (the worker)
+// Both are copied verbatim from node_modules/pdfjs-dist/build/.
+// =============================================================================
+
+interface PdfJsLib {
+  getDocument: (src: { data: Uint8Array } | { url: string }) => { promise: Promise<PdfJsDocument> };
+  GlobalWorkerOptions: { workerSrc: string };
+  version: string;
+}
+
+interface PdfJsDocument {
+  numPages: number;
+  getPage: (n: number) => Promise<PdfJsPage>;
+  destroy: () => Promise<void>;
+}
+
+interface PdfJsPage {
+  getViewport: (opts: { scale: number }) => PdfJsViewport;
+  render: (opts: { canvasContext: CanvasRenderingContext2D; viewport: PdfJsViewport }) => { promise: Promise<void>; cancel?: () => void };
+}
+
+interface PdfJsViewport {
+  width: number;
+  height: number;
+}
+
+let pdfjsLibPromise: Promise<PdfJsLib> | null = null;
+function loadPdfJs(): Promise<PdfJsLib> {
+  if (pdfjsLibPromise) return pdfjsLibPromise;
+  pdfjsLibPromise = (async () => {
+    // The /* webpackIgnore: true */ comment is REQUIRED. Without it, webpack
+    // tries to bundle the file and we hit the original interop bug again.
+    // @ts-expect-error - runtime import served from /public, not a real module path
+    const mod = (await import(/* webpackIgnore: true */ '/pdf.min.mjs')) as unknown as PdfJsLib;
+    mod.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+    // eslint-disable-next-line no-console
+    console.log('[esign] pdfjs-dist loaded via webpackIgnore', { version: mod.version, workerSrc: mod.GlobalWorkerOptions.workerSrc });
+    return mod;
+  })().catch((err) => {
+    pdfjsLibPromise = null; // allow retry
+    // eslint-disable-next-line no-console
+    console.error('[esign] failed to load pdfjs-dist from /pdf.min.mjs', err);
+    throw err;
+  });
+  return pdfjsLibPromise;
+}
 
 interface PdfSignatureEditorProps {
   pdfUrl: string;
@@ -33,6 +93,13 @@ const SIGNATURE_COLORS = [
   { name: 'Dark Gray', value: '#374151' },
 ];
 
+interface DiagnosticEntry {
+  ts: number;
+  level: 'info' | 'warn' | 'error';
+  message: string;
+  detail?: unknown;
+}
+
 export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSignatureEditorProps) {
   const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState(1);
@@ -53,22 +120,168 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
   // originalWidth/originalHeight of the PDF page in PDF points (scale-independent)
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
 
+  // --- Diagnostics ---------------------------------------------------------
+  const [diagnostics, setDiagnostics] = useState<DiagnosticEntry[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [showDebug, setShowDebug] = useState(true);
+  const [workerProbe, setWorkerProbe] = useState<{ status: string; contentType?: string } | null>(null);
+  const [libProbe, setLibProbe] = useState<{ status: string; contentType?: string } | null>(null);
+  const [pdfDoc, setPdfDoc] = useState<PdfJsDocument | null>(null);
+  const [renderingPage, setRenderingPage] = useState(false);
+
+  const log = useCallback((level: DiagnosticEntry['level'], message: string, detail?: unknown) => {
+    const entry: DiagnosticEntry = { ts: Date.now(), level, message, detail };
+    // eslint-disable-next-line no-console
+    console[level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'log'](`[esign] ${message}`, detail ?? '');
+    setDiagnostics(prev => [...prev, entry].slice(-50));
+  }, []);
+
   const pageRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const { signatureUrl, hasSignature, loading: signatureLoading } = useUserSignature();
 
-  const handleDocumentLoadSuccess = useCallback(({ numPages: n }: { numPages: number }) => {
-    setNumPages(n);
-    // Fetch raw bytes for pdf-lib (needed for saving)
-    fetch(pdfUrl)
-      .then(r => r.arrayBuffer())
-      .then(bytes => setPdfBytes(bytes))
-      .catch(err => console.error('Failed to fetch PDF bytes:', err));
-  }, [pdfUrl]);
+  // ---------------------------------------------------------------------------
+  // Boot: probe assets, fetch PDF bytes, load pdfjs, parse the document.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    let cancelled = false;
+    let loadedDoc: PdfJsDocument | null = null;
 
-  const handlePageLoadSuccess = useCallback((page: { originalWidth: number; originalHeight: number }) => {
-    setPageSize({ width: page.originalWidth, height: page.originalHeight });
-  }, []);
+    log('info', 'mounted', { pdfUrl });
+
+    // Probe both /public assets so we know they're reachable.
+    fetch('/pdf.worker.min.mjs', { method: 'HEAD' })
+      .then(r => {
+        const probe = { status: `${r.status} ${r.statusText}`, contentType: r.headers.get('content-type') || undefined };
+        if (!cancelled) setWorkerProbe(probe);
+        log(r.ok ? 'info' : 'error', 'worker probe', probe);
+      })
+      .catch(err => {
+        if (!cancelled) setWorkerProbe({ status: `fetch failed: ${err?.message || err}` });
+        log('error', 'worker probe failed', err);
+      });
+
+    fetch('/pdf.min.mjs', { method: 'HEAD' })
+      .then(r => {
+        const probe = { status: `${r.status} ${r.statusText}`, contentType: r.headers.get('content-type') || undefined };
+        if (!cancelled) setLibProbe(probe);
+        log(r.ok ? 'info' : 'error', 'pdfjs lib probe', probe);
+      })
+      .catch(err => {
+        if (!cancelled) setLibProbe({ status: `fetch failed: ${err?.message || err}` });
+        log('error', 'pdfjs lib probe failed', err);
+      });
+
+    if (!pdfUrl) {
+      log('error', 'no pdfUrl provided');
+      setLoadError('No PDF URL was provided to the editor.');
+      return;
+    }
+
+    (async () => {
+      try {
+        log('info', 'fetching pdf bytes from blob url');
+        const r = await fetch(pdfUrl);
+        log('info', 'fetch response', { ok: r.ok, status: r.status, type: r.headers.get('content-type') });
+        if (!r.ok) throw new Error(`HTTP ${r.status} fetching PDF`);
+        const bytes = await r.arrayBuffer();
+        if (cancelled) return;
+        log('info', 'pdf bytes loaded', { byteLength: bytes.byteLength });
+        if (bytes.byteLength === 0) throw new Error('PDF file is empty (0 bytes)');
+
+        const head = new Uint8Array(bytes.slice(0, 5));
+        const magic = String.fromCharCode(...head);
+        if (magic !== '%PDF-') log('warn', 'file does not start with %PDF- magic', { magic });
+
+        setPdfBytes(bytes);
+
+        log('info', 'loading pdfjs library');
+        const pdfjsLib = await loadPdfJs();
+        if (cancelled) return;
+        log('info', 'pdfjs loaded', { version: pdfjsLib.version });
+
+        // pdf.js transfers (detaches) the TypedArray we hand it, so clone.
+        const docTask = pdfjsLib.getDocument({ data: new Uint8Array(bytes.slice(0)) });
+        const doc = await docTask.promise;
+        if (cancelled) {
+          await doc.destroy();
+          return;
+        }
+        loadedDoc = doc;
+        log('info', 'document parsed', { numPages: doc.numPages });
+        setPdfDoc(doc);
+        setNumPages(doc.numPages);
+        setLoadError(null);
+      } catch (err: unknown) {
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : String(err);
+        log('error', 'failed to load pdf', { message: msg, error: err });
+        setLoadError(msg);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (loadedDoc) {
+        loadedDoc.destroy().catch(() => {});
+      }
+    };
+  }, [pdfUrl, log]);
+
+  // ---------------------------------------------------------------------------
+  // Render the current page to the canvas whenever page or scale changes.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!pdfDoc || !canvasRef.current) return;
+    let cancelled = false;
+    let renderTask: { cancel?: () => void } | null = null;
+
+    (async () => {
+      try {
+        setRenderingPage(true);
+        log('info', 'rendering page', { page: currentPage, scale });
+        const page = await pdfDoc.getPage(currentPage);
+        if (cancelled) return;
+
+        // Capture the unscaled (scale=1) viewport for coordinate math when saving.
+        const baseViewport = page.getViewport({ scale: 1 });
+        setPageSize({ width: baseViewport.width, height: baseViewport.height });
+
+        const viewport = page.getViewport({ scale });
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        canvas.style.width = `${viewport.width}px`;
+        canvas.style.height = `${viewport.height}px`;
+
+        const task = page.render({ canvasContext: ctx, viewport });
+        renderTask = task;
+        await task.promise;
+        if (cancelled) return;
+        log('info', 'page rendered', { page: currentPage });
+      } catch (err: unknown) {
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : String(err);
+        // pdf.js throws "Rendering cancelled" when we cancel — that's fine.
+        if (!msg.toLowerCase().includes('cancel')) {
+          log('error', 'page render error', { message: msg });
+          setLoadError(`Failed to render page: ${msg}`);
+        }
+      } finally {
+        if (!cancelled) setRenderingPage(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (renderTask?.cancel) renderTask.cancel();
+    };
+  }, [pdfDoc, currentPage, scale, log]);
 
   const handleAddSignature = () => {
     if (!hasSignature) {
@@ -413,41 +626,85 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
         </div>
       )}
 
+      {/* Debug panel — visible by default until preview works. Click "Hide debug" to collapse. */}
+      {showDebug && (
+        <div className="border-b border-amber-200 bg-amber-50 text-xs text-amber-900 px-3 py-2 font-mono space-y-1 max-h-56 overflow-auto flex-shrink-0">
+          <div className="flex items-center justify-between">
+            <div className="font-bold uppercase tracking-wider">E-Sign Diagnostics</div>
+            <button
+              type="button"
+              onClick={() => setShowDebug(false)}
+              className="text-amber-700 hover:text-amber-900 font-sans normal-case font-medium"
+            >
+              Hide debug
+            </button>
+          </div>
+          <div>loader: webpackIgnore dynamic import of /pdf.min.mjs</div>
+          <div>pdfjs lib probe: {libProbe?.status ?? 'pending…'} {libProbe?.contentType ? `(${libProbe.contentType})` : ''}</div>
+          <div>worker probe: {workerProbe?.status ?? 'pending…'} {workerProbe?.contentType ? `(${workerProbe.contentType})` : ''}</div>
+          <div>pdfUrl: {pdfUrl ? `${pdfUrl.slice(0, 80)}${pdfUrl.length > 80 ? '…' : ''}` : '(none)'}</div>
+          <div>pdf bytes: {pdfBytes ? `${pdfBytes.byteLength} bytes` : 'not loaded'}</div>
+          <div>pdfDoc: {pdfDoc ? 'parsed' : 'not parsed'} | numPages: {numPages || '(none)'} | currentPage: {currentPage} | rendering: {String(renderingPage)}</div>
+          <div>signatureLoading: {String(signatureLoading)} | hasSignature: {String(hasSignature)}</div>
+          {loadError && <div className="text-red-700 font-bold">ERROR: {loadError}</div>}
+          <details className="mt-1">
+            <summary className="cursor-pointer">log ({diagnostics.length})</summary>
+            <ul className="mt-1 space-y-0.5">
+              {diagnostics.map((d, i) => (
+                <li
+                  key={i}
+                  className={
+                    d.level === 'error' ? 'text-red-700' : d.level === 'warn' ? 'text-orange-700' : 'text-amber-900'
+                  }
+                >
+                  [{new Date(d.ts).toISOString().slice(11, 23)}] {d.level.toUpperCase()} {d.message}
+                  {d.detail !== undefined && d.detail !== null && d.detail !== '' && (
+                    <span className="opacity-75"> — {typeof d.detail === 'string' ? d.detail : JSON.stringify(d.detail)}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </details>
+        </div>
+      )}
+      {!showDebug && (
+        <button
+          type="button"
+          onClick={() => setShowDebug(true)}
+          className="text-xs text-amber-700 hover:text-amber-900 font-medium px-3 py-1 self-start"
+        >
+          Show debug
+        </button>
+      )}
+
       {/* PDF Viewer */}
       <div className="flex-1 overflow-auto bg-gray-100 p-4">
         <div className="flex justify-center">
-          <Document
-            file={pdfUrl}
-            onLoadSuccess={handleDocumentLoadSuccess}
-            loading={
-              <div className="flex flex-col items-center justify-center h-96 w-[600px] bg-white rounded shadow">
-                <div className="w-8 h-8 border-2 border-primary-500 border-t-transparent rounded-full animate-spin mb-3" />
-                <p className="text-sm text-gray-500">Loading PDF...</p>
-              </div>
-            }
-            error={
-              <div className="flex flex-col items-center justify-center h-96 w-[600px] bg-white rounded shadow">
-                <svg className="w-12 h-12 text-red-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-                <p className="text-sm text-red-600 font-medium">Failed to load PDF</p>
-                <p className="text-xs text-gray-500 mt-1">Please try uploading again</p>
-              </div>
-            }
-          >
+          {loadError ? (
+            <div className="flex flex-col items-center justify-center h-96 w-[600px] bg-white rounded shadow">
+              <svg className="w-12 h-12 text-red-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <p className="text-sm text-red-600 font-medium">Failed to load PDF</p>
+              <p className="text-xs text-gray-500 mt-1 max-w-xs text-center break-words">{loadError}</p>
+              <p className="text-xs text-gray-400 mt-2">See diagnostics panel above for details.</p>
+            </div>
+          ) : !pdfDoc ? (
+            <div className="flex flex-col items-center justify-center h-96 w-[600px] bg-white rounded shadow">
+              <div className="w-8 h-8 border-2 border-primary-500 border-t-transparent rounded-full animate-spin mb-3" />
+              <p className="text-sm text-gray-500">
+                {pdfBytes ? 'Parsing PDF…' : 'Reading uploaded file…'}
+              </p>
+              {pdfBytes && <p className="text-xs text-gray-400 mt-1">{pdfBytes.byteLength} bytes loaded</p>}
+            </div>
+          ) : (
             <div
               ref={pageRef}
               className="relative bg-white shadow-lg"
               onClick={handlePageClick}
               style={{ cursor: activeMode !== 'select' ? 'crosshair' : 'default' }}
             >
-              <Page
-                pageNumber={currentPage}
-                scale={scale}
-                renderAnnotationLayer={false}
-                renderTextLayer={false}
-                onLoadSuccess={handlePageLoadSuccess}
-              />
+              <canvas ref={canvasRef} className="block" />
 
               {/* Signature/Text overlays */}
               {currentPageElements.map((element) => (
@@ -526,7 +783,7 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
                 </div>
               ))}
             </div>
-          </Document>
+          )}
         </div>
       </div>
 

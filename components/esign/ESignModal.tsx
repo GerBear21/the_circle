@@ -9,12 +9,25 @@ interface PdfSignatureEditorProps {
 }
 
 const PdfSignatureEditor = dynamic<PdfSignatureEditorProps>(
-  () => import('./PdfSignatureEditor') as Promise<{ default: ComponentType<PdfSignatureEditorProps> }>,
+  () =>
+    import('./PdfSignatureEditor')
+      .then(mod => {
+        // eslint-disable-next-line no-console
+        console.log('[esign] PdfSignatureEditor chunk loaded');
+        return mod;
+      })
+      .catch(err => {
+        // eslint-disable-next-line no-console
+        console.error('[esign] failed to load PdfSignatureEditor chunk', err);
+        throw err;
+      }) as Promise<{ default: ComponentType<PdfSignatureEditorProps> }>,
   {
     ssr: false,
     loading: () => (
-      <div className="flex items-center justify-center h-full">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500" />
+      <div className="flex flex-col items-center justify-center h-full p-6 text-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500 mb-3" />
+        <p className="text-sm text-gray-500">Loading PDF editor…</p>
+        <p className="text-xs text-gray-400 mt-1">If this hangs, open the browser console — look for messages prefixed with [esign].</p>
       </div>
     ),
   }
