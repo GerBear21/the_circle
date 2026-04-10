@@ -58,7 +58,7 @@ export const getServerSideProps: GetServerSideProps<SettingsProps> = async (cont
 
 export default function Settings({ initialSignatureUrl }: SettingsProps) {
     const { user, session, loading: userLoading, updateProfilePicture } = useCurrentUser();
-    const { departmentName, businessUnitName } = useUserHrimsProfile();
+    const { departmentName, businessUnitName, jobTitle: hrimsJobTitle } = useUserHrimsProfile();
     const [activeTab, setActiveTab] = useState('profile');
     const [isLoading, setIsLoading] = useState(false);
     const [signatureUrl, setSignatureUrl] = useState<string | null>(initialSignatureUrl);
@@ -346,7 +346,7 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-1">Job Title</label>
                                             <p className="text-gray-900 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200 capitalize">
-                                                {user?.job_title || 'User'}
+                                                {hrimsJobTitle || user?.job_title || 'User'}
                                             </p>
                                         </div>
                                         <div>

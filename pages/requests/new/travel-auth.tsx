@@ -118,7 +118,6 @@ export default function TravelAuthPage() {
     const [loadingRequest, setLoadingRequest] = useState(false);
     const [originalTravelData, setOriginalTravelData] = useState<TravelData | null>(null);
     const [originalApprovers, setOriginalApprovers] = useState<Record<string, string> | null>(null);
-    const [originalUseParallelApprovals, setOriginalUseParallelApprovals] = useState<boolean | null>(null);
     const [requestStatus, setRequestStatus] = useState<string>('draft');
 
     // AA Rates Calculator state (simplified)
@@ -193,7 +192,8 @@ export default function TravelAuthPage() {
         line_manager: '', functional_head: '', hrd: '', ceo: '',
     });
     const [showApproverDropdown, setShowApproverDropdown] = useState<string | null>(null);
-    const [useParallelApprovals, setUseParallelApprovals] = useState(false);
+    const [loadingApproverResolution, setLoadingApproverResolution] = useState(false);
+    const [autoResolvedRoles, setAutoResolvedRoles] = useState<Record<string, boolean>>({});
 
     // Emergency request state (for travel within 7 days)
     const [isEmergencyRequest, setIsEmergencyRequest] = useState(false);
@@ -256,7 +256,8 @@ export default function TravelAuthPage() {
 
     // Calculate total tollgates cost
     const calculateTollgatesTotal = () => {
-        return travelData.budget.tollgates.reduce((sum, t) => sum + (parseFloat(t.totalCost) || 0), 0);
+        const tollgates = Array.isArray(travelData.budget.tollgates) ? travelData.budget.tollgates : [];
+        return tollgates.reduce((sum, t) => sum + (parseFloat(t.totalCost) || 0), 0);
     };
 
     const calculateGrandTotal = () => {
@@ -319,14 +320,14 @@ export default function TravelAuthPage() {
             ...prev,
             budget: {
                 ...prev.budget,
-                tollgates: [...prev.budget.tollgates, { road: '', quantity: '1', unitCost: '', totalCost: '' }]
+                tollgates: [...(Array.isArray(prev.budget.tollgates) ? prev.budget.tollgates : []), { road: '', quantity: '1', unitCost: '', totalCost: '' }]
             }
         }));
     };
 
     const updateTollgateRow = (index: number, field: keyof TollgateEntry, value: string) => {
         setTravelData(prev => {
-            const updatedTollgates = prev.budget.tollgates.map((t, i) => {
+            const updatedTollgates = (Array.isArray(prev.budget.tollgates) ? prev.budget.tollgates : []).map((t, i) => {
                 if (i !== index) return t;
                 const updated = { ...t, [field]: value };
                 if (field === 'quantity' || field === 'unitCost') {
@@ -341,12 +342,13 @@ export default function TravelAuthPage() {
     };
 
     const removeTollgateRow = (index: number) => {
-        if (travelData.budget.tollgates.length > 1) {
+        const tollgates = Array.isArray(travelData.budget.tollgates) ? travelData.budget.tollgates : [];
+        if (tollgates.length > 1) {
             setTravelData(prev => ({
                 ...prev,
                 budget: {
                     ...prev.budget,
-                    tollgates: prev.budget.tollgates.filter((_, i) => i !== index)
+                    tollgates: (Array.isArray(prev.budget.tollgates) ? prev.budget.tollgates : []).filter((_, i) => i !== index)
                 }
             }));
         }
@@ -402,7 +404,7 @@ export default function TravelAuthPage() {
                     aaRates: { quantity: '', unitCost: '0.28', totalCost: '' },
                     airBusTickets: { quantity: '', unitCost: '', totalCost: '' },
                     conferencingCost: { quantity: '', unitCost: '', totalCost: '' },
-                    tollgates: { quantity: '', unitCost: '', totalCost: '' },
+                    tollgates: [{ road: '', quantity: '1', unitCost: '', totalCost: '' }] as TollgateEntry[],
                     other: { description: '', quantity: '', unitCost: '', totalCost: '' },
                 };
 
@@ -413,7 +415,9 @@ export default function TravelAuthPage() {
                     aaRates: { ...defaultBudget.aaRates, ...(existingBudget.aaRates || {}) },
                     airBusTickets: { ...defaultBudget.airBusTickets, ...(existingBudget.airBusTickets || {}) },
                     conferencingCost: { ...defaultBudget.conferencingCost, ...(existingBudget.conferencingCost || {}) },
-                    tollgates: { ...defaultBudget.tollgates, ...(existingBudget.tollgates || {}) },
+                    tollgates: Array.isArray(existingBudget.tollgates) && existingBudget.tollgates.length > 0
+                        ? existingBudget.tollgates
+                        : defaultBudget.tollgates,
                     other: { ...defaultBudget.other, ...(existingBudget.other || {}) },
                 };
 
@@ -438,11 +442,6 @@ export default function TravelAuthPage() {
                     setSelectedApprovers(prev => ({ ...prev, ...approverRolesData }));
                     setOriginalApprovers({ hod: '', hr_director: '', finance_director: '', ceo: '', ...approverRolesData });
                 }
-
-                // Set parallel approvals and store original
-                const parallelApprovals = metadata.useParallelApprovals || false;
-                setUseParallelApprovals(parallelApprovals);
-                setOriginalUseParallelApprovals(parallelApprovals);
             } catch (err: any) {
                 console.error('Error fetching request:', err);
                 setError('Failed to load request data');
@@ -469,6 +468,41 @@ export default function TravelAuthPage() {
         };
         if (status === 'authenticated') fetchUsers();
     }, [status]);
+
+    // Auto-resolve approvers from HRIMS organogram (only on new requests, not edits)
+    useEffect(() => {
+        const resolveApprovers = async () => {
+            if (!session?.user?.email || isEditMode) return;
+            setLoadingApproverResolution(true);
+            try {
+                console.log('[travel-auth] Resolving approvers for email:', session.user.email);
+                const response = await fetch(`/api/hrims/resolve-approvers?email=${encodeURIComponent(session.user.email)}&formType=travel`);
+                const data = await response.json();
+                console.log('[travel-auth] Approver resolution response:', JSON.stringify(data, null, 2));
+                if (response.ok && data.approvers) {
+                    const resolved: Record<string, boolean> = {};
+                    const newApprovers: Record<string, string> = {};
+                    for (const [roleKey, approver] of Object.entries(data.approvers)) {
+                        if (approver && (approver as any).userId) {
+                            newApprovers[roleKey] = (approver as any).userId;
+                            resolved[roleKey] = true;
+                        }
+                    }
+                    if (Object.keys(newApprovers).length > 0) {
+                        setSelectedApprovers(prev => ({ ...prev, ...newApprovers }));
+                        setAutoResolvedRoles(resolved);
+                    }
+                } else {
+                    console.error('Approver resolution failed:', data.error || 'Unknown error');
+                }
+            } catch (err) {
+                console.error('Failed to auto-resolve approvers:', err);
+            } finally {
+                setLoadingApproverResolution(false);
+            }
+        };
+        if (status === 'authenticated') resolveApprovers();
+    }, [status, session?.user?.email, isEditMode]);
 
     const getFilteredUsersForRole = (roleKey: string) => {
         const searchTerm = approverSearch[roleKey] || '';
@@ -581,15 +615,6 @@ export default function TravelAuthPage() {
             }
         }
 
-        // Track parallel approvals change
-        if (originalUseParallelApprovals !== null && useParallelApprovals !== originalUseParallelApprovals) {
-            changes.push({
-                fieldName: 'Parallel Approvals',
-                oldValue: originalUseParallelApprovals ? 'Enabled' : 'Disabled',
-                newValue: useParallelApprovals ? 'Enabled' : 'Disabled',
-            });
-        }
-
         return changes;
     };
 
@@ -624,7 +649,7 @@ export default function TravelAuthPage() {
                         emergencyReason: isTravelWithin7Days() && isEmergencyRequest ? emergencyReason : '',
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
-                        useParallelApprovals,
+                        useParallelApprovals: false,
                     },
                 }),
             });
@@ -676,7 +701,7 @@ export default function TravelAuthPage() {
                         grandTotal: calculateGrandTotal(),
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
-                        useParallelApprovals,
+                        useParallelApprovals: false,
                     },
                 }),
             });
@@ -746,7 +771,7 @@ export default function TravelAuthPage() {
                         emergencyReason: isTravelWithin7Days() && isEmergencyRequest ? emergencyReason : '',
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
-                        useParallelApprovals,
+                        useParallelApprovals: false,
                     },
                 }),
             });
@@ -790,7 +815,7 @@ export default function TravelAuthPage() {
                         grandTotal: calculateGrandTotal(),
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
-                        useParallelApprovals,
+                        useParallelApprovals: false,
                     },
                 }),
             });
@@ -1217,7 +1242,7 @@ export default function TravelAuthPage() {
                                                     )}
                                                 </td>
                                             </tr>
-                                            {travelData.budget.tollgates.map((toll, idx) => (
+                                            {(Array.isArray(travelData.budget.tollgates) ? travelData.budget.tollgates : []).map((toll, idx) => (
                                                 <tr key={idx} className="border-b border-gray-100 bg-orange-50/30">
                                                     <td className="px-2 py-2">
                                                         <input type="text" value={toll.road} onChange={(e) => updateTollgateRow(idx, 'road', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-orange-500 outline-none text-sm" placeholder="Road/Route name" />
@@ -1230,7 +1255,7 @@ export default function TravelAuthPage() {
                                                     </td>
                                                     <td className="px-2 py-2 flex items-center gap-1">
                                                         <input type="number" value={toll.totalCost} readOnly className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm" placeholder="0.00" />
-                                                        {travelData.budget.tollgates.length > 1 && (
+                                                        {(Array.isArray(travelData.budget.tollgates) ? travelData.budget.tollgates : []).length > 1 && (
                                                             <button type="button" onClick={() => removeTollgateRow(idx)} className="text-red-500 hover:text-red-700 p-1">
                                                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                                                             </button>
@@ -1285,19 +1310,16 @@ export default function TravelAuthPage() {
                     <Card className="p-6">
                         <h3 className="font-semibold text-text-primary mb-4 flex items-center gap-2 text-lg">
                             <svg className="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                            Select Approvers <span className="text-danger-500">*</span>
+                            Approval Workflow <span className="text-danger-500">*</span>
                         </h3>
-                        <p className="text-sm text-text-secondary mb-4">Select a user to act as each approver role. All 4 approvers are required.</p>
+                        <p className="text-sm text-text-secondary mb-4">Approvers are automatically assigned from the HRIMS organogram. If a role has no assigned user, you must manually select one.</p>
 
-                        <div className="mb-6 p-4 bg-gray-50 rounded-xl border border-gray-200">
-                            <label className="flex items-start gap-3 cursor-pointer">
-                                <input type="checkbox" checked={useParallelApprovals} onChange={(e) => setUseParallelApprovals(e.target.checked)} className="mt-1 w-5 h-5 text-primary-600 focus:ring-primary-500 border-gray-300 rounded" />
-                                <div>
-                                    <span className="font-semibold text-gray-900 block">Use Parallel Approvals</span>
-                                    <span className="text-sm text-gray-500 mt-1 block">{useParallelApprovals ? 'All approvers will be notified immediately and can review the request simultaneously.' : 'Approvals will be processed sequentially in the order shown below.'}</span>
-                                </div>
-                            </label>
-                        </div>
+                        {loadingApproverResolution && (
+                            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-2">
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500" />
+                                <span className="text-sm text-blue-700">Resolving approvers from HRIMS organogram...</span>
+                            </div>
+                        )}
 
                         {showApproverDropdown && <div className="fixed inset-0 z-10" onClick={() => setShowApproverDropdown(null)} />}
 
@@ -1306,6 +1328,7 @@ export default function TravelAuthPage() {
                                 const selectedUserId = selectedApprovers[role.key];
                                 const selectedUser = selectedUserId ? users.find(u => u.id === selectedUserId) : null;
                                 const filteredUsers = getFilteredUsersForRole(role.key);
+                                const isAutoResolved = autoResolvedRoles[role.key];
 
                                 return (
                                     <div key={role.key} className="relative">
@@ -1314,13 +1337,20 @@ export default function TravelAuthPage() {
                                             <div className="flex-1">
                                                 <div className="mb-2"><h4 className="font-semibold text-gray-900">{role.label}</h4><p className="text-xs text-gray-500">{role.description}</p></div>
                                                 {selectedUser ? (
-                                                    <div className="flex items-center gap-3 bg-primary-50 border border-primary-200 p-3 rounded-xl">
-                                                        <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0"><span className="text-sm font-medium text-primary-600">{selectedUser.display_name?.charAt(0)?.toUpperCase() || '?'}</span></div>
-                                                        <div className="flex-1 min-w-0"><p className="text-sm font-medium text-gray-900 truncate">{selectedUser.display_name}</p><p className="text-xs text-gray-500 truncate">{selectedUser.email}</p></div>
-                                                        <button type="button" onClick={() => handleRemoveApprover(role.key)} className="p-1.5 rounded-lg hover:bg-danger-50 text-gray-400 hover:text-danger-500 transition-colors" title="Remove"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+                                                    <div className={`flex items-center gap-3 ${isAutoResolved ? 'bg-green-50 border border-green-200' : 'bg-primary-50 border border-primary-200'} p-3 rounded-xl`}>
+                                                        <div className={`w-8 h-8 rounded-full ${isAutoResolved ? 'bg-green-100' : 'bg-primary-100'} flex items-center justify-center flex-shrink-0`}><span className={`text-sm font-medium ${isAutoResolved ? 'text-green-600' : 'text-primary-600'}`}>{selectedUser.display_name?.charAt(0)?.toUpperCase() || '?'}</span></div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="text-sm font-medium text-gray-900 truncate">{selectedUser.display_name}</p>
+                                                            <p className="text-xs text-gray-500 truncate">{selectedUser.email}</p>
+                                                            {isAutoResolved && <p className="text-xs text-green-600 mt-0.5">Auto-assigned from HRIMS</p>}
+                                                        </div>
+                                                        <button type="button" onClick={() => { handleRemoveApprover(role.key); setAutoResolvedRoles(prev => ({ ...prev, [role.key]: false })); }} className="p-1.5 rounded-lg hover:bg-danger-50 text-gray-400 hover:text-danger-500 transition-colors" title="Change approver"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
                                                     </div>
                                                 ) : (
                                                     <div className="relative">
+                                                        {!loadingApproverResolution && !isEditMode && (
+                                                            <p className="text-xs text-amber-600 mb-1">No user found in HRIMS for this role. Please select manually.</p>
+                                                        )}
                                                         <div className="relative">
                                                             <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                                                             <input type="text" className="w-full pl-10 pr-4 py-2 min-h-[44px] rounded-xl border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all" placeholder={`Search for ${role.label}...`} value={approverSearch[role.key]} onChange={(e) => { setApproverSearch(prev => ({ ...prev, [role.key]: e.target.value })); setShowApproverDropdown(role.key); }} onFocus={() => setShowApproverDropdown(role.key)} />

@@ -233,11 +233,11 @@ export async function resolveApprovalChainFromOrganogram(
 ): Promise<{ position: HrimsOrganogramPosition; employee: HrimsEmployee }[]> {
   if (!hrimsClient) throw new Error('HRIMS client not configured');
 
-  // 1. Find the employee by email
+  // 1. Find the employee by email (case-insensitive)
   const { data: employee, error: empError } = await hrimsClient
     .from('employees')
     .select('id, first_name, last_name, email, job_title, current_position_id, business_unit_id')
-    .eq('email', employeeEmail)
+    .ilike('email', employeeEmail)
     .eq('employment_status', 'active')
     .single();
 
@@ -285,8 +285,7 @@ export async function resolveApprovalChainFromOrganogram(
       .select(`
         id, organization_id, business_unit_id, position_title, position_code,
         grade, level, description, status, parent_position_id, employee_id,
-        department_id, sort_order, is_active,
-        employees:employee_id (id, first_name, last_name, email, phone, job_title, employee_number, employment_status, manager_id, department_id, business_unit_id, current_position_id)
+        department_id, sort_order, is_active
       `)
       .eq('id', nextParentId)
       .eq('is_active', true)
@@ -294,9 +293,36 @@ export async function resolveApprovalChainFromOrganogram(
 
     if (!parentPos) break;
 
-    // Only include filled positions (with an employee assigned)
-    if (parentPos.status === 'filled' && parentPos.employees) {
-      const emp = parentPos.employees as unknown as HrimsEmployee;
+    // Find the employee assigned to this position via current_position_id (primary)
+    // or via the position's employee_id field (fallback)
+    let emp: HrimsEmployee | null = null;
+
+    // Primary: find employee whose current_position_id matches this position
+    const { data: empByPos } = await hrimsClient
+      .from('employees')
+      .select('id, first_name, last_name, email, phone, job_title, employee_number, employment_status, manager_id, department_id, business_unit_id, current_position_id')
+      .eq('current_position_id', parentPos.id)
+      .eq('employment_status', 'active')
+      .limit(1)
+      .single();
+
+    if (empByPos) {
+      emp = empByPos as HrimsEmployee;
+    } else if (parentPos.employee_id) {
+      // Fallback: use the employee_id join on the position
+      const { data: empById } = await hrimsClient
+        .from('employees')
+        .select('id, first_name, last_name, email, phone, job_title, employee_number, employment_status, manager_id, department_id, business_unit_id, current_position_id')
+        .eq('id', parentPos.employee_id)
+        .eq('employment_status', 'active')
+        .single();
+
+      if (empById) {
+        emp = empById as HrimsEmployee;
+      }
+    }
+
+    if (emp) {
       chain.push({
         position: {
           ...parentPos,
@@ -326,14 +352,14 @@ export async function fetchHrimsEmployeeByEmail(
 } | null> {
   if (!hrimsClient) throw new Error('HRIMS client not configured');
 
-  // Find the employee by email
+  // Find the employee by email (case-insensitive)
   const { data: employee, error: empError } = await hrimsClient
     .from('employees')
     .select(`
       id, first_name, last_name, email, phone, job_title, employee_number,
       employment_status, manager_id, department_id, business_unit_id, current_position_id
     `)
-    .eq('email', email.toLowerCase())
+    .ilike('email', email)
     .eq('employment_status', 'active')
     .single();
 
@@ -398,12 +424,10 @@ export async function findEmployeeByPositionTitle(
     .select(`
       id, organization_id, business_unit_id, position_title, position_code,
       grade, level, description, status, parent_position_id, employee_id,
-      department_id, sort_order, is_active,
-      employees:employee_id (id, first_name, last_name, email, phone, job_title, employee_number, employment_status, manager_id, department_id, business_unit_id, current_position_id)
+      department_id, sort_order, is_active
     `)
     .ilike('position_title', positionTitle)
-    .eq('is_active', true)
-    .eq('status', 'filled');
+    .eq('is_active', true);
 
   if (businessUnitId) {
     query = query.eq('business_unit_id', businessUnitId);
@@ -413,7 +437,35 @@ export async function findEmployeeByPositionTitle(
 
   if (error || !data) return null;
 
-  const emp = data.employees as unknown as HrimsEmployee;
+  // Find the employee assigned to this position via current_position_id (primary)
+  // or via the position's employee_id field (fallback)
+  let emp: HrimsEmployee | null = null;
+
+  // Primary: find employee whose current_position_id matches this position
+  const { data: empByPos } = await hrimsClient
+    .from('employees')
+    .select('id, first_name, last_name, email, phone, job_title, employee_number, employment_status, manager_id, department_id, business_unit_id, current_position_id')
+    .eq('current_position_id', data.id)
+    .eq('employment_status', 'active')
+    .limit(1)
+    .single();
+
+  if (empByPos) {
+    emp = empByPos as HrimsEmployee;
+  } else if (data.employee_id) {
+    // Fallback: use the employee_id on the position
+    const { data: empById } = await hrimsClient
+      .from('employees')
+      .select('id, first_name, last_name, email, phone, job_title, employee_number, employment_status, manager_id, department_id, business_unit_id, current_position_id')
+      .eq('id', data.employee_id)
+      .eq('employment_status', 'active')
+      .single();
+
+    if (empById) {
+      emp = empById as HrimsEmployee;
+    }
+  }
+
   if (!emp) return null;
 
   return {
