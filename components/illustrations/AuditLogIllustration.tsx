@@ -61,13 +61,13 @@ export const AuditLogIllustration = () => {
                     <rect x="120" y="200" width="150" height="8" rx="4" fill="#E5E7EB" />
 
                     {/* Active Item Highlight */}
-                    <rect x="115" y="135" width="170" height="18" rx="4" fill="#2D9CDB" opacity="0.1" />
+                    <rect x="115" y="135" width="170" height="18" rx="4" fill="#9A7545" opacity="0.1" />
                 </g>
 
                 {/* Magnifying Glass / Scanner */}
                 <g transform="translate(220, 160)" className="floating" style={{ animationDelay: '-1s' }}>
-                    <circle cx="0" cy="0" r="40" stroke="#2D9CDB" strokeWidth="6" fill="rgba(255, 255, 255, 0.2)" />
-                    <path d="M28 28 L45 45" stroke="#2D9CDB" strokeWidth="6" strokeLinecap="round" />
+                    <circle cx="0" cy="0" r="40" stroke="#9A7545" strokeWidth="6" fill="rgba(255, 255, 255, 0.2)" />
+                    <path d="M28 28 L45 45" stroke="#9A7545" strokeWidth="6" strokeLinecap="round" />
 
                     {/* Lens Reflection */}
                     <path d="M-25 -15 Q -15 -25 0 -28" stroke="white" strokeWidth="3" strokeLinecap="round" opacity="0.6" />
@@ -75,7 +75,7 @@ export const AuditLogIllustration = () => {
 
                 {/* Scanning Beam */}
                 <g transform="translate(100, 70)">
-                    <rect x="0" y="0" width="200" height="2" fill="#2D9CDB" className="scan-beam" opacity="0.8">
+                    <rect x="0" y="0" width="200" height="2" fill="#9A7545" className="scan-beam" opacity="0.8">
                         <animate attributeName="opacity" values="0.8;0.2;0.8" dur="4s" repeatCount="indefinite" />
                     </rect>
                     <rect x="0" y="0" width="200" height="40" fill="url(#scan-gradient)" className="scan-beam" />
@@ -83,8 +83,8 @@ export const AuditLogIllustration = () => {
 
                 <defs>
                     <linearGradient id="scan-gradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#2D9CDB" stopOpacity="0.3" />
-                        <stop offset="100%" stopColor="#2D9CDB" stopOpacity="0" />
+                        <stop offset="0%" stopColor="#9A7545" stopOpacity="0.3" />
+                        <stop offset="100%" stopColor="#9A7545" stopOpacity="0" />
                     </linearGradient>
                 </defs>
             </svg>

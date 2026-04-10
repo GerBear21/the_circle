@@ -29,7 +29,7 @@ const StyledWrapper = styled.div`
     height: 20px;
     position: absolute;
     border-radius: 50%;
-    background-color: #2D9CDB;
+    background-color: #9A7545;
     left: 15%;
     transform-origin: 50%;
     animation: circle7124 .5s alternate infinite ease;
@@ -57,21 +57,21 @@ const StyledWrapper = styled.div`
   .circle:nth-child(2) {
     left: 45%;
     animation-delay: .2s;
-    background-color: #56CCF2;
+    background-color: #D4B483;
   }
 
   .circle:nth-child(3) {
     left: auto;
     right: 15%;
     animation-delay: .3s;
-    background-color: #A78BFA;
+    background-color: #C9A574;
   }
 
   .shadow {
     width: 20px;
     height: 4px;
     border-radius: 50%;
-    background-color: rgba(45, 156, 219, 0.3);
+    background-color: rgba(154, 117, 69, 0.3);
     position: absolute;
     top: 62px;
     transform-origin: 50%;

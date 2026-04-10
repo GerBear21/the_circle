@@ -1554,10 +1554,10 @@ export default function NewCapexRequestPage() {
             <div className="mb-4 space-y-3">
               <h4 className="text-sm font-medium text-gray-700">Existing Supporting Documents:</h4>
               {existingSupportingDocs.map((doc: any, index: number) => (
-                <div key={index} className="p-4 rounded-xl border transition-all bg-blue-50 border-blue-200">
+                <div key={index} className="p-4 rounded-xl border transition-all bg-[#F3EADC] border-[#C9B896]">
                   <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-blue-100">
-                      <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-[#F3EADC]">
+                      <svg className="w-5 h-5 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                       </svg>
                     </div>

@@ -29,7 +29,7 @@ interface CapexRequest {
 
 const statusConfig: Record<string, { label: string; bg: string; text: string; ring: string }> = {
     pending: { label: 'Pending', bg: 'bg-yellow-50', text: 'text-yellow-700', ring: 'ring-yellow-600/20' },
-    in_review: { label: 'In Review', bg: 'bg-blue-50', text: 'text-blue-700', ring: 'ring-blue-600/20' },
+    in_review: { label: 'In Review', bg: 'bg-[#F3EADC]', text: 'text-[#5E4426]', ring: 'ring-[#9A7545]/20' },
     approved: { label: 'Approved', bg: 'bg-green-50', text: 'text-green-700', ring: 'ring-green-600/20' },
     rejected: { label: 'Rejected', bg: 'bg-red-50', text: 'text-red-700', ring: 'ring-red-600/20' },
     withdrawn: { label: 'Withdrawn', bg: 'bg-gray-50', text: 'text-gray-600', ring: 'ring-gray-500/10' },
@@ -263,7 +263,7 @@ export default function CapexTrackerPage() {
                                                     {req.status === 'pending' || req.status === 'in_review' ? (
                                                         req.current_approver ? (
                                                             <div className="flex items-center gap-2">
-                                                                <div className="w-6 h-6 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-[10px] font-bold ring-2 ring-white">
+                                                                <div className="w-6 h-6 rounded-full bg-[#F3EADC] text-[#9A7545] flex items-center justify-center text-[10px] font-bold ring-2 ring-white">
                                                                     {getInitials(req.current_approver.display_name)}
                                                                 </div>
                                                                 <span className="text-sm text-gray-700">{req.current_approver.display_name}</span>

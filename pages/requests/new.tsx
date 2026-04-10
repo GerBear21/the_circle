@@ -161,7 +161,7 @@ const getColorClasses = (color: string) => {
     success: { bg: 'bg-emerald-50', icon: 'text-emerald-600', hover: 'hover:bg-emerald-50 hover:shadow-emerald-100', border: 'hover:border-emerald-200' },
     warning: { bg: 'bg-amber-50', icon: 'text-amber-600', hover: 'hover:bg-amber-50 hover:shadow-amber-100', border: 'hover:border-amber-200' },
     secondary: { bg: 'bg-gray-100', icon: 'text-gray-600', hover: 'hover:bg-gray-50 hover:shadow-gray-200', border: 'hover:border-gray-300' },
-    indigo: { bg: 'bg-indigo-50', icon: 'text-indigo-600', hover: 'hover:bg-indigo-50 hover:shadow-indigo-100', border: 'hover:border-indigo-200' },
+    indigo: { bg: 'bg-[#F3EADC]', icon: 'text-[#9A7545]', hover: 'hover:bg-[#F3EADC] hover:shadow-[#F3EADC]', border: 'hover:border-[#E6D3B3]' },
     rose: { bg: 'bg-rose-50', icon: 'text-rose-600', hover: 'hover:bg-rose-50 hover:shadow-rose-100', border: 'hover:border-rose-200' },
   };
   return colors[color] || colors.primary;
@@ -342,21 +342,21 @@ export default function NewRequestPage() {
         </div>
 
         {/* Footer Support Card
-        <div className="mt-12 rounded-2xl bg-blue-50 border border-blue-100 p-6 flex flex-col sm:flex-row items-center justify-between gap-6">
+        <div className="mt-12 rounded-2xl bg-[#F3EADC] border border-[#E6D3B3] p-6 flex flex-col sm:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm text-blue-500">
+            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm text-[#9A7545]">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
               </svg>
             </div>
             <div>
-              <h4 className="font-bold text-blue-900 text-lg">Can't find what you're looking for?</h4>
-              <p className="text-blue-700/80">Check our documentation or contact the system administrator for help.</p>
+              <h4 className="font-bold text-[#3F2D19] text-lg">Can't find what you're looking for?</h4>
+              <p className="text-[#5E4426]/80">Check our documentation or contact the system administrator for help.</p>
             </div>
           </div>
           <button
             onClick={() => router.push('/help')}
-            className="px-6 py-2.5 bg-white text-blue-600 font-semibold rounded-lg shadow-sm border border-blue-200 hover:bg-blue-50 transition-all whitespace-nowrap"
+            className="px-6 py-2.5 bg-white text-[#9A7545] font-semibold rounded-lg shadow-sm border border-[#C9B896] hover:bg-[#F3EADC] transition-all whitespace-nowrap"
           >
             Contact Support
           </button>

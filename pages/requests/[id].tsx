@@ -105,7 +105,7 @@ interface RequestDetail {
 
 const statusConfig: Record<string, { label: string; bg: string; text: string; icon: string }> = {
     pending: { label: 'Pending', bg: 'bg-amber-100/50', text: 'text-amber-700', icon: 'clock' },
-    in_review: { label: 'In Review', bg: 'bg-blue-100/50', text: 'text-blue-700', icon: 'refresh' },
+    in_review: { label: 'In Review', bg: 'bg-[#F3EADC]/50', text: 'text-[#5E4426]', icon: 'refresh' },
     approved: { label: 'Approved', bg: 'bg-emerald-100/50', text: 'text-emerald-700', icon: 'check-circle' },
     rejected: { label: 'Rejected', bg: 'bg-rose-100/50', text: 'text-rose-700', icon: 'x-circle' },
     withdrawn: { label: 'Withdrawn', bg: 'bg-gray-100/50', text: 'text-gray-500', icon: 'minus-circle' },
@@ -814,7 +814,7 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
                                                                 // Pending status
                                                                 return (
                                                                     <div className="flex flex-col items-end gap-1">
-                                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-[#F3EADC] text-[#5E4426] border border-[#C9B896]">
                                                                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                                                             </svg>
@@ -2340,7 +2340,7 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                                                 <span className="font-semibold text-gray-900 text-sm">{mod.modified_by?.display_name || 'Unknown User'}</span>
                                                                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                                                                     mod.modification_type === 'field_edit' 
-                                                                        ? 'bg-blue-100 text-blue-700' 
+                                                                        ? 'bg-[#F3EADC] text-[#5E4426]' 
                                                                         : mod.modification_type === 'document_upload'
                                                                             ? 'bg-green-100 text-green-700'
                                                                             : 'bg-red-100 text-red-700'
@@ -2424,7 +2424,7 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                         </svg>
                                     );
                                     if (type?.includes('word') || type?.includes('doc')) return (
-                                        <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
+                                        <svg className="w-5 h-5 text-[#9A7545]" fill="currentColor" viewBox="0 0 24 24">
                                             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM9.5 11h5c.28 0 .5.22.5.5s-.22.5-.5.5h-5a.5.5 0 0 1-.5-.5c0-.28.22-.5.5-.5zm0 2h5c.28 0 .5.22.5.5s-.22.5-.5.5h-5a.5.5 0 0 1-.5-.5c0-.28.22-.5.5-.5zm0 2h5c.28 0 .5.22.5.5s-.22.5-.5.5h-5a.5.5 0 0 1-.5-.5c0-.28.22-.5.5-.5z" />
                                         </svg>
                                     );
@@ -2651,14 +2651,14 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                         {/* Supporting Documents Section */}
                                         {supportingDocs.length > 0 && (
                                             <Card className="!p-0 overflow-hidden border-gray-200 shadow-sm">
-                                                <div className="bg-blue-50/50 px-6 py-4 border-b border-blue-100 flex items-center justify-between">
-                                                    <h3 className="font-semibold text-blue-800 flex items-center gap-2">
-                                                        <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <div className="bg-[#F3EADC]/50 px-6 py-4 border-b border-[#E6D3B3] flex items-center justify-between">
+                                                    <h3 className="font-semibold text-[#3F2D19] flex items-center gap-2">
+                                                        <svg className="w-5 h-5 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                                                         </svg>
                                                         Supporting Documents
                                                     </h3>
-                                                    <span className="text-sm text-blue-600 font-medium">{supportingDocs.length} uploaded</span>
+                                                    <span className="text-sm text-[#9A7545] font-medium">{supportingDocs.length} uploaded</span>
                                                 </div>
                                                 <div className="p-4 space-y-3">
                                                     {supportingDocs.map((doc: any, index: number) => {
@@ -2669,7 +2669,7 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                                             <div key={index} className="p-4 bg-white rounded-xl border border-gray-200 hover:border-gray-300 transition-colors">
                                                                 <div className="flex items-start justify-between gap-4">
                                                                     <div className="flex items-start gap-3 flex-1 min-w-0">
-                                                                        <div className="w-12 h-12 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                                                                        <div className="w-12 h-12 bg-[#F3EADC] rounded-lg flex items-center justify-center flex-shrink-0">
                                                                             {getFileIcon(doc.type || '')}
                                                                         </div>
                                                                         <div className="flex-1 min-w-0">
@@ -2760,21 +2760,21 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                         {/* Additional Uploaded Documents Section */}
                                         {additionalDocuments.length > 0 && (
                                             <Card className="!p-0 overflow-hidden border-gray-200 shadow-sm">
-                                                <div className="bg-purple-50/50 px-6 py-4 border-b border-purple-100 flex items-center justify-between">
-                                                    <h3 className="font-semibold text-purple-800 flex items-center gap-2">
-                                                        <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <div className="bg-[#F3EADC]/50 px-6 py-4 border-b border-[#E6D3B3] flex items-center justify-between">
+                                                    <h3 className="font-semibold text-[#3F2D19] flex items-center gap-2">
+                                                        <svg className="w-5 h-5 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                                                         </svg>
                                                         Additional Documents
                                                     </h3>
-                                                    <span className="text-sm text-purple-600 font-medium">{additionalDocuments.length} uploaded</span>
+                                                    <span className="text-sm text-[#9A7545] font-medium">{additionalDocuments.length} uploaded</span>
                                                 </div>
                                                 <div className="p-4 space-y-3">
                                                     {additionalDocuments.map((doc: any) => (
                                                         <div key={doc.id} className="p-4 bg-white rounded-xl border border-gray-200 hover:border-gray-300 transition-colors">
                                                             <div className="flex items-start justify-between gap-4">
                                                                 <div className="flex items-start gap-3 flex-1 min-w-0">
-                                                                    <div className="w-12 h-12 bg-purple-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                                                                    <div className="w-12 h-12 bg-[#F3EADC] rounded-lg flex items-center justify-center flex-shrink-0">
                                                                         {getFileIcon(doc.mime_type || '')}
                                                                     </div>
                                                                     <div className="flex-1 min-w-0">
@@ -3181,7 +3181,7 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                             onClick={() => setUploadDocumentType('supporting')}
                                             className={`flex-1 p-3 rounded-xl border-2 transition-all ${
                                                 uploadDocumentType === 'supporting'
-                                                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                                    ? 'border-[#9A7545] bg-[#F3EADC] text-[#5E4426]'
                                                     : 'border-gray-200 hover:border-gray-300 text-gray-600'
                                             }`}
                                         >

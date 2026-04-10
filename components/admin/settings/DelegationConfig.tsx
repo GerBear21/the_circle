@@ -191,7 +191,7 @@ export function DelegationConfig() {
             </div>
 
             <div className="flex flex-wrap items-center gap-3 mt-4 text-xs">
-              <div className="flex items-center gap-1.5 bg-blue-50 text-blue-700 px-2.5 py-1 rounded-md font-medium">
+              <div className="flex items-center gap-1.5 bg-[#F3EADC] text-[#5E4426] px-2.5 py-1 rounded-md font-medium">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                 {formatDate(d.starts_at)} &mdash; {d.ends_at ? formatDate(d.ends_at) : 'Indefinite'}
               </div>

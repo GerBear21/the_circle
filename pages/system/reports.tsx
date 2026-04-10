@@ -32,8 +32,8 @@ export default function Reports() {
     ];
 
     const reportTypes = [
-        { label: 'Financial', value: 35, color: 'bg-blue-500' },
-        { label: 'Operational', value: 25, color: 'bg-purple-500' },
+        { label: 'Financial', value: 35, color: 'bg-[#9A7545]' },
+        { label: 'Operational', value: 25, color: 'bg-[#9A7545]' },
         { label: 'HR', value: 20, color: 'bg-pink-500' },
         { label: 'Compliance', value: 15, color: 'bg-orange-500' },
         { label: 'Other', value: 5, color: 'bg-gray-400' },
@@ -63,27 +63,27 @@ export default function Reports() {
                     {/* Hero Section */}
                     <motion.div
                         variants={item}
-                        className="relative overflow-hidden rounded-[2.5rem] bg-gradient-to-br from-indigo-600 to-purple-700 p-10 sm:p-14 shadow-2xl shadow-indigo-500/20 text-white"
+                        className="relative overflow-hidden rounded-[2.5rem] bg-gradient-to-br from-[#9A7545] to-[#5E4426] p-10 sm:p-14 shadow-2xl shadow-[#9A7545]/20 text-white"
                     >
                         <div className="absolute top-0 right-0 -mt-20 -mr-20 w-96 h-96 bg-white/10 rounded-full blur-3xl" />
-                        <div className="absolute bottom-0 left-0 -mb-20 -ml-20 w-80 h-80 bg-purple-500/20 rounded-full blur-3xl" />
+                        <div className="absolute bottom-0 left-0 -mb-20 -ml-20 w-80 h-80 bg-[#9A7545]/20 rounded-full blur-3xl" />
 
                         <div className="relative z-10 max-w-2xl">
                             <h1 className="text-4xl sm:text-5xl font-bold mb-6 tracking-tight">
                                 System Intelligence & <br />
-                                <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-200 to-pink-200">
+                                <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#E6D3B3] to-[#E6D3B3]">
                                     Analytics Hub
                                 </span>
                             </h1>
-                            <p className="text-indigo-100 text-lg sm:text-xl leading-relaxed mb-8">
+                            <p className="text-[#F3EADC] text-lg sm:text-xl leading-relaxed mb-8">
                                 Comprehensive insights into your organization's performance.
                                 Generate, export, and analyze data with precision.
                             </p>
                             <div className="flex flex-wrap gap-4">
-                                <button className="bg-white text-indigo-600 px-6 py-3 rounded-xl font-bold hover:bg-indigo-50 transition-colors shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 duration-200">
+                                <button className="bg-white text-[#9A7545] px-6 py-3 rounded-xl font-bold hover:bg-[#F3EADC] transition-colors shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 duration-200">
                                     Generate New Report
                                 </button>
-                                <button className="bg-indigo-500/30 backdrop-blur-md border border-white/20 text-white px-6 py-3 rounded-xl font-medium hover:bg-indigo-500/40 transition-colors">
+                                <button className="bg-[#9A7545]/30 backdrop-blur-md border border-white/20 text-white px-6 py-3 rounded-xl font-medium hover:bg-[#9A7545]/40 transition-colors">
                                     View Archives
                                 </button>
                             </div>
@@ -106,8 +106,8 @@ export default function Reports() {
                                     </div>
                                     <div className={cn(
                                         "w-10 h-10 rounded-xl flex items-center justify-center",
-                                        stat.color === 'blue' && "bg-blue-100 text-blue-600",
-                                        stat.color === 'purple' && "bg-purple-100 text-purple-600",
+                                        stat.color === 'blue' && "bg-[#F3EADC] text-[#9A7545]",
+                                        stat.color === 'purple' && "bg-[#F3EADC] text-[#9A7545]",
                                         stat.color === 'green' && "bg-green-100 text-green-600",
                                         stat.color === 'emerald' && "bg-emerald-100 text-emerald-600",
                                     )}>
@@ -162,7 +162,7 @@ export default function Reports() {
                         <motion.div variants={item} className="lg:col-span-2 bg-white/60 backdrop-blur-xl rounded-[2rem] p-8 border border-white/50 shadow-lg">
                             <div className="flex items-center justify-between mb-8">
                                 <h3 className="text-xl font-bold text-gray-900">Recent Reports</h3>
-                                <button className="text-indigo-600 hover:text-indigo-700 font-semibold text-sm">View All</button>
+                                <button className="text-[#9A7545] hover:text-[#5E4426] font-semibold text-sm">View All</button>
                             </div>
 
                             <div className="overflow-x-auto">
@@ -182,7 +182,7 @@ export default function Reports() {
                                             <tr key={i} className="group hover:bg-white/50 transition-colors">
                                                 <td className="py-4 pl-4">
                                                     <div className="flex items-center gap-3">
-                                                        <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
+                                                        <div className="w-8 h-8 rounded-lg bg-[#F3EADC] flex items-center justify-center text-[#9A7545]">
                                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                                             </svg>

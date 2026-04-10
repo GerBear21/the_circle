@@ -22,7 +22,7 @@ export function NotificationsConfig({ getSetting, queueChange }: ConfigTabProps)
       <SectionHeading title="Notification Settings" subtitle="Configure which events trigger notifications and how they are delivered." />
 
       <Card className="!p-6">
-        <CardHeading icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>} iconBg="bg-blue-100" iconColor="text-blue-600" title="Email Notification Triggers" />
+        <CardHeading icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>} iconBg="bg-[#F3EADC]" iconColor="text-[#9A7545]" title="Email Notification Triggers" />
         <p className="text-sm text-gray-500 mb-4">Select which workflow events send email notifications.</p>
         <div className="space-y-1">
           <ToggleSwitch checked={emailOnSubmit} onChange={(v) => { setEmailOnSubmit(v); queueChange('notifications', 'email_on_submit', v); }} label="Request submitted" description="Notify approvers when a new request is submitted" />
@@ -38,12 +38,12 @@ export function NotificationsConfig({ getSetting, queueChange }: ConfigTabProps)
       </Card>
 
       <Card className="!p-6">
-        <CardHeading icon={<NotificationIcon />} iconBg="bg-purple-100" iconColor="text-purple-600" title="Delivery Settings" />
+        <CardHeading icon={<NotificationIcon />} iconBg="bg-[#F3EADC]" iconColor="text-[#9A7545]" title="Delivery Settings" />
         <div className="space-y-3">
           <ToggleSwitch checked={inAppEnabled} onChange={(v) => { setInAppEnabled(v); queueChange('notifications', 'in_app_enabled', v); }} label="In-app notifications" description="Show notifications in the app bell icon" />
           <ToggleSwitch checked={digestEnabled} onChange={(v) => { setDigestEnabled(v); queueChange('notifications', 'digest_enabled', v); }} label="Email digest" description="Consolidate notifications into a periodic digest email" />
           {digestEnabled && (
-            <div className="pl-4 border-l-2 border-purple-200">
+            <div className="pl-4 border-l-2 border-[#E6D3B3]">
               <div className="space-y-1">
                 <label className="text-sm font-medium text-gray-700">Digest Frequency</label>
                 <select defaultValue={digestFrequency} onChange={(e) => queueChange('notifications', 'digest_frequency', e.target.value)} className={selectCls}>

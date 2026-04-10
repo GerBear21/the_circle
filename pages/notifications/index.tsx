@@ -239,7 +239,7 @@ export default function NotificationsPage({ initialNotifications }: Notification
     switch (type) {
       case 'approval': return 'bg-success-100 text-success-600';
       case 'task': return 'bg-amber-100 text-amber-600';
-      case 'message': return 'bg-blue-100 text-blue-600';
+      case 'message': return 'bg-[#F3EADC] text-[#9A7545]';
       case 'system':
       default: return 'bg-gray-100 text-gray-600';
     }

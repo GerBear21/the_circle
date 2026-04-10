@@ -1,42 +1,334 @@
 import { signIn, useSession } from "next-auth/react";
 import Head from "next/head";
-import dynamic from "next/dynamic";
 import { GetServerSideProps } from "next";
 import { useRouter } from "next/router";
-import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import Loader from "../components/Loader";
 
-// Dynamically import Lottie to avoid SSR issues
-const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
-import heroAnimation from "../Girl doing remote job using laptop.json";
-
 export const getServerSideProps: GetServerSideProps = async () => {
-  return {
-    props: {},
-  };
+  return { props: {} };
 };
 
+const HEADLINE =
+  "Driving RTG's digital transformation through workflow automation.";
+
+/* ---------- Antigravity Canvas (Matter.js) ---------- */
+function AntigravityCanvas() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let cleanup: (() => void) | undefined;
+
+    (async () => {
+      const Matter = await import("matter-js");
+      if (cancelled || !containerRef.current || !canvasRef.current) return;
+
+      const { Engine, World, Bodies, Body, Runner, Events } = Matter;
+
+      const container = containerRef.current;
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext("2d")!;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+      let width = container.clientWidth || window.innerWidth;
+      let height = container.clientHeight || window.innerHeight;
+
+      const resize = () => {
+        width = container.clientWidth || window.innerWidth;
+        height = container.clientHeight || window.innerHeight;
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      };
+      resize();
+
+      const engine = Engine.create();
+      engine.gravity.x = 0;
+      engine.gravity.y = 0;
+      engine.positionIterations = 6;
+      engine.velocityIterations = 4;
+
+      // Soft walls far outside so shapes stay in frame
+      const wallThickness = 200;
+      const walls = [
+        Bodies.rectangle(width / 2, -wallThickness / 2, width + 400, wallThickness, { isStatic: true }),
+        Bodies.rectangle(width / 2, height + wallThickness / 2, width + 400, wallThickness, { isStatic: true }),
+        Bodies.rectangle(-wallThickness / 2, height / 2, wallThickness, height + 400, { isStatic: true }),
+        Bodies.rectangle(width + wallThickness / 2, height / 2, wallThickness, height + 400, { isStatic: true }),
+      ];
+      World.add(engine.world, walls);
+
+      type Shape = {
+        body: Matter.Body;
+        radius: number;
+        color: string;
+        rotation: number;
+        rotationSpeed: number;
+      };
+
+      const palette = [
+        "rgba(154, 117, 69, 0.35)",   // brand brown
+        "rgba(201, 165, 116, 0.38)",  // warm gold
+        "rgba(255, 255, 255, 0.55)",  // translucent warm white
+        "rgba(184, 147, 90, 0.25)",   // tan
+        "rgba(212, 180, 131, 0.28)",  // soft beige
+      ];
+
+      const isMobile = width < 640;
+      const shapeCount = isMobile
+        ? 7
+        : Math.min(18, Math.max(10, Math.floor((width * height) / 90000)));
+      const maxR = isMobile ? Math.min(42, width * 0.1) : Math.min(90, width * 0.14);
+      const minR = isMobile ? Math.max(12, maxR * 0.4) : Math.max(18, maxR * 0.35);
+      const shapes: Shape[] = [];
+
+      for (let i = 0; i < shapeCount; i++) {
+        const radius = minR + Math.random() * (maxR - minR);
+        const body = Bodies.circle(
+          Math.random() * width,
+          Math.random() * height,
+          radius,
+          {
+            frictionAir: 0.01,
+            friction: 0,
+            restitution: 0.9,
+            density: 0.0008,
+          }
+        );
+        Body.setVelocity(body, {
+          x: (Math.random() - 0.5) * 1.2,
+          y: (Math.random() - 0.5) * 1.2,
+        });
+        World.add(engine.world, body);
+        shapes.push({
+          body,
+          radius,
+          color: palette[i % palette.length],
+          rotation: Math.random() * Math.PI * 2,
+          rotationSpeed: (Math.random() - 0.5) * 0.015,
+        });
+      }
+
+      // Mouse repulsion — with smoothed tracking + velocity
+      const mouse = {
+        x: -9999,
+        y: -9999,
+        tx: -9999,
+        ty: -9999,
+        vx: 0,
+        vy: 0,
+        active: false,
+      };
+      const onMove = (e: MouseEvent) => {
+        const rect = container.getBoundingClientRect();
+        mouse.tx = e.clientX - rect.left;
+        mouse.ty = e.clientY - rect.top;
+        if (!mouse.active) {
+          mouse.x = mouse.tx;
+          mouse.y = mouse.ty;
+        }
+        mouse.active = true;
+      };
+      const onLeave = () => {
+        mouse.active = false;
+        mouse.x = -9999;
+        mouse.y = -9999;
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseout", onLeave);
+
+      Events.on(engine, "beforeUpdate", () => {
+        // Smooth mouse tracking + derive velocity for "drag wake" effect
+        if (mouse.active) {
+          const prevX = mouse.x;
+          const prevY = mouse.y;
+          mouse.x += (mouse.tx - mouse.x) * 0.25;
+          mouse.y += (mouse.ty - mouse.y) * 0.25;
+          mouse.vx = mouse.x - prevX;
+          mouse.vy = mouse.y - prevY;
+        }
+        const mouseSpeed = Math.hypot(mouse.vx, mouse.vy);
+
+        for (const s of shapes) {
+          if (mouse.active) {
+            const dx = s.body.position.x - mouse.x;
+            const dy = s.body.position.y - mouse.y;
+            const distSq = dx * dx + dy * dy;
+            const influence = 320;
+            if (distSq < influence * influence && distSq > 1) {
+              const dist = Math.sqrt(distSq);
+              const falloff = 1 - dist / influence;
+              // Non-linear ease-out for snappier near-field repulsion
+              const ease = falloff * falloff;
+              const base = 0.006 * ease;
+              const speedBoost = 1 + Math.min(mouseSpeed * 0.25, 3);
+
+              // Push away (stronger)
+              Body.applyForce(s.body, s.body.position, {
+                x: (dx / dist) * base * speedBoost,
+                y: (dy / dist) * base * speedBoost,
+              });
+              // Swirl (perpendicular, scaled by proximity)
+              Body.applyForce(s.body, s.body.position, {
+                x: (-dy / dist) * base * 0.7,
+                y: (dx / dist) * base * 0.7,
+              });
+              // Drag wake — shapes are nudged along the mouse direction
+              Body.applyForce(s.body, s.body.position, {
+                x: mouse.vx * 0.00018 * ease,
+                y: mouse.vy * 0.00018 * ease,
+              });
+              // Spin up rotation near cursor
+              s.rotationSpeed += (Math.random() - 0.5) * 0.002 * ease;
+            }
+          }
+
+          // Velocity clamp for stability
+          const maxV = 6;
+          const vx = s.body.velocity.x;
+          const vy = s.body.velocity.y;
+          const vMag = Math.hypot(vx, vy);
+          if (vMag > maxV) {
+            Body.setVelocity(s.body, { x: (vx / vMag) * maxV, y: (vy / vMag) * maxV });
+          } else {
+            Body.setVelocity(s.body, { x: vx * 0.992, y: vy * 0.992 });
+          }
+
+          // Rotation damping back toward gentle drift
+          s.rotationSpeed *= 0.98;
+          if (Math.abs(s.rotationSpeed) < 0.003) {
+            s.rotationSpeed += (Math.random() - 0.5) * 0.0008;
+          }
+          s.rotation += s.rotationSpeed;
+        }
+      });
+
+      const runner = Runner.create();
+      Runner.run(runner, engine);
+
+      let rafId = 0;
+      const render = () => {
+        ctx.clearRect(0, 0, width, height);
+        for (const s of shapes) {
+          const { x, y } = s.body.position;
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(s.rotation);
+
+          // Rings only — outer stroke with gradient, inner highlight
+          ctx.strokeStyle = s.color;
+          ctx.lineWidth = Math.max(1, s.radius * 0.05);
+          ctx.beginPath();
+          ctx.arc(0, 0, s.radius * 0.85, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.strokeStyle = "rgba(255,255,255,0.55)";
+          ctx.lineWidth = Math.max(0.5, s.radius * 0.02);
+          ctx.beginPath();
+          ctx.arc(0, 0, s.radius * 0.72, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+        rafId = requestAnimationFrame(render);
+      };
+      rafId = requestAnimationFrame(render);
+
+      const onResize = () => {
+        resize();
+        Body.setPosition(walls[0], { x: width / 2, y: -wallThickness / 2 });
+        Body.setPosition(walls[1], { x: width / 2, y: height + wallThickness / 2 });
+        Body.setPosition(walls[2], { x: -wallThickness / 2, y: height / 2 });
+        Body.setPosition(walls[3], { x: width + wallThickness / 2, y: height / 2 });
+      };
+      window.addEventListener("resize", onResize);
+
+      // Also observe container size (mobile address bar, orientation)
+      const ro = new ResizeObserver(() => onResize());
+      ro.observe(container);
+
+      cleanup = () => {
+        ro.disconnect();
+        cancelAnimationFrame(rafId);
+        Runner.stop(runner);
+        World.clear(engine.world, false);
+        Engine.clear(engine);
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseout", onLeave);
+        window.removeEventListener("resize", onResize);
+      };
+    })();
+
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
+  }, []);
+
+  return (
+    <div
+      ref={containerRef}
+      className="absolute inset-0 pointer-events-none"
+      aria-hidden
+    >
+      <canvas ref={canvasRef} className="block w-full h-full" />
+    </div>
+  );
+}
+
+/* ---------- Typewriter ---------- */
+function useTypewriter(text: string, speed = 28, startDelay = 250) {
+  const [output, setOutput] = useState("");
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    let i = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const start = setTimeout(() => {
+      const tick = () => {
+        i++;
+        setOutput(text.slice(0, i));
+        if (i >= text.length) {
+          setDone(true);
+          return;
+        }
+        timer = setTimeout(tick, speed);
+      };
+      tick();
+    }, startDelay);
+    return () => {
+      clearTimeout(start);
+      clearTimeout(timer!);
+    };
+  }, [text, speed, startDelay]);
+
+  return { output, done };
+}
+
+/* ---------- Page ---------- */
 export default function Home() {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
+  const { output, done } = useTypewriter(HEADLINE);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
   useEffect(() => {
-    if (status === 'authenticated') {
-      sessionStorage.setItem('the_circle_active_session', '1');
-      router.replace('/dashboard');
+    if (status === "authenticated") {
+      sessionStorage.setItem("the_circle_active_session", "1");
+      router.replace("/dashboard");
     }
   }, [status, router]);
 
-  // Show loader during auth check, when authenticated, or before client mount (to prevent hydration flash)
-  if (!mounted || status === 'loading' || status === 'authenticated') {
+  if (!mounted || status === "loading" || status === "authenticated") {
     return (
-      <div className="min-h-screen w-full bg-[#FAFAFA] flex items-center justify-center">
+      <div className="min-h-screen w-full bg-white flex items-center justify-center">
         <Loader />
       </div>
     );
@@ -45,151 +337,118 @@ export default function Home() {
   return (
     <>
       <Head>
-        <title>The Circle - Enterprise Approval Workflows</title>
-        <meta name="description" content="Streamline your approval processes with The Circle" />
+        <title>The Circle — Antigravity Workflow Engine</title>
+        <meta
+          name="description"
+          content="The fast, reliable, audit-ready workflow engine powering Rainbow Tourism Group's digital transformation."
+        />
       </Head>
 
-      <div className="min-h-screen w-full bg-[#FAFAFA] relative overflow-hidden flex items-center justify-center selection:bg-brand-500 selection:text-white">
-
-        {/* Abstract Background Shapes */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 1.5, ease: "easeOut" }}
-            className="absolute -top-[20%] -right-[10%] w-[60vw] h-[60vw] bg-gradient-to-br from-purple-200/40 to-blue-200/40 rounded-full blur-[100px]"
-          />
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 1.5, ease: "easeOut", delay: 0.2 }}
-            className="absolute -bottom-[20%] -left-[10%] w-[60vw] h-[60vw] bg-gradient-to-tr from-brand-200/40 to-teal-200/40 rounded-full blur-[100px]"
-          />
-          <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-40 brightness-100 contrast-150 mix-blend-overlay" />
+      <main className="relative h-[100dvh] w-full overflow-hidden bg-white text-gray-900 selection:bg-[#9A7545] selection:text-white flex flex-col">
+        {/* Ambient wash */}
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute -top-1/3 -right-1/4 w-[70vw] h-[70vw] rounded-full bg-gradient-to-br from-[#9A7545]/15 to-[#C9A574]/15 blur-[120px]" />
+          <div className="absolute -bottom-1/3 -left-1/4 w-[70vw] h-[70vw] rounded-full bg-gradient-to-tr from-[#C9A574]/15 to-[#9A7545]/10 blur-[120px]" />
         </div>
 
-        {/* Main Content Container */}
-        <div className="relative z-10 w-full max-w-7xl mx-auto p-6 flex flex-col lg:flex-row items-center justify-center lg:justify-between gap-12 lg:gap-24">
-
-          {/* Left Side: Brand & Value Prop */}
-          <div className="flex-1 w-full max-w-2xl text-center lg:text-left">
+        {/* Physics canvas — only after typewriter is done */}
+        <AnimatePresence>
+          {done && (
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6 }}
-              className="inline-flex items-center gap-2 mb-8 px-4 py-1.5 rounded-full bg-white/60 border border-gray-200/50 backdrop-blur-sm shadow-sm"
+              key="canvas"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 1.2, ease: "easeOut" }}
+              className="absolute inset-0"
             >
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-              </span>
-              <span className="text-gray-600 text-xs font-semibold tracking-wide uppercase">System Operational</span>
+              <AntigravityCanvas />
             </motion.div>
+          )}
+        </AnimatePresence>
 
-            <motion.h1
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.1 }}
-              className="text-5xl sm:text-6xl lg:text-7xl font-bold text-gray-900 tracking-tight mb-6 leading-[1.1]"
-            >
-              Approvals, <br />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-500 to-purple-600">Reimagined.</span>
-            </motion.h1>
-
-            <motion.p
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.2 }}
-              className="text-lg sm:text-xl text-gray-500 leading-relaxed mb-10 max-w-lg mx-auto lg:mx-0"
-            >
-              Experience the next generation of enterprise workflow automation designed for Rainbow Tourism Group.
-            </motion.p>
-
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.3 }}
-              className="w-full max-w-md mx-auto lg:mx-0"
-            >
-              <Lottie animationData={heroAnimation} loop={true} className="w-full h-auto drop-shadow-2xl" />
-            </motion.div>
+        {/* Top brand bar */}
+        <motion.header
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: done ? 1 : 0, y: done ? 0 : -10 }}
+          transition={{ duration: 0.6, delay: done ? 0.1 : 0 }}
+          className="relative z-20 flex items-center justify-between px-4 sm:px-10 py-3 sm:py-4 shrink-0"
+        >
+          <div className="flex items-center gap-3">
+            <svg className="w-8 h-8 sm:w-9 sm:h-9" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="brandGradientLogin" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#9A7545" />
+                  <stop offset="100%" stopColor="#C9A574" />
+                </linearGradient>
+              </defs>
+              <path
+                d="M 100 25 C 145 25, 180 60, 180 100 C 180 145, 145 180, 100 180 C 55 180, 20 145, 20 100 C 20 60, 52 28, 95 25 L 100 25 L 98 40 C 60 42, 35 65, 35 100 C 35 138, 65 167, 100 167 C 138 167, 167 138, 167 100 C 167 65, 140 38, 100 38 Z"
+                fill="url(#brandGradientLogin)"
+              />
+            </svg>
+            <span className="font-bold text-lg sm:text-xl tracking-tight text-gray-900">The Circle</span>
           </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/images/RTG_LOGO.png"
+            alt="Rainbow Tourism Group"
+            className="h-10 sm:h-12 w-auto object-contain"
+          />
+        </motion.header>
 
-          {/* Right Side: Glass Login Card */}
+        {/* Hero */}
+        <section className="relative z-10 flex-1 min-h-0 flex flex-col items-center justify-center gap-10 sm:gap-14 px-4 sm:px-6 text-center">
+          <h1 className="max-w-4xl text-[22px] leading-[1.3] sm:text-4xl sm:leading-[1.2] lg:text-5xl font-semibold tracking-tight text-gray-900">
+            <span>{output}</span>
+            <span
+              className={`inline-block w-[2px] h-[1em] align-[-0.15em] ml-1 bg-gradient-to-b from-[#9A7545] to-[#C9A574] ${
+                done ? "opacity-0" : "animate-pulse"
+              }`}
+            />
+          </h1>
+
+          {/* Sign in button — always mounted (stable layout), animated in after typing */}
           <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.8, delay: 0.4 }}
-            className="w-full max-w-md relative"
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: done ? 1 : 0, y: done ? 0 : 40 }}
+            transition={{ duration: 1, ease: [0.22, 1, 0.36, 1], delay: done ? 0.6 : 0 }}
+            className="flex flex-col items-center w-full max-w-sm mx-auto"
           >
-            {/* Glossy Card */}
-            <div className="relative bg-white/80 backdrop-blur-xl border border-white/50 p-8 sm:p-12 rounded-[2.5rem] shadow-2xl shadow-brand-900/5">
-
-              <div className="flex flex-col items-center mb-10">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-10 h-10 flex items-center justify-center shrink-0">
-                    <svg className="w-10 h-10" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <defs>
-                        <linearGradient id="brandGradientLogin" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stopColor="#2D9CDB" />
-                          <stop offset="100%" stopColor="#A78BFA" />
-                        </linearGradient>
-                      </defs>
-                      <path d="M 100 25
-                         C 145 25, 180 60, 180 100
-                         C 180 145, 145 180, 100 180
-                         C 55 180, 20 145, 20 100
-                         C 20 60, 52 28, 95 25
-                         L 100 25
-                         L 98 40
-                         C 60 42, 35 65, 35 100
-                         C 35 138, 65 167, 100 167
-                         C 138 167, 167 138, 167 100
-                         C 167 65, 140 38, 100 38
-                         Z"
-                        fill="url(#brandGradientLogin)"
-                      />
-                    </svg>
-                  </div>
-                  <span className="text-gray-900 font-bold text-3xl">The Circle</span>
-                </div>
-                
-                <p className="text-gray-500 text-center text-sm">
-                  Enter your credentials to access the workspace
-                </p>
-              </div>
-
-              {/* Login Actions */}
-              <div className="space-y-4">
-                <button
-                  onClick={() => {
-                    sessionStorage.setItem('the_circle_active_session', '1');
-                    signIn("azure-ad");
-                  }}
-                  className="group relative w-full overflow-hidden rounded-xl bg-gray-900 p-[1px] focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 transition-transform active:scale-[0.98]"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-r from-gray-700 via-gray-600 to-gray-700 group-hover:via-gray-500 transition-all duration-300" />
-                  <div className="relative flex items-center justify-center gap-3 w-full bg-gray-900 group-hover:bg-gray-800/90 text-white font-semibold py-4 px-6 rounded-xl transition-all">
-                    <svg className="w-5 h-5" viewBox="0 0 21 21" fill="currentColor">
-                      <path d="M0 0h10v10H0V0zm11 0h10v10H11V0zM0 11h10v10H0V11zm11 0h10v10H11V11z" />
-                    </svg>
-                    <span>Sign in with Microsoft</span>
-                  </div>
-                </button>
-
-              </div>
-
-              {/* Footer Links */}
-              <div className="mt-8 pt-6 border-t border-gray-100 flex flex-col items-center gap-4">
-                <p className="text-gray-400 text-xs text-center">
-                  By signing in, you agree to our <a href="#" className="text-brand-600 hover:text-brand-700 font-medium transition-colors">Terms</a> and <a href="#" className="text-brand-600 hover:text-brand-700 font-medium transition-colors">Privacy Policy</a>
-                </p>
-              </div>
-            </div>
+            <button
+              onClick={() => {
+                sessionStorage.setItem("the_circle_active_session", "1");
+                signIn("azure-ad");
+              }}
+              disabled={!done}
+              className="group relative w-full overflow-hidden rounded-xl bg-gray-900 px-6 py-4 text-white font-semibold shadow-xl shadow-gray-900/10 transition-all hover:bg-gray-800 active:scale-[0.985] focus:outline-none focus:ring-2 focus:ring-[#9A7545] focus:ring-offset-2 disabled:pointer-events-none"
+            >
+              <span className="relative z-10 flex items-center justify-center gap-3">
+                <svg className="w-5 h-5" viewBox="0 0 21 21" fill="currentColor">
+                  <path d="M0 0h10v10H0V0zm11 0h10v10H11V0zM0 11h10v10H0V11zm11 0h10v10H11V11z" />
+                </svg>
+                Sign in with Microsoft
+              </span>
+              <span className="absolute inset-0 translate-y-full bg-gradient-to-r from-[#9A7545] to-[#C9A574] transition-transform duration-500 group-hover:translate-y-0" />
+            </button>
+            <p className="mt-4 text-center text-[11px] text-gray-400">
+              By signing in, you agree to our{" "}
+              <a href="#" className="text-[#9A7545] hover:underline">Terms</a> and{" "}
+              <a href="#" className="text-[#9A7545] hover:underline">Privacy Policy</a>.
+            </p>
           </motion.div>
+        </section>
 
-        </div>
-      </div>
+        {/* Footer — floating, no background, so physics canvas covers the area */}
+        <motion.footer
+          initial={{ opacity: 0 }}
+          animate={{ opacity: done ? 1 : 0 }}
+          transition={{ duration: 0.8, delay: done ? 0.4 : 0 }}
+          className="pointer-events-none absolute bottom-3 inset-x-0 z-10 flex items-center justify-center text-[11px] text-gray-400"
+        >
+          <span>© {new Date().getFullYear()} Rainbow Tourism Group</span>
+        </motion.footer>
+      </main>
     </>
   );
 }

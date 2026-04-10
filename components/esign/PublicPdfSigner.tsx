@@ -282,7 +282,7 @@ export default function PublicPdfSigner({
       </div>
 
       {signatureDataUrl && (
-        <div className="px-4 py-2 bg-blue-50 border-b border-blue-100 text-sm text-blue-900 flex items-center gap-2">
+        <div className="px-4 py-2 bg-[#F3EADC] border-b border-[#E6D3B3] text-sm text-[#3F2D19] flex items-center gap-2">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>

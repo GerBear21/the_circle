@@ -141,9 +141,9 @@ const mockTemplates: DocumentTemplate[] = [
 ];
 
 const categoryColors: Record<string, string> = {
-  Procurement: 'bg-blue-100 text-blue-700',
+  Procurement: 'bg-[#F3EADC] text-[#5E4426]',
   Finance: 'bg-green-100 text-green-700',
-  HR: 'bg-purple-100 text-purple-700',
+  HR: 'bg-[#F3EADC] text-[#5E4426]',
   IT: 'bg-cyan-100 text-cyan-700',
   Operations: 'bg-orange-100 text-orange-700',
   General: 'bg-gray-100 text-gray-700',
@@ -157,8 +157,8 @@ const statusConfig: Record<string, { label: string; bg: string; text: string; do
 
 const fieldTypeConfig: Record<string, { label: string; icon: string; color: string }> = {
   text: { label: 'Text', icon: 'M4 6h16M4 12h16m-7 6h7', color: 'text-gray-600' },
-  number: { label: 'Number', icon: 'M7 20l4-16m2 16l4-16M6 9h14M4 15h14', color: 'text-blue-600' },
-  date: { label: 'Date', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z', color: 'text-purple-600' },
+  number: { label: 'Number', icon: 'M7 20l4-16m2 16l4-16M6 9h14M4 15h14', color: 'text-[#9A7545]' },
+  date: { label: 'Date', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z', color: 'text-[#9A7545]' },
   select: { label: 'Dropdown', icon: 'M19 9l-7 7-7-7', color: 'text-teal-600' },
   textarea: { label: 'Long Text', icon: 'M4 6h16M4 10h16M4 14h10', color: 'text-orange-600' },
   file: { label: 'File Upload', icon: 'M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13', color: 'text-pink-600' },

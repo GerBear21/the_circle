@@ -1731,7 +1731,7 @@ export default function VoucherRequestPage() {
                                     Add colleagues who need visibility on this voucher request. Watchers can view the request details and generate the voucher PDF once approved, but cannot make changes or approve.
                                 </p>
                             </div>
-                            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-medium">
+                            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[#F3EADC] text-[#5E4426] rounded-full text-xs font-medium">
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
@@ -1754,10 +1754,10 @@ export default function VoucherRequestPage() {
                                 {selectedWatchers.map((watcher) => (
                                     <div
                                         key={watcher.id}
-                                        className="flex items-center gap-2 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-full"
+                                        className="flex items-center gap-2 bg-[#F3EADC] border border-[#C9B896] px-3 py-1.5 rounded-full"
                                     >
-                                        <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                                            <span className="text-xs font-medium text-blue-600">
+                                        <div className="w-6 h-6 rounded-full bg-[#F3EADC] flex items-center justify-center flex-shrink-0">
+                                            <span className="text-xs font-medium text-[#9A7545]">
                                                 {watcher.display_name?.charAt(0)?.toUpperCase() || '?'}
                                             </span>
                                         </div>
@@ -1765,7 +1765,7 @@ export default function VoucherRequestPage() {
                                         <button
                                             type="button"
                                             onClick={() => handleRemoveWatcher(watcher.id)}
-                                            className="p-0.5 rounded-full hover:bg-blue-200 text-blue-400 hover:text-blue-600 transition-colors"
+                                            className="p-0.5 rounded-full hover:bg-[#E6D3B3] text-[#C9A574] hover:text-[#9A7545] transition-colors"
                                             title="Remove watcher"
                                         >
                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1785,7 +1785,7 @@ export default function VoucherRequestPage() {
                                 </svg>
                                 <input
                                     type="text"
-                                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#9A7545] focus:border-transparent transition-all"
                                     placeholder="Search for users to add as watchers..."
                                     value={watcherSearch}
                                     onChange={(e) => {
@@ -1801,7 +1801,7 @@ export default function VoucherRequestPage() {
                                 <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
                                     {loadingUsers ? (
                                         <div className="flex items-center justify-center py-4">
-                                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500" />
+                                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[#9A7545]" />
                                         </div>
                                     ) : getFilteredUsersForWatchers().length === 0 ? (
                                         <div className="px-4 py-3 text-sm text-gray-500">
@@ -1813,10 +1813,10 @@ export default function VoucherRequestPage() {
                                                 key={u.id}
                                                 type="button"
                                                 onClick={() => handleSelectWatcher(u.id)}
-                                                className="w-full px-4 py-3 text-left hover:bg-blue-50 transition-colors flex items-center gap-3 border-b border-gray-100 last:border-b-0"
+                                                className="w-full px-4 py-3 text-left hover:bg-[#F3EADC] transition-colors flex items-center gap-3 border-b border-gray-100 last:border-b-0"
                                             >
-                                                <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                                                    <span className="text-sm font-medium text-blue-600">
+                                                <div className="w-8 h-8 rounded-full bg-[#F3EADC] flex items-center justify-center flex-shrink-0">
+                                                    <span className="text-sm font-medium text-[#9A7545]">
                                                         {u.display_name?.charAt(0)?.toUpperCase() || '?'}
                                                     </span>
                                                 </div>
@@ -1824,7 +1824,7 @@ export default function VoucherRequestPage() {
                                                     <p className="text-sm font-medium text-gray-900 truncate">{u.display_name}</p>
                                                     <p className="text-xs text-gray-500 truncate">{u.email}</p>
                                                 </div>
-                                                <svg className="w-5 h-5 text-blue-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <svg className="w-5 h-5 text-[#9A7545] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                                                 </svg>
                                             </button>
