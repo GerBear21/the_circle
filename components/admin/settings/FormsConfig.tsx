@@ -55,7 +55,7 @@ export function FormsConfig({ getSetting, queueChange }: ConfigTabProps) {
       <SectionHeading title="Form Configuration" subtitle="Enable/disable forms, set required fields, and configure form-specific options." />
 
       <Card className="!p-6">
-        <CardHeading icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>} iconBg="bg-blue-100" iconColor="text-blue-600" title="Form Availability & Features" />
+        <CardHeading icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>} iconBg="bg-[#F3EADC]" iconColor="text-[#9A7545]" title="Form Availability & Features" />
         <p className="text-sm text-gray-500 mb-4">Control which forms are accessible and their core features.</p>
         <div className="space-y-3">
           {formTypes.map(f => (
@@ -67,17 +67,17 @@ export function FormsConfig({ getSetting, queueChange }: ConfigTabProps) {
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
                   <input type="checkbox" className="sr-only peer" checked={formStates[f.key]?.enabled ?? true} onChange={(e) => updateFormState(f.key, 'enabled', e.target.checked)} />
-                  <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#9A7545]"></div>
                 </label>
               </div>
               {formStates[f.key]?.enabled && (
                 <div className="flex gap-4 mt-3 pt-3 border-t border-gray-100">
                   <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
-                    <input type="checkbox" checked={formStates[f.key]?.drafts ?? true} onChange={(e) => updateFormState(f.key, 'drafts', e.target.checked)} className="rounded border-gray-300 text-blue-600 w-4 h-4" />
+                    <input type="checkbox" checked={formStates[f.key]?.drafts ?? true} onChange={(e) => updateFormState(f.key, 'drafts', e.target.checked)} className="rounded border-gray-300 text-[#9A7545] w-4 h-4" />
                     Allow Drafts
                   </label>
                   <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
-                    <input type="checkbox" checked={formStates[f.key]?.attachments ?? false} onChange={(e) => updateFormState(f.key, 'attachments', e.target.checked)} className="rounded border-gray-300 text-blue-600 w-4 h-4" />
+                    <input type="checkbox" checked={formStates[f.key]?.attachments ?? false} onChange={(e) => updateFormState(f.key, 'attachments', e.target.checked)} className="rounded border-gray-300 text-[#9A7545] w-4 h-4" />
                     Require Attachments
                   </label>
                 </div>
@@ -111,7 +111,7 @@ export function FormsConfig({ getSetting, queueChange }: ConfigTabProps) {
       </Card>
 
       <Card className="!p-6">
-        <CardHeading icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>} iconBg="bg-indigo-100" iconColor="text-indigo-600" title="Hotel & Voucher Form Settings" />
+        <CardHeading icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>} iconBg="bg-[#F3EADC]" iconColor="text-[#9A7545]" title="Hotel & Voucher Form Settings" />
         <div className="space-y-4">
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-700">Accommodation Types (comma-separated)</label>

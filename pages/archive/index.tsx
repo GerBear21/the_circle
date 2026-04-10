@@ -230,7 +230,7 @@ export default function ArchivePage() {
             <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-8">
 
                 {/* Header Section */}
-                <div className="rounded-3xl bg-gradient-to-br from-brand-50 via-white to-purple-50/10 border border-brand-100/50 p-6 sm:p-10 relative overflow-hidden shadow-sm">
+                <div className="rounded-3xl bg-gradient-to-br from-brand-50 via-white to-[#FAF6F1]/10 border border-brand-100/50 p-6 sm:p-10 relative overflow-hidden shadow-sm">
                     <div className="flex flex-col md:flex-row items-center gap-8 relative z-10">
                         <div className="w-60 h-60 sm:w-72 sm:h-72 flex-shrink-0 transition-transform hover:scale-105 duration-500">
                             <Lottie
@@ -257,7 +257,7 @@ export default function ArchivePage() {
                         </div>
                     </div>
                     {/* Background Decoration */}
-                    <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-gradient-to-br from-brand-100/40 to-purple-100/30 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none" />
+                    <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-gradient-to-br from-brand-100/40 to-[#F3EADC]/30 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none" />
                 </div>
 
                 {/* Breadcrumb Navigation */}

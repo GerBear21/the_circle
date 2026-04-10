@@ -1034,23 +1034,23 @@ export default function TravelAuthPage() {
 
                     {/* AA Rates Calculator - Only for Personal Motor Vehicle */}
                     {travelData.travelMode === 'personal_motor_vehicle' && (
-                        <Card className="p-6 bg-blue-50 border border-blue-200">
+                        <Card className="p-6 bg-[#F3EADC] border border-[#C9B896]">
                             <div className="flex items-center gap-2 mb-4">
-                                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <svg className="w-5 h-5 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                                 </svg>
-                                <h4 className="font-semibold text-blue-800 uppercase text-sm">Travel Cost Calculator</h4>
+                                <h4 className="font-semibold text-[#3F2D19] uppercase text-sm">Travel Cost Calculator</h4>
                             </div>
-                            <p className="text-sm text-blue-700 mb-4">Select your vehicle details to calculate travel cost using AA rates.</p>
+                            <p className="text-sm text-[#5E4426] mb-4">Select your vehicle details to calculate travel cost using AA rates.</p>
 
-                            <div className="bg-white rounded-xl p-4 border border-blue-200 space-y-4">
+                            <div className="bg-white rounded-xl p-4 border border-[#C9B896] space-y-4">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Vehicle Engine Size <span className="text-danger-500">*</span></label>
                                         <select
                                             value={aaCalculator.engineCapacity}
                                             onChange={(e) => { setAACalculator({ ...aaCalculator, engineCapacity: e.target.value }); setAaRatesLocked(false); }}
-                                            className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
+                                            className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-[#9A7545] focus:border-transparent outline-none text-sm"
                                         >
                                             <option value="1.1L-1.5L">1.1L – 1.5L</option>
                                             <option value="1.6L-2.0L">1.6L – 2.0L</option>
@@ -1063,7 +1063,7 @@ export default function TravelAuthPage() {
                                         <select
                                             value={aaCalculator.fuelType}
                                             onChange={(e) => { setAACalculator({ ...aaCalculator, fuelType: e.target.value as 'petrol' | 'diesel' }); setAaRatesLocked(false); }}
-                                            className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
+                                            className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-[#9A7545] focus:border-transparent outline-none text-sm"
                                         >
                                             <option value="petrol">Petrol</option>
                                             <option value="diesel">Diesel</option>
@@ -1076,15 +1076,15 @@ export default function TravelAuthPage() {
                                     <div className="flex items-center justify-between">
                                         <div>
                                             <span className="text-gray-500 text-sm block">AA Rate per km</span>
-                                            <span className="font-bold text-blue-900 text-xl">USD {getAARate().toFixed(2)}</span>
+                                            <span className="font-bold text-[#3F2D19] text-xl">USD {getAARate().toFixed(2)}</span>
                                         </div>
                                         <div className="text-right">
                                             <span className="text-gray-500 text-sm block">Total Distance</span>
                                             <span className="font-bold text-gray-800 text-xl">{travelData.itinerary.reduce((sum, row) => sum + (parseFloat(row.km) || 0), 0)} km</span>
                                         </div>
-                                        <div className="text-right bg-blue-100 rounded-lg p-3">
-                                            <span className="text-blue-700 text-sm block font-medium">Estimated Travel Cost</span>
-                                            <span className="font-bold text-blue-900 text-xl">USD {(travelData.itinerary.reduce((sum, row) => sum + (parseFloat(row.km) || 0), 0) * getAARate()).toFixed(2)}</span>
+                                        <div className="text-right bg-[#F3EADC] rounded-lg p-3">
+                                            <span className="text-[#5E4426] text-sm block font-medium">Estimated Travel Cost</span>
+                                            <span className="font-bold text-[#3F2D19] text-xl">USD {(travelData.itinerary.reduce((sum, row) => sum + (parseFloat(row.km) || 0), 0) * getAARate()).toFixed(2)}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -1102,25 +1102,25 @@ export default function TravelAuthPage() {
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                <tr className={`border-b border-gray-100 ${aaCalculator.engineCapacity === '1.1L-1.5L' ? 'bg-blue-50' : ''}`}>
+                                                <tr className={`border-b border-gray-100 ${aaCalculator.engineCapacity === '1.1L-1.5L' ? 'bg-[#F3EADC]' : ''}`}>
                                                     <td className="py-1 px-2">1.1L – 1.5L</td>
-                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.1L-1.5L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-blue-700' : ''}`}>0.28</td>
-                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.1L-1.5L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-blue-700' : ''}`}>0.26</td>
+                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.1L-1.5L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-[#5E4426]' : ''}`}>0.28</td>
+                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.1L-1.5L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-[#5E4426]' : ''}`}>0.26</td>
                                                 </tr>
-                                                <tr className={`border-b border-gray-100 ${aaCalculator.engineCapacity === '1.6L-2.0L' ? 'bg-blue-50' : ''}`}>
+                                                <tr className={`border-b border-gray-100 ${aaCalculator.engineCapacity === '1.6L-2.0L' ? 'bg-[#F3EADC]' : ''}`}>
                                                     <td className="py-1 px-2">1.6L – 2.0L</td>
-                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.6L-2.0L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-blue-700' : ''}`}>0.35</td>
-                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.6L-2.0L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-blue-700' : ''}`}>0.32</td>
+                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.6L-2.0L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-[#5E4426]' : ''}`}>0.35</td>
+                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.6L-2.0L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-[#5E4426]' : ''}`}>0.32</td>
                                                 </tr>
-                                                <tr className={`border-b border-gray-100 ${aaCalculator.engineCapacity === '2.1L-3.0L' ? 'bg-blue-50' : ''}`}>
+                                                <tr className={`border-b border-gray-100 ${aaCalculator.engineCapacity === '2.1L-3.0L' ? 'bg-[#F3EADC]' : ''}`}>
                                                     <td className="py-1 px-2">2.1L – 3.0L</td>
-                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '2.1L-3.0L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-blue-700' : ''}`}>0.48</td>
-                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '2.1L-3.0L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-blue-700' : ''}`}>0.45</td>
+                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '2.1L-3.0L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-[#5E4426]' : ''}`}>0.48</td>
+                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '2.1L-3.0L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-[#5E4426]' : ''}`}>0.45</td>
                                                 </tr>
-                                                <tr className={`${aaCalculator.engineCapacity === 'Above 3.0L' ? 'bg-blue-50' : ''}`}>
+                                                <tr className={`${aaCalculator.engineCapacity === 'Above 3.0L' ? 'bg-[#F3EADC]' : ''}`}>
                                                     <td className="py-1 px-2">Above 3.0L</td>
-                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === 'Above 3.0L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-blue-700' : ''}`}>0.59</td>
-                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === 'Above 3.0L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-blue-700' : ''}`}>0.56</td>
+                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === 'Above 3.0L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-[#5E4426]' : ''}`}>0.59</td>
+                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === 'Above 3.0L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-[#5E4426]' : ''}`}>0.56</td>
                                                 </tr>
                                             </tbody>
                                         </table>
@@ -1128,7 +1128,7 @@ export default function TravelAuthPage() {
                                 </div>
 
                                 <div className="flex justify-end mt-4">
-                                    <button type="button" onClick={applyAARate} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm flex items-center gap-2">
+                                    <button type="button" onClick={applyAARate} className="px-4 py-2 bg-[#9A7545] text-white rounded-lg hover:bg-[#5E4426] transition-colors font-medium text-sm flex items-center gap-2">
                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                                         Apply to Budget
                                     </button>

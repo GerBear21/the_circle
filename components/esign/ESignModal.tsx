@@ -367,15 +367,15 @@ export default function ESignModal({ isOpen, onClose, onComplete }: ESignModalPr
             {step === 'invite' && (
               <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
                 {/* Sender banner */}
-                <div className="flex items-center gap-3 p-3 rounded-xl bg-blue-50 border border-blue-100">
-                  <div className="w-9 h-9 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm font-semibold">
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-[#F3EADC] border border-[#E6D3B3]">
+                  <div className="w-9 h-9 rounded-full bg-[#9A7545] text-white flex items-center justify-center text-sm font-semibold">
                     {(session?.user?.name || senderEmail).charAt(0).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs text-blue-700 font-medium uppercase tracking-wide">From</p>
-                    <p className="text-sm text-blue-900 font-medium truncate">{senderEmail}</p>
+                    <p className="text-xs text-[#5E4426] font-medium uppercase tracking-wide">From</p>
+                    <p className="text-sm text-[#3F2D19] font-medium truncate">{senderEmail}</p>
                   </div>
-                  <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                   </svg>
                 </div>

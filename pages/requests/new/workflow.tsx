@@ -92,11 +92,11 @@ const defaultStepSettings = (): StepSettings => ({
 type WorkflowCategory = 'departmental' | 'multi_departmental' | 'business_unit' | 'inter_business_unit' | 'hotel_group';
 
 const WORKFLOW_CATEGORIES: { value: WorkflowCategory; label: string; icon: string; color: string; description: string }[] = [
-  { value: 'departmental', label: 'Departmental', icon: '🏢', color: 'bg-blue-100 text-blue-700', description: 'Within a single department' },
-  { value: 'multi_departmental', label: 'Multi-Departmental', icon: '🏗️', color: 'bg-indigo-100 text-indigo-700', description: 'Across departments in same business unit' },
+  { value: 'departmental', label: 'Departmental', icon: '🏢', color: 'bg-[#F3EADC] text-[#5E4426]', description: 'Within a single department' },
+  { value: 'multi_departmental', label: 'Multi-Departmental', icon: '🏗️', color: 'bg-[#F3EADC] text-[#5E4426]', description: 'Across departments in same business unit' },
   { value: 'business_unit', label: 'Business Unit', icon: '🏨', color: 'bg-emerald-100 text-emerald-700', description: 'Entire business unit scope' },
   { value: 'inter_business_unit', label: 'Inter Business Unit', icon: '🔄', color: 'bg-amber-100 text-amber-700', description: 'Across multiple business units' },
-  { value: 'hotel_group', label: 'Hotel Group', icon: '🌐', color: 'bg-purple-100 text-purple-700', description: 'Organization-wide (all business units)' },
+  { value: 'hotel_group', label: 'Hotel Group', icon: '🌐', color: 'bg-[#F3EADC] text-[#5E4426]', description: 'Organization-wide (all business units)' },
 ];
 
 export default function CustomizeWorkflowPage() {
@@ -489,7 +489,7 @@ export default function CustomizeWorkflowPage() {
               onClick={() => setExpandedStep(isExpanded ? null : step.id)}
             >
               <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-lg ${step.approverSource === 'organogram' ? 'bg-indigo-50 text-indigo-600' :
+                <div className={`p-2 rounded-lg ${step.approverSource === 'organogram' ? 'bg-[#F3EADC] text-[#9A7545]' :
                   step.approverSource === 'manual' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
                   }`}>
                   {renderIcon(step.approverSource)}
@@ -729,7 +729,7 @@ export default function CustomizeWorkflowPage() {
       <Modal isOpen={!!showPositionPicker} onClose={() => { setShowPositionPicker(null); setPositionSearch(''); }} title={`Select Position from Organogram${scopeLabel}`} size="lg">
         <div className="space-y-4">
           {isWideScope && (
-            <div className="flex items-center gap-2 px-3 py-2 bg-purple-50 border border-purple-100 rounded-lg text-xs text-purple-700">
+            <div className="flex items-center gap-2 px-3 py-2 bg-[#F3EADC] border border-[#E6D3B3] rounded-lg text-xs text-[#5E4426]">
               <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               Showing positions across all business units for {WORKFLOW_CATEGORIES.find(c => c.value === workflowCategory)?.label} scope
             </div>
@@ -777,7 +777,7 @@ export default function CustomizeWorkflowPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     {isWideScope && pos.business_unit && (
-                      <span className="text-[10px] bg-purple-50 text-purple-600 px-2 py-0.5 rounded font-medium whitespace-nowrap">{pos.business_unit.name}</span>
+                      <span className="text-[10px] bg-[#F3EADC] text-[#9A7545] px-2 py-0.5 rounded font-medium whitespace-nowrap">{pos.business_unit.name}</span>
                     )}
                     {pos.grade && <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded font-medium">{pos.grade}</span>}
                   </div>
@@ -797,7 +797,7 @@ export default function CustomizeWorkflowPage() {
       <Modal isOpen={!!showEmployeePicker} onClose={() => { setShowEmployeePicker(null); setEmployeeSearch(''); }} title={`Select Employee${scopeLabel}`} size="lg">
         <div className="space-y-4">
           {isWideScope && (
-            <div className="flex items-center gap-2 px-3 py-2 bg-purple-50 border border-purple-100 rounded-lg text-xs text-purple-700">
+            <div className="flex items-center gap-2 px-3 py-2 bg-[#F3EADC] border border-[#E6D3B3] rounded-lg text-xs text-[#5E4426]">
               <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               Showing employees across all business units for {WORKFLOW_CATEGORIES.find(c => c.value === workflowCategory)?.label} scope
             </div>
@@ -839,7 +839,7 @@ export default function CustomizeWorkflowPage() {
                       <div className="text-xs text-gray-500 truncate">{emp.email} • {emp.job_title || 'No Job Title'}</div>
                     </div>
                     {empBu && (
-                      <span className="text-[10px] bg-purple-50 text-purple-600 px-2 py-0.5 rounded font-medium whitespace-nowrap flex-shrink-0">{empBu.name}</span>
+                      <span className="text-[10px] bg-[#F3EADC] text-[#9A7545] px-2 py-0.5 rounded font-medium whitespace-nowrap flex-shrink-0">{empBu.name}</span>
                     )}
                   </button>
                 );
@@ -946,9 +946,9 @@ export default function CustomizeWorkflowPage() {
                 </Card>
 
                 {/* Auto-generate from Organogram */}
-                <Card className="p-4 bg-gradient-to-br from-indigo-50 to-purple-50 border-indigo-100">
+                <Card className="p-4 bg-gradient-to-br from-[#F3EADC] to-[#FAF6F1] border-[#E6D3B3]">
                   <h4 className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
-                    <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                    <svg className="w-4 h-4 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                     Quick Start
                   </h4>
                   <p className="text-xs text-gray-600 mb-3">
@@ -962,13 +962,13 @@ export default function CustomizeWorkflowPage() {
                     type="button"
                     onClick={autoGenerateFromOrganogram}
                     disabled={loadingPositions}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-all text-sm font-medium shadow-sm"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#9A7545] text-white rounded-xl hover:bg-[#5E4426] disabled:opacity-50 transition-all text-sm font-medium shadow-sm"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
                     {loadingPositions ? 'Loading...' : 'Generate from Organogram'}
                   </button>
                   {steps.length > 0 && (
-                    <p className="text-[10px] text-indigo-600 mt-2 text-center font-medium">
+                    <p className="text-[10px] text-[#9A7545] mt-2 text-center font-medium">
                       This will replace your current {steps.length} step{steps.length > 1 ? 's' : ''}
                     </p>
                   )}

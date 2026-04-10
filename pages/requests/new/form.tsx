@@ -149,10 +149,10 @@ const FIELD_TYPES: { value: FieldType; label: string; icon: string; category: st
 ];
 
 const SCOPE_OPTIONS: { value: FormScope; label: string; icon: string; color: string; description: string }[] = [
-  { value: 'departmental', label: 'Departmental', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4', color: 'bg-blue-50 text-blue-600 border-blue-200', description: 'Available only within a specific department' },
+  { value: 'departmental', label: 'Departmental', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4', color: 'bg-[#F3EADC] text-[#9A7545] border-[#C9B896]', description: 'Available only within a specific department' },
   { value: 'business_unit', label: 'Business Unit', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6', color: 'bg-emerald-50 text-emerald-600 border-emerald-200', description: 'Available across a specific business unit' },
   { value: 'multi_business_unit', label: 'Multi-Business Units', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4', color: 'bg-teal-50 text-teal-600 border-teal-200', description: 'Available across multiple selected business units' },
-  { value: 'hotel_group', label: 'Hotel Group (All)', icon: 'M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z', color: 'bg-purple-50 text-purple-600 border-purple-200', description: 'Available to everyone in the organization' },
+  { value: 'hotel_group', label: 'Hotel Group (All)', icon: 'M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z', color: 'bg-[#F3EADC] text-[#9A7545] border-[#E6D3B3]', description: 'Available to everyone in the organization' },
 ];
 
 const REQUESTOR_FIELD_OPTIONS = [
@@ -792,11 +792,11 @@ export default function NewFormDesignerPage() {
             onClick={() => { setFormLayout('multi_page'); setTotalPages(Math.max(2, totalPages)); }}
             className={`p-4 rounded-xl border-2 text-left transition-all ${
               formLayout === 'multi_page'
-                ? 'border-indigo-500 bg-indigo-50/50 ring-2 ring-indigo-100'
+                ? 'border-[#9A7545] bg-[#F3EADC]/50 ring-2 ring-[#F3EADC]'
                 : 'border-gray-200 hover:border-gray-300 bg-white'
             }`}
           >
-            <svg className={`w-7 h-7 mb-2 ${formLayout === 'multi_page' ? 'text-indigo-600' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className={`w-7 h-7 mb-2 ${formLayout === 'multi_page' ? 'text-[#9A7545]' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
             </svg>
             <span className="block text-sm font-bold">Multi-Page</span>
@@ -1619,9 +1619,9 @@ export default function NewFormDesignerPage() {
             </div>
 
             {/* Audience */}
-            <div className="bg-blue-50 rounded-lg p-3 border border-blue-100">
-              <span className="text-[10px] text-blue-500 uppercase font-bold block">Audience</span>
-              <span className="text-sm font-medium text-blue-800">{audienceLabel}</span>
+            <div className="bg-[#F3EADC] rounded-lg p-3 border border-[#E6D3B3]">
+              <span className="text-[10px] text-[#9A7545] uppercase font-bold block">Audience</span>
+              <span className="text-sm font-medium text-[#3F2D19]">{audienceLabel}</span>
             </div>
 
             {/* Requestor Fields */}
@@ -1646,7 +1646,7 @@ export default function NewFormDesignerPage() {
                     <span className="text-gray-800">{f.label}</span>
                     <span className="text-[10px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">{FIELD_TYPES.find(ft => ft.value === f.type)?.label}</span>
                     {f.required && <span className="text-[10px] text-red-500 font-medium">Required</span>}
-                    {formLayout === 'multi_page' && f.page && <span className="text-[10px] text-indigo-500 font-medium">Page {f.page}</span>}
+                    {formLayout === 'multi_page' && f.page && <span className="text-[10px] text-[#9A7545] font-medium">Page {f.page}</span>}
                   </div>
                 ))}
               </div>
@@ -1696,9 +1696,9 @@ export default function NewFormDesignerPage() {
                 </div>
               )}
               {workflowMode === 'select' && selectedWf && (
-                <div className="bg-indigo-50 rounded-lg p-3 border border-indigo-100">
-                  <span className="text-sm font-semibold text-indigo-800">{selectedWf.name}</span>
-                  <span className="text-xs text-indigo-600 block mt-0.5">{selectedWf.steps?.length || 0} approval steps</span>
+                <div className="bg-[#F3EADC] rounded-lg p-3 border border-[#E6D3B3]">
+                  <span className="text-sm font-semibold text-[#3F2D19]">{selectedWf.name}</span>
+                  <span className="text-xs text-[#9A7545] block mt-0.5">{selectedWf.steps?.length || 0} approval steps</span>
                 </div>
               )}
               {workflowMode === 'select' && !selectedWf && (

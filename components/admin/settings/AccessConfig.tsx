@@ -34,14 +34,14 @@ export function AccessConfig() {
     <div className="space-y-6 animate-fade-in">
       <SectionHeading title="Access & Rights Assignment" subtitle="View user roles and manage access. For role changes, use the Roles & Access admin page." />
 
-      <Card className="!p-0 overflow-hidden border border-indigo-100">
-        <div className="p-4 bg-indigo-50 border-b border-indigo-100 flex items-center gap-4">
-          <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600">
+      <Card className="!p-0 overflow-hidden border border-[#E6D3B3]">
+        <div className="p-4 bg-[#F3EADC] border-b border-[#E6D3B3] flex items-center gap-4">
+          <div className="w-10 h-10 bg-[#F3EADC] rounded-full flex items-center justify-center text-[#9A7545]">
             <AccessIcon />
           </div>
           <div>
-            <h3 className="font-semibold text-indigo-900">Restricted Assignment Policy</h3>
-            <p className="text-sm text-indigo-700">
+            <h3 className="font-semibold text-[#3F2D19]">Restricted Assignment Policy</h3>
+            <p className="text-sm text-[#5E4426]">
               For security, roles equal to or higher than <strong>Super Admin</strong> cannot be assigned from this interface.
             </p>
           </div>
@@ -51,7 +51,7 @@ export function AccessConfig() {
           <input
             type="text"
             placeholder="Search users..."
-            className="w-full max-w-md px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            className="w-full max-w-md px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#9A7545] focus:border-[#9A7545]"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -59,7 +59,7 @@ export function AccessConfig() {
 
         {accessLoading ? (
           <div className="p-8 text-center">
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-500 mx-auto" />
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#9A7545] mx-auto" />
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -77,7 +77,7 @@ export function AccessConfig() {
                   <tr key={u.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs">
+                        <div className="w-8 h-8 rounded-full bg-[#F3EADC] text-[#9A7545] flex items-center justify-center font-bold text-xs">
                           {(u.display_name || u.email || '?').charAt(0).toUpperCase()}
                         </div>
                         <div>

@@ -152,7 +152,7 @@ export default function MobileSignaturePage() {
                     {statusMessage && (
                         <div className={`w-full max-w-md mb-4 text-sm border rounded-lg px-3 py-2 transition-colors ${statusMessage.includes('timeout') || statusMessage.includes('Error') || statusMessage.includes('Failed')
                             ? 'bg-red-50 text-red-700 border-red-200'
-                            : 'bg-blue-50 text-blue-700 border-blue-200'
+                            : 'bg-[#F3EADC] text-[#5E4426] border-[#C9B896]'
                             }`}>
                             {statusMessage}
                         </div>

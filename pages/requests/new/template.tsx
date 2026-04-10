@@ -1088,7 +1088,7 @@ export default function NewTemplatePage() {
                               </span>
                             )}
                             {field.conditionalDisplay?.enabled && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#F3EADC] text-[#5E4426] text-xs rounded-full">
                                 Conditional
                               </span>
                             )}
@@ -1404,7 +1404,7 @@ export default function NewTemplatePage() {
                               {/* Conditional Display */}
                               <div>
                                 <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 block">Conditional Display</label>
-                                <div className="p-3 bg-purple-50/50 rounded-lg border border-purple-100">
+                                <div className="p-3 bg-[#F3EADC]/50 rounded-lg border border-[#E6D3B3]">
                                   <label className="flex items-center gap-2 mb-3">
                                     <input
                                       type="checkbox"
@@ -1417,14 +1417,14 @@ export default function NewTemplatePage() {
                                           value: field.conditionalDisplay?.value || ''
                                         }
                                       })}
-                                      className="rounded border-gray-300 text-purple-500 focus:ring-purple-500"
+                                      className="rounded border-gray-300 text-[#9A7545] focus:ring-[#9A7545]"
                                     />
                                     <span className="text-sm text-gray-700">Show this field conditionally</span>
                                   </label>
                                   {field.conditionalDisplay?.enabled && (
                                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                                       <select
-                                        className="px-2 py-1.5 text-sm rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                        className="px-2 py-1.5 text-sm rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-[#9A7545]"
                                         value={field.conditionalDisplay.dependsOn}
                                         onChange={(e) => updateFormField(field.id, { conditionalDisplay: { ...field.conditionalDisplay!, dependsOn: e.target.value } })}
                                       >
@@ -1434,7 +1434,7 @@ export default function NewTemplatePage() {
                                         ))}
                                       </select>
                                       <select
-                                        className="px-2 py-1.5 text-sm rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                        className="px-2 py-1.5 text-sm rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-[#9A7545]"
                                         value={field.conditionalDisplay.operator}
                                         onChange={(e) => updateFormField(field.id, { conditionalDisplay: { ...field.conditionalDisplay!, operator: e.target.value as any } })}
                                       >
@@ -1446,7 +1446,7 @@ export default function NewTemplatePage() {
                                       </select>
                                       <input
                                         type="text"
-                                        className="px-2 py-1.5 text-sm rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                        className="px-2 py-1.5 text-sm rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-[#9A7545]"
                                         placeholder="Value"
                                         value={field.conditionalDisplay.value}
                                         onChange={(e) => updateFormField(field.id, { conditionalDisplay: { ...field.conditionalDisplay!, value: e.target.value } })}
@@ -1660,7 +1660,7 @@ export default function NewTemplatePage() {
                           {/* Quick badges showing step config */}
                           <div className="flex flex-wrap gap-1.5">
                             {step.conditions.length > 0 && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#F3EADC] text-[#5E4426] text-xs rounded-full">
                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>

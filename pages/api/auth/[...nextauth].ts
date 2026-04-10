@@ -26,7 +26,7 @@ export const authOptions: NextAuthOptions = {
       tenantId: process.env.AZURE_TENANT || "common",
       authorization: {
         params: {
-          scope: "openid profile email offline_access User.Read Mail.Send",
+          scope: "openid profile email User.Read",
           prompt: "select_account",
         },
       },
@@ -120,7 +120,7 @@ export const authOptions: NextAuthOptions = {
               client_secret: process.env.AZURE_CLIENT_SECRET || "",
               grant_type: "refresh_token",
               refresh_token: token.ms_refresh_token as string,
-              scope: "openid profile email offline_access User.Read Mail.Send",
+              scope: "openid profile email User.Read",
             });
             const resp = await fetch(
               `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,

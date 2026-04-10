@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import { useEffect, useState, useCallback } from 'react';
 import { AppLayout } from '../../components/layout';
 import { Card, Button } from '../../components/ui';
-import { UsersIllustration } from '../../components/illustrations/UsersIllustration';
+// UsersIllustration removed — clean layout
 import { useAdminUsers } from '../../hooks/useAdminUsers';
 import { useRBACRoles } from '../../hooks/useRBACRoles';
 import { useRBAC } from '../../contexts/RBACContext';
@@ -93,9 +93,9 @@ export default function AdminUsersPage() {
   const getRoleColor = (color?: string) => {
     const colors: Record<string, string> = {
       red: 'bg-red-100 text-red-800',
-      purple: 'bg-purple-100 text-purple-800',
-      indigo: 'bg-indigo-100 text-indigo-800',
-      blue: 'bg-blue-100 text-blue-800',
+      purple: 'bg-[#F3EADC] text-[#3F2D19]',
+      indigo: 'bg-[#F3EADC] text-[#3F2D19]',
+      blue: 'bg-[#F3EADC] text-[#3F2D19]',
       green: 'bg-green-100 text-green-800',
       gray: 'bg-gray-100 text-gray-700',
     };
@@ -151,11 +151,6 @@ export default function AdminUsersPage() {
                 </svg>
                 Export
               </Button>
-            </div>
-          </div>
-          <div className="hidden md:flex md:col-span-1 justify-center items-center">
-            <div className="w-full max-w-[280px]">
-              <UsersIllustration />
             </div>
           </div>
         </div>
@@ -377,12 +372,12 @@ export default function AdminUsersPage() {
                           </>
                         )}
                         {user.department && (
-                          <span className="px-2 py-0.5 rounded-md text-xs font-medium bg-blue-50 text-blue-700">
+                          <span className="px-2 py-0.5 rounded-md text-xs font-medium bg-[#F3EADC] text-[#5E4426]">
                             {user.department.name}
                           </span>
                         )}
                         {user.business_unit && (
-                          <span className="px-2 py-0.5 rounded-md text-xs font-medium bg-purple-50 text-purple-700">
+                          <span className="px-2 py-0.5 rounded-md text-xs font-medium bg-[#F3EADC] text-[#5E4426]">
                             {user.business_unit.name}
                           </span>
                         )}

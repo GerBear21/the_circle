@@ -51,18 +51,18 @@ function getRequestDetailPath(request: Request): string {
 
 const statusConfig: Record<string, { label: string; bg: string; text: string; ring: string }> = {
   pending: { label: 'Pending', bg: 'bg-amber-50', text: 'text-amber-700', ring: 'ring-amber-200' },
-  in_review: { label: 'In Review', bg: 'bg-blue-50', text: 'text-blue-700', ring: 'ring-blue-200' },
+  in_review: { label: 'In Review', bg: 'bg-[#F3EADC]', text: 'text-[#5E4426]', ring: 'ring-[#C9A574]' },
   approved: { label: 'Approved', bg: 'bg-emerald-50', text: 'text-emerald-700', ring: 'ring-emerald-200' },
   rejected: { label: 'Rejected', bg: 'bg-red-50', text: 'text-red-700', ring: 'ring-red-200' },
   withdrawn: { label: 'Withdrawn', bg: 'bg-slate-50', text: 'text-slate-600', ring: 'ring-slate-200' },
   cancelled: { label: 'Cancelled', bg: 'bg-slate-50', text: 'text-slate-600', ring: 'ring-slate-200' },
-  draft: { label: 'Draft', bg: 'bg-indigo-50', text: 'text-indigo-700', ring: 'ring-indigo-200' },
+  draft: { label: 'Draft', bg: 'bg-[#F3EADC]', text: 'text-[#5E4426]', ring: 'ring-[#E6D3B3]' },
 };
 
 const priorityConfig: Record<string, { label: string; color: string; bg: string }> = {
   low: { label: 'Low', color: 'text-slate-600', bg: 'bg-slate-100' },
-  normal: { label: 'Normal', color: 'text-blue-600', bg: 'bg-blue-50' },
-  medium: { label: 'Medium', color: 'text-blue-600', bg: 'bg-blue-50' },
+  normal: { label: 'Normal', color: 'text-[#9A7545]', bg: 'bg-[#F3EADC]' },
+  medium: { label: 'Medium', color: 'text-[#9A7545]', bg: 'bg-[#F3EADC]' },
   high: { label: 'High', color: 'text-amber-600', bg: 'bg-amber-50' },
   urgent: { label: 'Urgent', color: 'text-red-600', bg: 'bg-red-50' },
   critical: { label: 'Critical', color: 'text-red-700', bg: 'bg-red-100' },
@@ -71,11 +71,11 @@ const priorityConfig: Record<string, { label: string; color: string; bg: string 
 const defaultPriority = { label: 'Normal', color: 'text-slate-500', bg: 'bg-slate-50' };
 
 const typeConfig: Record<string, { label: string; icon: string; color: string; bg: string }> = {
-  approval: { label: 'Approval', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-blue-600', bg: 'bg-blue-100' },
-  capex: { label: 'CAPEX', icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-purple-600', bg: 'bg-purple-100' },
+  approval: { label: 'Approval', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-[#9A7545]', bg: 'bg-[#F3EADC]' },
+  capex: { label: 'CAPEX', icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-[#9A7545]', bg: 'bg-[#F3EADC]' },
   leave: { label: 'Leave', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z', color: 'text-teal-600', bg: 'bg-teal-100' },
   expense: { label: 'Expense', icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-emerald-600', bg: 'bg-emerald-100' },
-  procurement: { label: 'Procurement', icon: 'M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z', color: 'text-indigo-600', bg: 'bg-indigo-100' },
+  procurement: { label: 'Procurement', icon: 'M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z', color: 'text-[#9A7545]', bg: 'bg-[#F3EADC]' },
   it_request: { label: 'IT Request', icon: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', color: 'text-cyan-600', bg: 'bg-cyan-100' },
   hotel_booking: { label: 'Hotel Booking', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4', color: 'text-amber-600', bg: 'bg-amber-100' },
 };

@@ -12,49 +12,49 @@ module.exports = {
         heading: ['Plus Jakarta Sans', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
       },
       colors: {
-        // Primary - Electric Blue
+        // Primary - Warm Beige / Brown (RTG)
         primary: {
-          DEFAULT: '#2D9CDB',
-          hover: '#1B73BA',
-          soft: '#56CCF2',
-          50: '#E8F4FC',
-          100: '#D1E9F9',
-          200: '#A3D3F3',
-          300: '#75BDED',
-          400: '#47A7E7',
-          500: '#2D9CDB',
-          600: '#1B73BA',
-          700: '#1B5E83',
-          800: '#123F58',
-          900: '#091F2C',
+          DEFAULT: '#9A7545',
+          hover: '#7C5A33',
+          soft: '#D4B483',
+          50: '#FAF6F1',
+          100: '#F3EADC',
+          200: '#E6D3B3',
+          300: '#D4B483',
+          400: '#B8935A',
+          500: '#9A7545',
+          600: '#7C5A33',
+          700: '#5E4426',
+          800: '#3F2D19',
+          900: '#20170C',
         },
         // Keep brand as alias for compatibility
         brand: {
-          50: '#E8F4FC',
-          100: '#D1E9F9',
-          200: '#A3D3F3',
-          300: '#75BDED',
-          400: '#47A7E7',
-          500: '#2D9CDB',
-          600: '#1B73BA',
-          700: '#1B5E83',
-          800: '#123F58',
-          900: '#091F2C',
+          50: '#FAF6F1',
+          100: '#F3EADC',
+          200: '#E6D3B3',
+          300: '#D4B483',
+          400: '#B8935A',
+          500: '#9A7545',
+          600: '#7C5A33',
+          700: '#5E4426',
+          800: '#3F2D19',
+          900: '#20170C',
         },
-        // Background
-        background: '#F7F8FA',
+        // Background — warm off-white
+        background: '#FBF8F3',
         // Surface / Cards
         surface: '#FFFFFF',
-        // Border / Lines
-        border: '#E5E7EB',
+        // Border / Lines — warm neutral
+        border: '#E5DCCB',
         // Text
         'text-primary': '#1F2937',
         'text-secondary': '#6B7280',
-        // Accent - Elegant purple highlight
+        // Accent - Soft gold/cream highlight
         accent: {
-          DEFAULT: '#A78BFA',
-          400: '#56CCF2',
-          500: '#A78BFA',
+          DEFAULT: '#C9A574',
+          400: '#D4B483',
+          500: '#C9A574',
         },
         // Success - Approvals
         success: {

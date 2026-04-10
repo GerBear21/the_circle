@@ -81,7 +81,7 @@ export function TravelConfig({ getSetting, queueChange }: ConfigTabProps) {
       </Card>
 
       <Card className="!p-6">
-        <CardHeading icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>} iconBg="bg-indigo-100" iconColor="text-indigo-600" title="Business Unit Locations" />
+        <CardHeading icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>} iconBg="bg-[#F3EADC]" iconColor="text-[#9A7545]" title="Business Unit Locations" />
         <p className="text-sm text-gray-500 mb-4">Toggle locations that appear in Travel Authorization and Hotel Booking itinerary dropdowns.</p>
         <div className="space-y-2">
           {locs.map((loc: any, i: number) => (
@@ -95,7 +95,7 @@ export function TravelConfig({ getSetting, queueChange }: ConfigTabProps) {
               </div>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input type="checkbox" className="sr-only peer" checked={loc.enabled} onChange={() => toggleLocation(i)} />
-                <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#9A7545]"></div>
               </label>
             </div>
           ))}

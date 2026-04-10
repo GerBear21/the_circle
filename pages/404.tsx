@@ -6,7 +6,7 @@ import { ArrowLeft } from "lucide-react";
 
 // Dynamically import Lottie to avoid SSR issues
 const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
-import notFoundAnimation from "../lotties/Page not found 404.json";
+import notFoundAnimation from "../lotties/PageNotFound404.json";
 
 export default function Custom404() {
   return (
@@ -24,7 +24,7 @@ export default function Custom404() {
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 1.5, ease: "easeOut" }}
-            className="absolute -top-[20%] -right-[10%] w-[60vw] h-[60vw] bg-gradient-to-br from-purple-200/30 to-blue-200/30 rounded-full blur-[100px]"
+            className="absolute -top-[20%] -right-[10%] w-[60vw] h-[60vw] bg-gradient-to-br from-[#E6D3B3]/30 to-[#E6D3B3]/30 rounded-full blur-[100px]"
           />
           <motion.div
             initial={{ opacity: 0, scale: 0.8 }}
@@ -57,17 +57,10 @@ export default function Custom404() {
             transition={{ duration: 0.6, delay: 0.2 }}
             className="space-y-6 flex flex-col items-center"
           >
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-gray-900 tracking-tight">
-              Aww, snap!
-            </h1>
-            
-            <p className="text-lg sm:text-xl text-gray-500 max-w-md mx-auto leading-relaxed">
-              We couldn't find the page you're looking for. It might have been moved, deleted, or perhaps it never existed.
-            </p>
 
             <Link href="/" passHref>
               <div className="mt-8 group relative overflow-hidden rounded-full p-[1px] focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 transition-transform active:scale-[0.98] inline-block cursor-pointer shadow-md hover:shadow-lg">
-                <div className="absolute inset-0 bg-gradient-to-r from-brand-500 via-purple-500 to-brand-500 bg-[length:200%_auto] animate-gradient" />
+                <div className="absolute inset-0 bg-gradient-to-r from-brand-500 via-[#C9A574] to-brand-500 bg-[length:200%_auto] animate-gradient" />
                 <div className="relative flex items-center justify-center gap-2 bg-white text-gray-900 font-semibold py-3 px-8 rounded-full transition-all group-hover:bg-opacity-90">
                   <ArrowLeft className="w-5 h-5 text-brand-600 transition-transform group-hover:-translate-x-1" />
                   <span>Return to Home</span>

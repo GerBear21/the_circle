@@ -154,16 +154,16 @@ const mockWorkflows: Workflow[] = [
 
 const stepTypeConfig: Record<string, { label: string; icon: string; color: string; bg: string }> = {
   approval: { label: 'Approval', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-green-600', bg: 'bg-green-100' },
-  notification: { label: 'Notification', icon: 'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9', color: 'text-blue-600', bg: 'bg-blue-100' },
-  condition: { label: 'Condition', icon: 'M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-purple-600', bg: 'bg-purple-100' },
+  notification: { label: 'Notification', icon: 'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9', color: 'text-[#9A7545]', bg: 'bg-[#F3EADC]' },
+  condition: { label: 'Condition', icon: 'M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-[#9A7545]', bg: 'bg-[#F3EADC]' },
   parallel: { label: 'Parallel', icon: 'M4 6h16M4 12h16m-7 6h7', color: 'text-orange-600', bg: 'bg-orange-100' },
   escalation: { label: 'Escalation', icon: 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6', color: 'text-red-600', bg: 'bg-red-100' },
 };
 
 const categoryColors: Record<string, string> = {
-  Procurement: 'bg-blue-100 text-blue-700',
+  Procurement: 'bg-[#F3EADC] text-[#5E4426]',
   Finance: 'bg-green-100 text-green-700',
-  HR: 'bg-purple-100 text-purple-700',
+  HR: 'bg-[#F3EADC] text-[#5E4426]',
   IT: 'bg-cyan-100 text-cyan-700',
   Operations: 'bg-orange-100 text-orange-700',
   General: 'bg-gray-100 text-gray-700',
