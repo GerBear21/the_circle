@@ -50,16 +50,16 @@ const allRequestItems: RequestItem[] = [
   //   href: '/requests/new/approval',
   //   category: 'Finance',
   // },
-  {
-    id: 'capex',
-    title: 'CAPEX Request',
-    description: 'Capital expenditure approval form',
-    icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
-    color: 'warning',
-    href: '/requests/new/capex',
-    category: 'Finance',
-    popular: true,
-  },
+  // {
+  //   id: 'capex',
+  //   title: 'CAPEX Request',
+  //   description: 'Capital expenditure approval form',
+  //   icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+  //   color: 'warning',
+  //   href: '/requests/new/capex',
+  //   category: 'Finance',
+  //   popular: true,
+  // },
   // {
   //   id: 'expense',
   //   title: 'Expense Claim',
@@ -155,16 +155,9 @@ const allRequestItems: RequestItem[] = [
 ];
 
 const getColorClasses = (color: string) => {
-  const colors: Record<string, { bg: string; icon: string; hover: string; border: string }> = {
-    primary: { bg: 'bg-primary-50', icon: 'text-primary-600', hover: 'hover:bg-primary-50 hover:shadow-primary-100', border: 'hover:border-primary-200' },
-    accent: { bg: 'bg-accent/10', icon: 'text-accent', hover: 'hover:bg-accent/5 hover:shadow-accent/20', border: 'hover:border-accent/30' },
-    success: { bg: 'bg-emerald-50', icon: 'text-emerald-600', hover: 'hover:bg-emerald-50 hover:shadow-emerald-100', border: 'hover:border-emerald-200' },
-    warning: { bg: 'bg-amber-50', icon: 'text-amber-600', hover: 'hover:bg-amber-50 hover:shadow-amber-100', border: 'hover:border-amber-200' },
-    secondary: { bg: 'bg-gray-100', icon: 'text-gray-600', hover: 'hover:bg-gray-50 hover:shadow-gray-200', border: 'hover:border-gray-300' },
-    indigo: { bg: 'bg-[#F3EADC]', icon: 'text-[#9A7545]', hover: 'hover:bg-[#F3EADC] hover:shadow-[#F3EADC]', border: 'hover:border-[#E6D3B3]' },
-    rose: { bg: 'bg-rose-50', icon: 'text-rose-600', hover: 'hover:bg-rose-50 hover:shadow-rose-100', border: 'hover:border-rose-200' },
-  };
-  return colors[color] || colors.primary;
+  // Unified brown/beige style matching dashboard icons
+  const base = { bg: 'bg-[#F3EADC]', icon: 'text-[#9A7545]', hover: 'hover:bg-[#F3EADC] hover:shadow-[#F3EADC]', border: 'hover:border-[#E6D3B3]' };
+  return base;
 };
 
 export default function NewRequestPage() {

@@ -4,19 +4,31 @@ import styled from 'styled-components';
 const Loader = () => {
   return (
     <StyledWrapper>
-      <div className="wrapper">
-        <div className="circle" />
-        <div className="circle" />
-        <div className="circle" />
-        <div className="shadow" />
-        <div className="shadow" />
-        <div className="shadow" />
+      <div className="loader-overlay">
+        <div className="wrapper">
+          <div className="circle" />
+          <div className="circle" />
+          <div className="circle" />
+          <div className="shadow" />
+          <div className="shadow" />
+          <div className="shadow" />
+        </div>
       </div>
     </StyledWrapper>
   );
 }
 
 const StyledWrapper = styled.div`
+  .loader-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #FEFEFE;
+    z-index: 9999;
+  }
+
   .wrapper {
     width: 200px;
     height: 60px;
@@ -100,14 +112,14 @@ const StyledWrapper = styled.div`
   .shadow:nth-child(4) {
     left: 45%;
     animation-delay: .2s;
-    background-color: rgba(86, 204, 242, 0.3);
+    background-color: rgba(212, 180, 131, 0.3);
   }
 
   .shadow:nth-child(5) {
     left: auto;
     right: 15%;
     animation-delay: .3s;
-    background-color: rgba(167, 139, 250, 0.3);
+    background-color: rgba(201, 165, 116, 0.3);
   }
 `;
 

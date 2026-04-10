@@ -327,10 +327,7 @@ export default function Home() {
   }, [status, router]);
 
   if (!mounted || status === "loading" || status === "authenticated") {
-    return (
-      <div className="min-h-screen w-full bg-white flex items-center justify-center">
-        <Loader />
-      </div>
+    return <Loader />;
     );
   }
 
