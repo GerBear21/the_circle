@@ -30,7 +30,7 @@ export default function NotificationItem({
     return (
         <div
             onClick={onClick}
-            className={`p-4 border-b border-gray-50 flex gap-4 hover:bg-gray-50 transition-colors cursor-pointer ${!isRead ? 'bg-blue-50/30' : ''
+            className={`p-4 border-b border-gray-50 flex gap-4 hover:bg-gray-50 transition-colors cursor-pointer ${!isRead ? 'bg-[#F3EADC]/30' : ''
                 }`}
         >
             {/* Icon / Avatar */}

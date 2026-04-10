@@ -6,29 +6,17 @@ import '../styles/globals.css';
 
 import { ToastProvider } from '../components/ui/ToastProvider';
 import { UserProvider } from '../contexts/UserContext';
+import { RBACProvider } from '../contexts/RBACContext';
 import Loader from '../components/Loader';
 
 const SESSION_FLAG = 'the_circle_active_session';
 
 function SessionGuard({ children }: { children: React.ReactNode }) {
-  const { data: session, status } = useSession();
-  const [checked, setChecked] = useState(false);
+  const { status } = useSession();
 
-  useEffect(() => {
-    if (status === 'loading') return;
-
-    if (session) {
-      const hasFlag = sessionStorage.getItem(SESSION_FLAG);
-      if (!hasFlag) {
-        signOut({ callbackUrl: '/' });
-        return;
-      }
-    }
-
-    setChecked(true);
-  }, [session, status]);
-
-  if (status === 'loading' || !checked) {
+  // Show loader until we have a definitive session status
+  // This prevents flashing the login UI during OAuth callback processing
+  if (status === 'loading') {
     return <Loader />;
   }
 
@@ -43,9 +31,11 @@ export default function App({ Component, pageProps: { session, ...pageProps } }:
       </Head>
       <SessionGuard>
         <UserProvider>
-          <ToastProvider>
-            <Component {...pageProps} />
-          </ToastProvider>
+          <RBACProvider>
+            <ToastProvider>
+              <Component {...pageProps} />
+            </ToastProvider>
+          </RBACProvider>
         </UserProvider>
       </SessionGuard>
     </SessionProvider>

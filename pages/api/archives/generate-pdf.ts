@@ -93,8 +93,7 @@ export async function generateAndStoreArchive(
           display_name,
           email,
           department_id,
-          job_title,
-          department:rtg_departments(name)
+          job_title
         ),
         request_steps (
           id,
@@ -105,6 +104,12 @@ export async function generateAndStoreArchive(
           status,
           due_at,
           created_at,
+          is_redirected,
+          original_approver_id,
+          redirected_by_id,
+          redirected_at,
+          redirect_reason,
+          redirect_job_title,
           approver:app_users!request_steps_approver_user_id_fkey (
             id,
             display_name,
@@ -167,7 +172,17 @@ export async function generateAndStoreArchive(
 
     // Extract creator info (handle both single object and array from Supabase)
     const creator = Array.isArray(request.creator) ? request.creator[0] : request.creator;
-    const creatorDepartment = creator?.department ? (Array.isArray(creator.department) ? creator.department[0] : creator.department) : null;
+    
+    // Fetch department name separately if creator has department_id
+    let creatorDepartment: { name: string } | null = null;
+    if (creator?.department_id) {
+      const { data: deptData } = await supabaseAdmin
+        .from('departments')
+        .select('name')
+        .eq('id', creator.department_id)
+        .single();
+      creatorDepartment = deptData;
+    }
 
     // Get template info for field labels
     const templateId = request.metadata?.template_id || null;
@@ -251,18 +266,41 @@ export async function generateAndStoreArchive(
       mime_type: doc.mime_type,
     }));
 
-    // Determine folder name and category from template data
+    // Determine folder name and category from request type or template data
     let folderName = 'Approved Requests';
     let category = 'approved_requests';
     
-    if (templateData) {
+    // Check request type for specific folder names
+    const requestType = request.metadata?.type || request.metadata?.requestType;
+    if (requestType === 'voucher_request' || requestType === 'hotel_booking') {
+      folderName = 'Complimentary Vouchers';
+      category = 'complimentary_vouchers';
+    } else if (requestType === 'travel_authorization') {
+      folderName = 'Travel Authorizations';
+      category = 'travel_authorizations';
+    } else if (requestType === 'capex') {
+      folderName = 'CAPEX Requests';
+      category = 'capex_requests';
+    } else if (requestType === 'external_hotel_booking') {
+      folderName = 'External Hotel Bookings';
+      category = 'external_hotel_bookings';
+    } else if (templateData) {
       folderName = templateData.name || 'Approved Requests';
       if (templateData.workflow_mode === 'self_sign') {
         category = 'self_signed_forms';
       }
     }
 
-    // Create archive record
+    // Extract visibility info: creator, approvers, and watchers
+    const creatorId = request.creator_id;
+    const approverIds = (request.request_steps || [])
+      .map((step: any) => step.approver_user_id)
+      .filter((id: string | null) => id !== null);
+    const watcherIds = (request.metadata?.watchers || [])
+      .map((w: any) => typeof w === 'string' ? w : w?.id)
+      .filter((id: string | null | undefined) => id);
+
+    // Create archive record with visibility info
     const { data: archive, error: dbError } = await supabaseAdmin
       .from('archived_documents')
       .insert({
@@ -285,6 +323,9 @@ export async function generateAndStoreArchive(
         folder_name: folderName,
         template_id: templateId || null,
         category: category,
+        creator_id: creatorId,
+        approver_ids: approverIds,
+        watcher_ids: watcherIds,
       })
       .select()
       .single();
@@ -915,6 +956,10 @@ async function generatePdfBuffer(
           const approverName = step.approver?.display_name || approval?.approver?.display_name || 'Unknown';
           const signedAt = approval?.signed_at;
           const role = step.approver_role || `Approver ${index + 1}`;
+          
+          // Check if this step was redirected (approval on behalf of someone else)
+          const isRedirected = step.is_redirected === true;
+          const redirectJobTitle = step.redirect_job_title;
 
           // Calculate position (up to 3 per row)
           const colIndex = index % 3;
@@ -928,11 +973,13 @@ async function generatePdfBuffer(
 
           const xPos = 50 + colIndex * (sigBoxWidth + 15);
 
-          // Signature box
-          doc.rect(xPos, yPos, sigBoxWidth, sigBoxHeight).strokeColor('#e5e7eb').lineWidth(1).stroke();
+          // Signature box - amber border for redirected approvals
+          const boxColor = isRedirected ? '#f59e0b' : '#e5e7eb';
+          doc.rect(xPos, yPos, sigBoxWidth, sigBoxHeight).strokeColor(boxColor).lineWidth(isRedirected ? 2 : 1).stroke();
 
-          // Role label
-          doc.fontSize(8).fillColor('#6b7280').text(role.toUpperCase(), xPos + 5, yPos + 8, {
+          // Role label with 'pp' prefix if redirected
+          const roleLabel = isRedirected ? `pp ${redirectJobTitle || role}` : role;
+          doc.fontSize(8).fillColor(isRedirected ? '#b45309' : '#6b7280').text(roleLabel.toUpperCase(), xPos + 5, yPos + 8, {
             width: sigBoxWidth - 10,
             align: 'center',
           });
@@ -964,8 +1011,9 @@ async function generatePdfBuffer(
           // Signature line
           doc.moveTo(xPos + 15, yPos + 62).lineTo(xPos + sigBoxWidth - 15, yPos + 62).strokeColor('#374151').lineWidth(1).stroke();
 
-          // Approver name
-          doc.fontSize(9).fillColor('#111827').text(approverName, xPos + 5, yPos + 67, {
+          // Approver name (with 'pp' indicator if redirected)
+          const displayName = isRedirected ? `pp ${approverName}` : approverName;
+          doc.fontSize(9).fillColor('#111827').text(displayName, xPos + 5, yPos + 67, {
             width: sigBoxWidth - 10,
             align: 'center',
           });

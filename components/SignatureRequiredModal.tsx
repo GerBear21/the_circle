@@ -30,7 +30,7 @@ export default function SignatureRequiredModal({ isOpen, onSignatureSaved }: Sig
             exit={{ scale: 0.95, opacity: 0 }}
             className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden"
           >
-            <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-6 text-white">
+            <div className="bg-gradient-to-r from-[#9A7545] to-[#C9A574] p-6 text-white">
               <div className="flex items-center gap-3 mb-2">
                 <div className="p-2 bg-white/20 rounded-lg">
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -39,7 +39,7 @@ export default function SignatureRequiredModal({ isOpen, onSignatureSaved }: Sig
                 </div>
                 <h2 className="text-xl font-bold">Digital Signature Required</h2>
               </div>
-              <p className="text-blue-100 text-sm">
+              <p className="text-[#F3EADC] text-sm">
                 Before you can use The Circle, please set up your digital signature. 
                 This will be used for approval workflows.
               </p>

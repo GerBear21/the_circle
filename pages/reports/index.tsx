@@ -22,7 +22,7 @@ import {
     Area
 } from 'recharts';
 
-const COLORS = ['#8b5cf6', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#6366f1'];
+const COLORS = ['#9A7545', '#C9A574', '#10b981', '#f59e0b', '#ef4444', '#5E4426'];
 
 interface ReportData {
     totalRequests: number;
@@ -228,13 +228,13 @@ export default function ReportsPage() {
             <div className="p-6 max-w-[1600px] mx-auto space-y-8">
 
                 {/* Header Section */}
-                <div className="relative rounded-3xl bg-gradient-to-br from-indigo-900 to-violet-900 p-8 sm:p-12 overflow-hidden shadow-2xl text-white">
+                <div className="relative rounded-3xl bg-gradient-to-br from-[#3F2D19] to-[#5E4426] p-8 sm:p-12 overflow-hidden shadow-2xl text-white">
                     <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                         <div>
                             <h1 className="text-4xl md:text-5xl font-bold font-heading mb-3 tracking-tight">
                                 Executive Reports
                             </h1>
-                            <p className="text-indigo-200 text-lg max-w-xl">
+                            <p className="text-[#C9A574] text-lg max-w-xl">
                                 Real-time insights into spending, approval efficiency, and operational bottlenecks.
                             </p>
                         </div>
@@ -246,8 +246,8 @@ export default function ReportsPage() {
                                     key={range}
                                     onClick={() => setDateRange(range)}
                                     className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${dateRange === range
-                                            ? 'bg-white text-indigo-900 shadow-sm'
-                                            : 'text-indigo-100 hover:bg-white/10'
+                                            ? 'bg-white text-[#3F2D19] shadow-sm'
+                                            : 'text-[#F3EADC] hover:bg-white/10'
                                         }`}
                                 >
                                     {range}
@@ -257,17 +257,17 @@ export default function ReportsPage() {
                     </div>
 
                     {/* Abstract Shapes Decoration */}
-                    <div className="absolute top-0 right-0 -translate-y-1/2 translate-x-1/3 w-[600px] h-[600px] bg-gradient-to-br from-indigo-500/30 to-purple-500/30 rounded-full blur-3xl" />
-                    <div className="absolute bottom-0 left-0 translate-y-1/2 -translate-x-1/3 w-[500px] h-[500px] bg-blue-500/20 rounded-full blur-3xl" />
+                    <div className="absolute top-0 right-0 -translate-y-1/2 translate-x-1/3 w-[600px] h-[600px] bg-gradient-to-br from-[#9A7545]/30 to-[#C9A574]/30 rounded-full blur-3xl" />
+                    <div className="absolute bottom-0 left-0 translate-y-1/2 -translate-x-1/3 w-[500px] h-[500px] bg-[#9A7545]/20 rounded-full blur-3xl" />
                 </div>
 
                 {/* Key Metrics Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <Card className="p-6 border-l-4 border-indigo-500 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">
+                    <Card className="p-6 border-l-4 border-[#9A7545] hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">
                         <div className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-2">Total Spend</div>
                         <div className="text-3xl font-bold text-gray-900">{formatCurrency(data.totalSpend)}</div>
                         <div className="flex items-center gap-2 mt-2 text-xs font-medium">
-                            <span className="text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+                            <span className="text-[#9A7545] bg-[#F3EADC] px-2 py-0.5 rounded-full">
                                 Capex: {formatCurrency(data.capexSpend)}
                             </span>
                             <span className="text-gray-500">
@@ -285,7 +285,7 @@ export default function ReportsPage() {
                         </div>
                     </Card>
 
-                    <Card className="p-6 border-l-4 border-blue-500 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">
+                    <Card className="p-6 border-l-4 border-[#C9A574] hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">
                         <div className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-2">Approval Rate</div>
                         <div className="text-3xl font-bold text-gray-900">
                             {data.totalRequests > 0 ? ((data.approvedCount / data.totalRequests) * 100).toFixed(1) : 0}%
@@ -319,8 +319,8 @@ export default function ReportsPage() {
                                 <AreaChart data={data.monthlySpend}>
                                     <defs>
                                         <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.2} />
-                                            <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                                            <stop offset="5%" stopColor="#9A7545" stopOpacity={0.2} />
+                                            <stop offset="95%" stopColor="#9A7545" stopOpacity={0} />
                                         </linearGradient>
                                     </defs>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
@@ -330,7 +330,7 @@ export default function ReportsPage() {
                                         contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)', padding: '12px' }}
                                         formatter={(value: any) => [`$${value.toLocaleString()}`, 'Spend']}
                                     />
-                                    <Area type="monotone" dataKey="amount" stroke="#8b5cf6" strokeWidth={3} fillOpacity={1} fill="url(#colorAmount)" />
+                                    <Area type="monotone" dataKey="amount" stroke="#9A7545" strokeWidth={3} fillOpacity={1} fill="url(#colorAmount)" />
                                 </AreaChart>
                             </ResponsiveContainer>
                         </div>
@@ -407,7 +407,7 @@ export default function ReportsPage() {
                                     <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#6b7280', fontSize: 12 }} dy={10} />
                                     <YAxis axisLine={false} tickLine={false} tickFormatter={(value) => `$${value / 1000}k`} />
                                     <Tooltip cursor={{ fill: 'rgba(0,0,0,0.05)' }} contentStyle={{ borderRadius: '8px' }} formatter={(value: any) => [`$${value.toLocaleString()}`, 'Spend']} />
-                                    <Bar dataKey="spend" fill="#0ea5e9" radius={[4, 4, 0, 0]} maxBarSize={50} />
+                                    <Bar dataKey="spend" fill="#C9A574" radius={[4, 4, 0, 0]} maxBarSize={50} />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
