@@ -328,7 +328,6 @@ export default function Home() {
 
   if (!mounted || status === "loading" || status === "authenticated") {
     return <Loader />;
-    );
   }
 
   return (
