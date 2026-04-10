@@ -146,11 +146,25 @@ export const authOptions: NextAuthOptions = {
           }
         }
 
+        // On first sign in, always capture the email from all possible Azure AD sources
+        if (profile || user) {
+          const resolvedEmail =
+            (profile as any)?.email ||
+            (profile as any)?.preferred_username ||
+            (profile as any)?.upn ||
+            (profile as any)?.mail ||
+            user?.email ||
+            token.email;
+          if (resolvedEmail) {
+            token.email = resolvedEmail;
+          }
+        }
+
         // On first sign in, add org_id and azure_oid to token
         if (profile && supabaseAdmin) {
           const tid = (profile as any)?.tid;
           const oid = (profile as any)?.oid;
-          const email = (profile as any)?.email || token.email;
+          const email = token.email; // Already resolved above from all sources
 
           // Find organization
           const { data: org, error: orgError } = await supabaseAdmin
@@ -167,7 +181,6 @@ export const authOptions: NextAuthOptions = {
           if (org?.id) {
             token.org_id = org.id;
             token.azure_oid = oid;
-            token.email = email;
 
             // Check if user already exists
             const { data: existingUser } = await supabaseAdmin
@@ -264,6 +277,10 @@ export const authOptions: NextAuthOptions = {
         (session.user as any).azure_oid = token.azure_oid;
         (session.user as any).id = token.user_id;
         (session.user as any).role = token.role;
+        // Ensure email is always available on the session
+        if (token.email) {
+          session.user.email = token.email as string;
+        }
       }
       return session;
     },

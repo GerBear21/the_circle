@@ -12,6 +12,8 @@ import { twMerge } from 'tailwind-merge';
 import { useSignatureCheck } from '@/hooks';
 import { useState, useEffect } from 'react';
 import { Clock, CheckCircle2, XCircle, FileText, ArrowRight, TrendingUp, PenLine, AlertTriangle } from 'lucide-react';
+import Lottie from 'lottie-react';
+import dashboardAnimation from '@/lotties/Dashboard.json';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -271,8 +273,8 @@ export default function Dashboard({
             {/* Warm accent glow */}
             <div className="absolute -top-20 -right-20 w-72 h-72 rounded-full bg-gradient-to-br from-[#D4B483]/25 to-transparent blur-3xl" />
 
-            <div className="relative z-10 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-6">
-              <div className="space-y-3">
+            <div className="relative z-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
+              <div className="space-y-3 flex-1">
                 <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#9A7545]">
                   {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
                 </p>
@@ -289,17 +291,25 @@ export default function Dashboard({
                     <>You&apos;re all caught up — no items waiting for your review.</>
                   )}
                 </p>
+                {pendingForUser > 0 && (
+                  <button
+                    onClick={() => router.push('/approvals')}
+                    className="group inline-flex items-center gap-2 mt-2 bg-[#3F2D19] text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-[#5E4426] transition-colors"
+                  >
+                    Review now
+                    <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                  </button>
+                )}
               </div>
 
-              {pendingForUser > 0 && (
-                <button
-                  onClick={() => router.push('/approvals')}
-                  className="group inline-flex items-center gap-2 self-start sm:self-auto bg-[#3F2D19] text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-[#5E4426] transition-colors"
-                >
-                  Review now
-                  <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-                </button>
-              )}
+              <div className="hidden sm:block w-64 h-64 lg:w-80 lg:h-80 shrink-0 -mr-8 -mt-8 -mb-8">
+                <Lottie
+                  animationData={dashboardAnimation}
+                  loop={true}
+                  autoplay={true}
+                  style={{ width: '100%', height: '100%' }}
+                />
+              </div>
             </div>
 
             {/* Throb animation style */}

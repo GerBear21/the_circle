@@ -50,7 +50,6 @@ export default function VoucherRequestPage() {
     const [originalTravelData, setOriginalTravelData] = useState<any>(null);
     const [originalBusinessUnits, setOriginalBusinessUnits] = useState<SelectedBusinessUnit[]>([]);
     const [originalApprovers, setOriginalApprovers] = useState<Record<string, string> | null>(null);
-    const [originalUseParallelApprovals, setOriginalUseParallelApprovals] = useState<boolean | null>(null);
     const [requestStatus, setRequestStatus] = useState<string>('draft');
 
     const handleSupportingDocUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -131,7 +130,8 @@ export default function VoucherRequestPage() {
         ceo: '',
     });
     const [showApproverDropdown, setShowApproverDropdown] = useState<string | null>(null);
-    const [useParallelApprovals, setUseParallelApprovals] = useState(false);
+    const [loadingApproverResolution, setLoadingApproverResolution] = useState(false);
+    const [autoResolvedRoles, setAutoResolvedRoles] = useState<Record<string, boolean>>({});
 
     // Watchers state
     const [selectedWatchers, setSelectedWatchers] = useState<Array<{ id: string; display_name: string; email: string }>>([]);
@@ -291,11 +291,6 @@ export default function VoucherRequestPage() {
                     setOriginalApprovers({ commercial_director: '', ceo: '', ...approverRolesData });
                 }
 
-                // Set parallel approvals and store original
-                const parallelApprovals = metadata.useParallelApprovals || false;
-                setUseParallelApprovals(parallelApprovals);
-                setOriginalUseParallelApprovals(parallelApprovals);
-
                 // Supporting documents
                 if (metadata.supportingDocuments && Array.isArray(metadata.supportingDocuments)) {
                     setExistingSupportingDocs(metadata.supportingDocuments);
@@ -371,6 +366,39 @@ export default function VoucherRequestPage() {
             fetchUsers();
         }
     }, [status]);
+
+    // Auto-resolve approvers from HRIMS organogram (only on new requests, not edits)
+    useEffect(() => {
+        const resolveApprovers = async () => {
+            if (!session?.user?.email || isEditMode) return;
+            setLoadingApproverResolution(true);
+            try {
+                const response = await fetch(`/api/hrims/resolve-approvers?email=${encodeURIComponent(session.user.email)}&formType=voucher`);
+                const data = await response.json();
+                if (response.ok && data.approvers) {
+                    const resolved: Record<string, boolean> = {};
+                    const newApprovers: Record<string, string> = {};
+                    for (const [roleKey, approver] of Object.entries(data.approvers)) {
+                        if (approver && (approver as any).userId) {
+                            newApprovers[roleKey] = (approver as any).userId;
+                            resolved[roleKey] = true;
+                        }
+                    }
+                    if (Object.keys(newApprovers).length > 0) {
+                        setSelectedApprovers(prev => ({ ...prev, ...newApprovers }));
+                        setAutoResolvedRoles(resolved);
+                    }
+                } else {
+                    console.error('Approver resolution failed:', data.error || 'Unknown error');
+                }
+            } catch (err) {
+                console.error('Failed to auto-resolve approvers:', err);
+            } finally {
+                setLoadingApproverResolution(false);
+            }
+        };
+        if (status === 'authenticated') resolveApprovers();
+    }, [status, session?.user?.email, isEditMode]);
 
     // Filter users by search for a specific role
     const getFilteredUsersForRole = (roleKey: string) => {
@@ -540,15 +568,6 @@ export default function VoucherRequestPage() {
             }
         }
 
-        // Track parallel approvals change
-        if (originalUseParallelApprovals !== null && useParallelApprovals !== originalUseParallelApprovals) {
-            changes.push({
-                fieldName: 'Parallel Approvals',
-                oldValue: originalUseParallelApprovals ? 'Enabled' : 'Disabled',
-                newValue: useParallelApprovals ? 'Enabled' : 'Disabled',
-            });
-        }
-
         return changes;
     };
 
@@ -583,7 +602,7 @@ export default function VoucherRequestPage() {
                         ...(formData.processTravelDocument && { travelDocument: travelData }),
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
-                        useParallelApprovals: useParallelApprovals,
+                        useParallelApprovals: false,
                         watchers: selectedWatchers,
                         supportingDocuments: [
                             ...(Array.isArray(existingSupportingDocs) ? existingSupportingDocs : []),
@@ -679,7 +698,7 @@ export default function VoucherRequestPage() {
                         ...(formData.processTravelDocument && { travelDocument: travelData }),
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
-                        useParallelApprovals: useParallelApprovals,
+                        useParallelApprovals: false,
                         watchers: selectedWatchers,
                         supportingDocuments: [
                             ...(Array.isArray(existingSupportingDocs) ? existingSupportingDocs : []),
@@ -890,7 +909,7 @@ export default function VoucherRequestPage() {
                         ...(formData.processTravelDocument && { travelDocument: travelData }),
                         approvers: approversArray, // Sequential array of approver IDs
                         approverRoles: selectedApprovers, // Keep original object for reference
-                        useParallelApprovals: useParallelApprovals, // Parallel or sequential approval mode
+                        useParallelApprovals: false,
                         watchers: selectedWatchers, // Users who can view and generate voucher
                         supportingDocuments: supportingDocuments.map(doc => ({
                             name: doc.file.name,
@@ -983,7 +1002,7 @@ export default function VoucherRequestPage() {
                         ...(formData.processTravelDocument && { travelDocument: travelData }),
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
-                        useParallelApprovals: useParallelApprovals,
+                        useParallelApprovals: false,
                         watchers: selectedWatchers,
                         supportingDocuments: supportingDocuments.map(doc => ({
                             name: doc.file.name,
@@ -1597,10 +1616,15 @@ export default function VoucherRequestPage() {
                     <Card className="p-6">
                         <h3 className="text-xl font-bold text-gray-900 mb-2 font-heading">Approval Workflow</h3>
                         <p className="text-sm text-gray-500 mb-6">
-                            Select a user to act as each approver role. All 2 approvers are required.
+                            Approvers are automatically assigned from the HRIMS organogram. If a role has no assigned user, you must manually select one.
                         </p>
 
-
+                        {loadingApproverResolution && (
+                            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-2">
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500" />
+                                <span className="text-sm text-blue-700">Resolving approvers from HRIMS organogram...</span>
+                            </div>
+                        )}
 
                         {/* Click outside to close any dropdown */}
                         {showApproverDropdown && (
@@ -1616,6 +1640,7 @@ export default function VoucherRequestPage() {
                                 const selectedUserId = selectedApprovers[role.key];
                                 const selectedUser = selectedUserId ? users.find(u => u.id === selectedUserId) : null;
                                 const filteredUsers = getFilteredUsersForRole(role.key);
+                                const isAutoResolved = autoResolvedRoles[role.key];
 
                                 return (
                                     <div key={role.key} className="relative">
@@ -1634,21 +1659,22 @@ export default function VoucherRequestPage() {
 
                                                 {/* Selected User or Search Input */}
                                                 {selectedUser ? (
-                                                    <div className="flex items-center gap-3 bg-primary-50 border border-primary-200 p-3 rounded-xl">
-                                                        <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
-                                                            <span className="text-sm font-medium text-primary-600">
+                                                    <div className={`flex items-center gap-3 ${isAutoResolved ? 'bg-green-50 border border-green-200' : 'bg-primary-50 border border-primary-200'} p-3 rounded-xl`}>
+                                                        <div className={`w-8 h-8 rounded-full ${isAutoResolved ? 'bg-green-100' : 'bg-primary-100'} flex items-center justify-center flex-shrink-0`}>
+                                                            <span className={`text-sm font-medium ${isAutoResolved ? 'text-green-600' : 'text-primary-600'}`}>
                                                                 {selectedUser.display_name?.charAt(0)?.toUpperCase() || '?'}
                                                             </span>
                                                         </div>
                                                         <div className="flex-1 min-w-0">
                                                             <p className="text-sm font-medium text-gray-900 truncate">{selectedUser.display_name}</p>
                                                             <p className="text-xs text-gray-500 truncate">{selectedUser.email}</p>
+                                                            {isAutoResolved && <p className="text-xs text-green-600 mt-0.5">Auto-assigned from HRIMS</p>}
                                                         </div>
                                                         <button
                                                             type="button"
-                                                            onClick={() => handleRemoveApprover(role.key)}
+                                                            onClick={() => { handleRemoveApprover(role.key); setAutoResolvedRoles(prev => ({ ...prev, [role.key]: false })); }}
                                                             className="p-1.5 rounded-lg hover:bg-danger-50 text-gray-400 hover:text-danger-500 transition-colors"
-                                                            title="Remove"
+                                                            title="Change approver"
                                                         >
                                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1657,6 +1683,9 @@ export default function VoucherRequestPage() {
                                                     </div>
                                                 ) : (
                                                     <div className="relative">
+                                                        {!loadingApproverResolution && !isEditMode && (
+                                                            <p className="text-xs text-amber-600 mb-1">No user found in HRIMS for this role. Please select manually.</p>
+                                                        )}
                                                         <div className="relative">
                                                             <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />

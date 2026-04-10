@@ -101,7 +101,6 @@ export default function HotelBookingPage() {
     const [originalTravelData, setOriginalTravelData] = useState<any>(null);
     const [originalBusinessUnits, setOriginalBusinessUnits] = useState<SelectedBusinessUnit[]>([]);
     const [originalApprovers, setOriginalApprovers] = useState<Record<string, string> | null>(null);
-    const [originalUseParallelApprovals, setOriginalUseParallelApprovals] = useState<boolean | null>(null);
     const [requestStatus, setRequestStatus] = useState<string>('draft');
 
     // Initial date for display
@@ -145,7 +144,8 @@ export default function HotelBookingPage() {
         ceo: '',
     });
     const [showApproverDropdown, setShowApproverDropdown] = useState<string | null>(null);
-    const [useParallelApprovals, setUseParallelApprovals] = useState(false);
+    const [loadingApproverResolution, setLoadingApproverResolution] = useState(false);
+    const [autoResolvedRoles, setAutoResolvedRoles] = useState<Record<string, boolean>>({});
 
     // AA Rates Calculator state (simplified)
     const [aaCalculator, setAACalculator] = useState<AACalculatorData>({
@@ -463,11 +463,6 @@ export default function HotelBookingPage() {
                     setSelectedApprovers(prev => ({ ...prev, ...approverRolesData }));
                     setOriginalApprovers({ hod: '', hr_director: '', finance_director: '', ceo: '', ...approverRolesData });
                 }
-
-                // Set parallel approvals and store original
-                const parallelApprovals = metadata.useParallelApprovals || false;
-                setUseParallelApprovals(parallelApprovals);
-                setOriginalUseParallelApprovals(parallelApprovals);
             } catch (err: any) {
                 console.error('Error fetching request:', err);
                 setError('Failed to load request data');
@@ -522,6 +517,39 @@ export default function HotelBookingPage() {
             fetchUsers();
         }
     }, [status]);
+
+    // Auto-resolve approvers from HRIMS organogram (only on new requests, not edits)
+    useEffect(() => {
+        const resolveApprovers = async () => {
+            if (!session?.user?.email || isEditMode) return;
+            setLoadingApproverResolution(true);
+            try {
+                const response = await fetch(`/api/hrims/resolve-approvers?email=${encodeURIComponent(session.user.email)}&formType=hotel-booking`);
+                const data = await response.json();
+                if (response.ok && data.approvers) {
+                    const resolved: Record<string, boolean> = {};
+                    const newApprovers: Record<string, string> = {};
+                    for (const [roleKey, approver] of Object.entries(data.approvers)) {
+                        if (approver && (approver as any).userId) {
+                            newApprovers[roleKey] = (approver as any).userId;
+                            resolved[roleKey] = true;
+                        }
+                    }
+                    if (Object.keys(newApprovers).length > 0) {
+                        setSelectedApprovers(prev => ({ ...prev, ...newApprovers }));
+                        setAutoResolvedRoles(resolved);
+                    }
+                } else {
+                    console.error('Approver resolution failed:', data.error || 'Unknown error');
+                }
+            } catch (err) {
+                console.error('Failed to auto-resolve approvers:', err);
+            } finally {
+                setLoadingApproverResolution(false);
+            }
+        };
+        if (status === 'authenticated') resolveApprovers();
+    }, [status, session?.user?.email, isEditMode]);
 
     // Filter users by search for a specific role
     const getFilteredUsersForRole = (roleKey: string) => {
@@ -641,15 +669,6 @@ export default function HotelBookingPage() {
             }
         }
 
-        // Track parallel approvals change
-        if (originalUseParallelApprovals !== null && useParallelApprovals !== originalUseParallelApprovals) {
-            changes.push({
-                fieldName: 'Parallel Approvals',
-                oldValue: originalUseParallelApprovals ? 'Enabled' : 'Disabled',
-                newValue: useParallelApprovals ? 'Enabled' : 'Disabled',
-            });
-        }
-
         return changes;
     };
 
@@ -680,7 +699,7 @@ export default function HotelBookingPage() {
                         ...(formData.processTravelDocument && { travelDocument: travelData }),
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
-                        useParallelApprovals: useParallelApprovals,
+                        useParallelApprovals: false,
                     },
                 }),
             });
@@ -733,7 +752,7 @@ export default function HotelBookingPage() {
                         ...(formData.processTravelDocument && { travelDocument: travelData }),
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
-                        useParallelApprovals: useParallelApprovals,
+                        useParallelApprovals: false,
                     },
                 }),
             });
@@ -929,7 +948,7 @@ export default function HotelBookingPage() {
                         }),
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
-                        useParallelApprovals: useParallelApprovals,
+                        useParallelApprovals: false,
                     },
                 }),
             });
@@ -989,7 +1008,7 @@ export default function HotelBookingPage() {
                         }),
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
-                        useParallelApprovals: useParallelApprovals,
+                        useParallelApprovals: false,
                     },
                 }),
             });
@@ -2005,13 +2024,19 @@ export default function HotelBookingPage() {
                             <svg className="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
-                            Select Approvers <span className="text-danger-500">*</span>
+                            Approval Workflow <span className="text-danger-500">*</span>
                         </h3>
                         <p className="text-sm text-text-secondary mb-4">
-                            Select a user to act as each approver role. All 4 approvers are required.
+                            Approvers are automatically assigned from the HRIMS organogram. If a role has no assigned user, you must manually select one.
                         </p>
 
-                        
+                        {loadingApproverResolution && (
+                            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-2">
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500" />
+                                <span className="text-sm text-blue-700">Resolving approvers from HRIMS organogram...</span>
+                            </div>
+                        )}
+
                         {/* Click outside to close any dropdown */}
                         {showApproverDropdown && (
                             <div
@@ -2026,6 +2051,7 @@ export default function HotelBookingPage() {
                                 const selectedUserId = selectedApprovers[role.key];
                                 const selectedUser = selectedUserId ? users.find(u => u.id === selectedUserId) : null;
                                 const filteredUsers = getFilteredUsersForRole(role.key);
+                                const isAutoResolved = autoResolvedRoles[role.key];
 
                                 return (
                                     <div key={role.key} className="relative">
@@ -2044,21 +2070,22 @@ export default function HotelBookingPage() {
 
                                                 {/* Selected User or Search Input */}
                                                 {selectedUser ? (
-                                                    <div className="flex items-center gap-3 bg-primary-50 border border-primary-200 p-3 rounded-xl">
-                                                        <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
-                                                            <span className="text-sm font-medium text-primary-600">
+                                                    <div className={`flex items-center gap-3 ${isAutoResolved ? 'bg-green-50 border border-green-200' : 'bg-primary-50 border border-primary-200'} p-3 rounded-xl`}>
+                                                        <div className={`w-8 h-8 rounded-full ${isAutoResolved ? 'bg-green-100' : 'bg-primary-100'} flex items-center justify-center flex-shrink-0`}>
+                                                            <span className={`text-sm font-medium ${isAutoResolved ? 'text-green-600' : 'text-primary-600'}`}>
                                                                 {selectedUser.display_name?.charAt(0)?.toUpperCase() || '?'}
                                                             </span>
                                                         </div>
                                                         <div className="flex-1 min-w-0">
                                                             <p className="text-sm font-medium text-gray-900 truncate">{selectedUser.display_name}</p>
                                                             <p className="text-xs text-gray-500 truncate">{selectedUser.email}</p>
+                                                            {isAutoResolved && <p className="text-xs text-green-600 mt-0.5">Auto-assigned from HRIMS</p>}
                                                         </div>
                                                         <button
                                                             type="button"
-                                                            onClick={() => handleRemoveApprover(role.key)}
+                                                            onClick={() => { handleRemoveApprover(role.key); setAutoResolvedRoles(prev => ({ ...prev, [role.key]: false })); }}
                                                             className="p-1.5 rounded-lg hover:bg-danger-50 text-gray-400 hover:text-danger-500 transition-colors"
-                                                            title="Remove"
+                                                            title="Change approver"
                                                         >
                                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -2067,6 +2094,9 @@ export default function HotelBookingPage() {
                                                     </div>
                                                 ) : (
                                                     <div className="relative">
+                                                        {!loadingApproverResolution && !isEditMode && (
+                                                            <p className="text-xs text-amber-600 mb-1">No user found in HRIMS for this role. Please select manually.</p>
+                                                        )}
                                                         <div className="relative">
                                                             <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />

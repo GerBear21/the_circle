@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import { useEffect, useState, useMemo } from 'react';
 import Lottie from 'lottie-react';
 import dynamic from 'next/dynamic';
-import sendingApprovalAnimation from '../../Sending approval lottie.json';
+import sendingApprovalAnimation from '@/lotties/sending brown.json';
 import { AppLayout } from '../../components/layout';
 import { Card } from '../../components/ui';
 
