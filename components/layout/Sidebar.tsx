@@ -257,8 +257,8 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                 <svg className="w-8 h-8" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <defs>
                     <linearGradient id="brandGradientSidebar" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#2D9CDB" />
-                      <stop offset="100%" stopColor="#A78BFA" />
+                      <stop offset="0%" stopColor="#9A7545" />
+                      <stop offset="100%" stopColor="#C9A574" />
                     </linearGradient>
                   </defs>
                   <path d="M 100 25

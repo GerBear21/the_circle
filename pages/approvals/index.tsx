@@ -55,7 +55,7 @@ function getRequestDetailPath(request: any): string {
 const statusConfig: Record<string, { label: string; bg: string; text: string }> = {
   pending: { label: 'Pending', bg: 'bg-yellow-100', text: 'text-yellow-800' },
   pending_approval: { label: 'Pending', bg: 'bg-yellow-100', text: 'text-yellow-800' },
-  in_review: { label: 'In Review', bg: 'bg-blue-100', text: 'text-blue-800' },
+  in_review: { label: 'In Review', bg: 'bg-[#F3EADC]', text: 'text-[#3F2D19]' },
   approved: { label: 'Approved', bg: 'bg-green-100', text: 'text-green-800' },
   rejected: { label: 'Rejected', bg: 'bg-red-100', text: 'text-red-800' },
   completed: { label: 'Completed', bg: 'bg-green-100', text: 'text-green-800' },
@@ -65,8 +65,8 @@ const priorityConfig: Record<string, { label: string; bg: string; text: string; 
   critical: { label: 'Critical', bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200' },
   high: { label: 'High', bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200' },
   urgent: { label: 'Urgent', bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-200' },
-  medium: { label: 'Medium', bg: 'bg-blue-50', text: 'text-blue-600', border: 'border-blue-200' },
-  normal: { label: 'Normal', bg: 'bg-blue-50', text: 'text-blue-600', border: 'border-blue-200' },
+  medium: { label: 'Medium', bg: 'bg-[#F3EADC]', text: 'text-[#9A7545]', border: 'border-[#C9B896]' },
+  normal: { label: 'Normal', bg: 'bg-[#F3EADC]', text: 'text-[#9A7545]', border: 'border-[#C9B896]' },
   low: { label: 'Low', bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-200' },
 };
 
@@ -383,7 +383,7 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
     } else if (diffDays === 1) {
       return { label: 'Due tomorrow', className: 'text-yellow-600 bg-yellow-50' };
     } else if (diffDays <= 3) {
-      return { label: `Due in ${diffDays} days`, className: 'text-blue-600 bg-blue-50' };
+      return { label: `Due in ${diffDays} days`, className: 'text-[#9A7545] bg-[#F3EADC]' };
     }
     return null;
   };
@@ -863,12 +863,12 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
                           )}
 
                           {activeTab === 'watching' && (
-                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 rounded-lg">
-                              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[#F3EADC] rounded-lg">
+                              <svg className="w-4 h-4 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                               </svg>
-                              <span className="text-sm font-medium text-blue-700">Watching</span>
+                              <span className="text-sm font-medium text-[#5E4426]">Watching</span>
                             </div>
                           )}
                         </div>

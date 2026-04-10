@@ -36,7 +36,7 @@ export default class MyDocument extends Document {
           <link rel="icon" type="image/svg+xml" sizes="32x32" href="/logo.svg" />
           <link rel="apple-touch-icon" href="/logo.svg" />
           {/* Theme color for mobile browsers */}
-          <meta name="theme-color" content="#2D9CDB" />
+          <meta name="theme-color" content="#9A7545" />
           {/* Apple mobile web app capable */}
           <meta name="mobile-web-app-capable" content="yes" />
           {/* <meta name="apple-mobile-web-app-status-bar-style" content="default" />

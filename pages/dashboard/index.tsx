@@ -2,20 +2,16 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import Link from 'next/link';
-import dynamic from 'next/dynamic';
 import { GetServerSideProps } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../api/auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { AppLayout } from '@/components/layout';
-import { motion } from 'framer-motion';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useSignatureCheck } from '@/hooks';
 import { useState, useEffect } from 'react';
-import dashboardAnimation from '@/lotties/Dashboard.json';
-
-const Lottie = dynamic(() => import('lottie-react'), { ssr: false });
+import { Clock, CheckCircle2, XCircle, FileText, ArrowRight, TrendingUp, PenLine, AlertTriangle } from 'lucide-react';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -80,21 +76,6 @@ interface DashboardProps {
   initialPendingForUser: number;
   userName: string;
 }
-
-const container = {
-  hidden: { opacity: 0 },
-  show: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.1
-    }
-  }
-};
-
-const item = {
-  hidden: { opacity: 0, y: 20 },
-  show: { opacity: 1, y: 0 }
-};
 
 export const getServerSideProps: GetServerSideProps<DashboardProps> = async (context) => {
   const session = await getServerSession(context.req, context.res, authOptions);
@@ -260,10 +241,10 @@ export default function Dashboard({
   };
 
   const statsCards = [
-    { label: 'Pending', value: stats.pending.toString(), icon: 'M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z', color: 'warning', trend: 'Awaiting action' },
-    { label: 'Approved', value: stats.approved.toString(), icon: 'M5 13l4 4L19 7', color: 'success', trend: `${stats.completionRate}% approval rate` },
-    { label: 'Rejected', value: stats.rejected.toString(), icon: 'M6 18L18 6M6 6l12 12', color: 'danger', trend: 'Declined requests' },
-    { label: 'Total', value: stats.total.toString(), icon: 'M4 6h16M4 12h16M4 18h16', color: 'primary', trend: 'All time' },
+    { label: 'Pending', value: stats.pending.toString(), Icon: Clock, trend: 'Awaiting action' },
+    { label: 'Approved', value: stats.approved.toString(), Icon: CheckCircle2, trend: `${stats.completionRate}% approval rate` },
+    { label: 'Rejected', value: stats.rejected.toString(), Icon: XCircle, trend: 'Declined requests' },
+    { label: 'Total', value: stats.total.toString(), Icon: FileText, trend: 'All time' },
   ];
 
   return (
@@ -273,233 +254,209 @@ export default function Dashboard({
       </Head>
 
       <AppLayout title="Dashboard">
-        <motion.div
-          variants={container}
-          initial="hidden"
-          animate="show"
-          className="w-full px-4 sm:px-6 lg:px-8 py-8 space-y-8"
-        >
+        <div className="w-full px-4 sm:px-6 lg:px-8 py-8 space-y-8">
 
-          {/* Hero Section */}
-          <div
-            className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-blue-500 via-blue-400 to-indigo-400 p-8 sm:p-10 shadow-lg shadow-blue-500/10"
-          >
-            {/* Subtle background accents */}
-            <div className="absolute top-0 right-0 -mt-20 -mr-20 w-80 h-80 bg-white/10 rounded-full blur-3xl" />
-            <div className="absolute bottom-0 left-0 -mb-20 -ml-20 w-64 h-64 bg-blue-300/10 rounded-full blur-3xl" />
+          {/* Hero Banner — bright with polka dots */}
+          <section className="relative overflow-hidden rounded-2xl border border-[#C9B896] shadow-sm bg-[#FBF6EF] p-8 sm:p-12">
+            {/* Polka dot pattern */}
+            <div
+              aria-hidden
+              className="absolute inset-0"
+              style={{
+                backgroundImage: 'radial-gradient(circle, #D4B483 1.2px, transparent 1.2px)',
+                backgroundSize: '28px 28px',
+                opacity: 0.35,
+              }}
+            />
+            {/* Warm accent glow */}
+            <div className="absolute -top-20 -right-20 w-72 h-72 rounded-full bg-gradient-to-br from-[#D4B483]/25 to-transparent blur-3xl" />
 
-            <div className="relative z-10 flex flex-col lg:flex-row items-center justify-between gap-12">
-              <div className="flex-1 text-center lg:text-left space-y-6">
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/15 text-white text-sm">
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+            <div className="relative z-10 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-6">
+              <div className="space-y-3">
+                <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#9A7545]">
                   {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-                </div>
-
-                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white tracking-tight">
-                  {getGreeting()}, <br />
-                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-white to-blue-100">
-                    {firstName}!
+                </p>
+                <h1 className="text-2xl sm:text-3xl lg:text-4xl font-semibold tracking-tight text-[#3F2D19]">
+                  {getGreeting()},{' '}
+                  <span className="animate-name-throb text-transparent bg-clip-text bg-gradient-to-r from-[#9A7545] to-[#C9A574] bg-[length:200%_200%]">
+                    {firstName}.
                   </span>
                 </h1>
-
-                <p className="text-blue-50 text-base sm:text-lg max-w-xl">
+                <p className="text-sm sm:text-base text-[#5E4426]/75 max-w-xl">
                   {pendingForUser > 0 ? (
-                    <>You have <span className="font-bold text-white">{pendingForUser} pending item{pendingForUser !== 1 ? 's' : ''}</span> waiting for your review. Let's get things moving!</>
+                    <>You have <span className="font-semibold text-[#3F2D19]">{pendingForUser} pending item{pendingForUser !== 1 ? 's' : ''}</span> waiting for your review.</>
                   ) : (
-                    <>You're all caught up! No pending items waiting for your review.</>  
+                    <>You&apos;re all caught up — no items waiting for your review.</>
                   )}
                 </p>
+              </div>
 
+              {pendingForUser > 0 && (
                 <button
                   onClick={() => router.push('/approvals')}
-                  className="inline-flex items-center gap-2 bg-white text-blue-600 font-semibold py-3 px-6 rounded-xl shadow-md hover:shadow-lg transition-all"
+                  className="group inline-flex items-center gap-2 self-start sm:self-auto bg-[#3F2D19] text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-[#5E4426] transition-colors"
                 >
-                  Review Now
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                  </svg>
+                  Review now
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
                 </button>
-              </div>
-
-              {/* Lottie Animation */}
-              <div className="hidden lg:block w-64 h-64 xl:w-80 xl:h-80">
-                <Lottie animationData={dashboardAnimation} loop={true} className="w-full h-full" />
-              </div>
+              )}
             </div>
-          </div>
 
-          {/* Stats Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {statsCards.map((stat, i) => (
+            {/* Throb animation style */}
+            <style jsx>{`
+              @keyframes name-throb {
+                0%, 100% { background-position: 0% 50%; opacity: 1; }
+                50% { background-position: 100% 50%; opacity: 0.85; }
+              }
+              .animate-name-throb {
+                animation: name-throb 2.5s ease-in-out infinite;
+              }
+            `}</style>
+          </section>
+
+          {/* Stats Grid — minimal monochrome icons */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {statsCards.map(({ label, value, Icon, trend }) => (
               <div
-                key={i}
-                className="group bg-white rounded-xl p-6 border border-gray-100 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                key={label}
+                className="group relative bg-white rounded-xl p-5 border border-[#C9B896] hover:border-[#9A7545] hover:shadow-sm transition-all"
               >
-                <div className="flex items-center justify-between">
-                  <div className={cn(
-                    "w-10 h-10 rounded-lg flex items-center justify-center",
-                    stat.color === 'warning' && "bg-amber-50 text-amber-600",
-                    stat.color === 'success' && "bg-green-50 text-green-600",
-                    stat.color === 'danger' && "bg-red-50 text-red-600",
-                    stat.color === 'primary' && "bg-blue-50 text-blue-600",
-                  )}>
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={stat.icon} />
-                    </svg>
+                <div className="flex items-start justify-between mb-4">
+                  <div className="w-9 h-9 rounded-lg bg-[#F3EADC] text-[#9A7545] flex items-center justify-center">
+                    <Icon strokeWidth={1.75} size={18} />
                   </div>
-                  <span className="text-xs font-medium text-gray-500 bg-gray-50 px-2 py-1 rounded-md">
-                    {stat.trend}
-                  </span>
                 </div>
-
-                <div className="mt-4">
-                  <p className="text-2xl font-semibold text-gray-900">{stat.value}</p>
-                  <p className="text-sm text-gray-500 mt-1">{stat.label}</p>
-                </div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</p>
+                <h3 className="text-3xl font-semibold text-gray-900 mt-1 tabular-nums">{value}</h3>
+                <p className="mt-3 text-xs text-gray-400">{trend}</p>
               </div>
             ))}
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Recent Activity */}
-            <motion.div variants={item} className="lg:col-span-2 bg-white/60 backdrop-blur-xl rounded-[2rem] p-8 border border-white/50 shadow-lg">
-              <div className="flex items-center justify-between mb-8">
+            <section className="lg:col-span-2 bg-white rounded-xl border border-[#C9B896] p-6">
+              <div className="flex items-center justify-between mb-5">
                 <div>
-                  <h3 className="text-xl font-bold text-gray-900">Recent Activity</h3>
-                  <p className="text-gray-500 text-sm">Your latest actions and updates</p>
+                  <h3 className="text-base font-semibold text-gray-900">Recent Activity</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">Latest requests across your workspace</p>
                 </div>
-                <Link href="/requests/all" className="text-blue-600 hover:text-blue-700 font-semibold text-sm bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-xl transition-colors">
-                  View All
+                <Link href="/requests/all" className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 font-medium">
+                  View all <ArrowRight className="w-3.5 h-3.5" />
                 </Link>
               </div>
 
-              <div className="space-y-4">
+              <div className="divide-y divide-gray-100">
                 {statsLoading ? (
-                  <div className="flex items-center justify-center py-8">
-                    <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                  <div className="flex items-center justify-center py-10">
+                    <div className="w-6 h-6 border-2 border-gray-300 border-t-gray-700 rounded-full animate-spin" />
                   </div>
                 ) : recentActivity.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500">
-                    <p>No recent activity yet</p>
-                    <p className="text-sm mt-1">Create your first request to get started</p>
+                  <div className="text-center py-10 text-gray-500">
+                    <p className="text-sm">No recent activity</p>
+                    <p className="text-xs mt-1 text-gray-400">Create your first request to get started</p>
                   </div>
                 ) : (
-                  recentActivity.slice(0, 4).map((activity) => {
+                  recentActivity.slice(0, 5).map((activity) => {
                     const creatorName = activity.creator?.display_name || activity.creator?.email?.split('@')[0] || 'Unknown';
                     const requestType = activity.metadata?.type || 'Request';
                     const statusDisplay = activity.status.charAt(0).toUpperCase() + activity.status.slice(1);
-                    
+
                     return (
-                      <div key={activity.id} className="group flex items-center gap-4 p-4 rounded-2xl hover:bg-white/50 border border-transparent hover:border-white/60 transition-all duration-200">
-                        <div className={cn(
-                          "w-12 h-12 rounded-2xl flex items-center justify-center text-lg font-bold shadow-sm",
-                          activity.status === 'approved' && "bg-green-100 text-green-600",
-                          (activity.status === 'pending' || activity.status === 'draft') && "bg-amber-100 text-amber-600",
-                          activity.status === 'rejected' && "bg-red-100 text-red-600",
-                        )}>
+                      <Link
+                        key={activity.id}
+                        href={`/requests/${activity.id}`}
+                        className="group flex items-center gap-4 py-3.5 first:pt-0 last:pb-0 hover:bg-gray-50/60 -mx-2 px-2 rounded-lg transition-colors"
+                      >
+                        <div className="w-9 h-9 rounded-lg bg-gray-100 text-gray-600 flex items-center justify-center text-sm font-medium">
                           {creatorName.charAt(0).toUpperCase()}
                         </div>
-
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between mb-1">
-                            <h4 className="font-bold text-gray-900 truncate group-hover:text-blue-600 transition-colors">{activity.title}</h4>
-                            <span className="text-xs text-gray-400 font-medium"><TimeAgo dateString={activity.created_at} /></span>
-                          </div>
-                          <div className="flex items-center gap-3 text-sm text-gray-500">
+                          <h4 className="font-medium text-sm text-gray-900 truncate group-hover:text-gray-700">{activity.title}</h4>
+                          <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
                             <span>{creatorName}</span>
                             <span className="w-1 h-1 rounded-full bg-gray-300" />
                             <span>{requestType}</span>
+                            <span className="w-1 h-1 rounded-full bg-gray-300" />
+                            <span><TimeAgo dateString={activity.created_at} /></span>
                           </div>
                         </div>
-
-                        <div className={cn(
-                          "px-3 py-1 rounded-lg text-xs font-bold",
-                          activity.status === 'approved' && "bg-green-100 text-green-700",
-                          (activity.status === 'pending' || activity.status === 'draft') && "bg-amber-100 text-amber-700",
-                          activity.status === 'rejected' && "bg-red-100 text-red-700",
+                        <span className={cn(
+                          "px-2 py-0.5 rounded-md text-[11px] font-medium border",
+                          activity.status === 'approved' && "bg-emerald-50 text-emerald-700 border-emerald-100",
+                          (activity.status === 'pending' || activity.status === 'draft') && "bg-amber-50 text-amber-700 border-amber-100",
+                          activity.status === 'rejected' && "bg-rose-50 text-rose-700 border-rose-100",
                         )}>
                           {statusDisplay}
-                        </div>
-                      </div>
+                        </span>
+                      </Link>
                     );
                   })
                 )}
               </div>
-            </motion.div>
+            </section>
 
             {/* Side Column */}
-            <div className="space-y-8">
-              {/* This Month Card */}
-              <motion.div
-                variants={item}
-                className="relative overflow-hidden bg-gray-900 rounded-[2rem] p-8 text-white shadow-xl"
-              >
-                <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500/30 rounded-full blur-3xl -mr-16 -mt-16" />
-                <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-500/30 rounded-full blur-3xl -ml-16 -mb-16" />
-
-                <div className="relative z-10">
-                  <div className="flex items-center justify-between mb-8">
-                    <div className="w-12 h-12 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center">
-                      <svg className="w-6 h-6 text-purple-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                      </svg>
-                    </div>
-                    <span className="px-3 py-1 rounded-lg bg-white/10 text-xs font-medium text-purple-200">This Month</span>
+            <div className="space-y-6">
+              {/* This Month */}
+              <section className="bg-white rounded-xl border border-[#C9B896] p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-[#9A7545]" strokeWidth={1.75} />
+                    <h3 className="text-sm font-semibold text-gray-900">This Month</h3>
                   </div>
-
-                  <div className="space-y-2 mb-8">
-                    <h3 className="text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-purple-200">+{stats.thisMonthRequests}</h3>
-                    <p className="text-purple-200">New requests this month</p>
+                  <span className="text-[11px] text-gray-400 uppercase tracking-wide">
+                    {new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                  </span>
+                </div>
+                <div className="mb-5">
+                  <h4 className="text-4xl font-semibold text-gray-900 tabular-nums">{stats.thisMonthRequests}</h4>
+                  <p className="text-xs text-gray-500 mt-1">New requests created</p>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-500">Approval rate</span>
+                    <span className="font-medium text-gray-900 tabular-nums">{stats.completionRate}%</span>
                   </div>
-
-                  <div className="space-y-3">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-400">Approval Rate</span>
-                      <span className="font-bold text-white">{stats.completionRate}%</span>
-                    </div>
-                    <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                      <motion.div
-                        initial={{ width: 0 }}
-                        animate={{ width: `${stats.completionRate}%` }}
-                        transition={{ duration: 1, delay: 0.5 }}
-                        className="h-full bg-gradient-to-r from-blue-400 to-purple-400 rounded-full"
-                      />
-                    </div>
+                  <div className="h-1.5 bg-[#F3EADC] rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-[#9A7545] to-[#C9A574] rounded-full transition-all duration-700"
+                      style={{ width: `${stats.completionRate}%` }}
+                    />
                   </div>
                 </div>
-              </motion.div>
+              </section>
 
-              {/* Signature Card */}
-              <motion.div variants={item} className="bg-white/60 backdrop-blur-xl rounded-[2rem] p-6 border border-white/50 shadow-lg">
-                <h3 className="font-bold text-gray-900 mb-4">Digital Signature</h3>
+              {/* Signature */}
+              <section className="bg-white rounded-xl border border-[#C9B896] p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <PenLine className="w-4 h-4 text-[#9A7545]" strokeWidth={1.75} />
+                  <h3 className="text-sm font-semibold text-gray-900">Digital Signature</h3>
+                </div>
                 {signatureUrl ? (
-                  <div className="bg-white rounded-xl border border-gray-100 p-4 flex items-center justify-center">
+                  <div className="bg-gray-50 rounded-lg border border-gray-100 p-4 flex items-center justify-center">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={signatureUrl} alt="Your Signature" className="max-h-16 opacity-80" />
+                    <img src={signatureUrl} alt="Your Signature" className="max-h-14 opacity-80" />
                   </div>
                 ) : (
-                  <div className="bg-amber-50 rounded-xl p-4 border border-amber-100">
-                    <div className="flex items-start gap-3">
-                      <div className="p-2 bg-amber-100 rounded-lg text-amber-600">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold text-gray-900">Missing Signature</p>
-                        <p className="text-xs text-gray-600 mt-1 mb-3">Please set up your digital signature for approvals.</p>
-                        <Link href="/profile/settings" className="text-xs font-bold text-amber-700 hover:text-amber-800 bg-amber-100 px-3 py-1.5 rounded-lg transition-colors inline-block">
-                          Setup Now &rarr;
-                        </Link>
-                      </div>
+                  <div className="flex items-start gap-3">
+                    <div className="p-1.5 bg-amber-50 border border-amber-100 rounded-md text-amber-600">
+                      <AlertTriangle className="w-4 h-4" strokeWidth={1.75} />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-900">Signature not set</p>
+                      <p className="text-xs text-gray-500 mt-0.5 mb-2.5">Add your signature to approve requests.</p>
+                      <Link href="/profile/settings" className="inline-flex items-center gap-1 text-xs font-medium text-gray-900 hover:text-gray-700">
+                        Set up now <ArrowRight className="w-3 h-3" />
+                      </Link>
                     </div>
                   </div>
                 )}
-              </motion.div>
+              </section>
             </div>
           </div>
 
-        </motion.div>
+        </div>
       </AppLayout>
     </>
   );

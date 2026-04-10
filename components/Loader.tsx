@@ -4,19 +4,31 @@ import styled from 'styled-components';
 const Loader = () => {
   return (
     <StyledWrapper>
-      <div className="wrapper">
-        <div className="circle" />
-        <div className="circle" />
-        <div className="circle" />
-        <div className="shadow" />
-        <div className="shadow" />
-        <div className="shadow" />
+      <div className="loader-overlay">
+        <div className="wrapper">
+          <div className="circle" />
+          <div className="circle" />
+          <div className="circle" />
+          <div className="shadow" />
+          <div className="shadow" />
+          <div className="shadow" />
+        </div>
       </div>
     </StyledWrapper>
   );
 }
 
 const StyledWrapper = styled.div`
+  .loader-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #FEFEFE;
+    z-index: 9999;
+  }
+
   .wrapper {
     width: 200px;
     height: 60px;
@@ -29,7 +41,7 @@ const StyledWrapper = styled.div`
     height: 20px;
     position: absolute;
     border-radius: 50%;
-    background-color: #2D9CDB;
+    background-color: #9A7545;
     left: 15%;
     transform-origin: 50%;
     animation: circle7124 .5s alternate infinite ease;
@@ -57,21 +69,21 @@ const StyledWrapper = styled.div`
   .circle:nth-child(2) {
     left: 45%;
     animation-delay: .2s;
-    background-color: #56CCF2;
+    background-color: #D4B483;
   }
 
   .circle:nth-child(3) {
     left: auto;
     right: 15%;
     animation-delay: .3s;
-    background-color: #A78BFA;
+    background-color: #C9A574;
   }
 
   .shadow {
     width: 20px;
     height: 4px;
     border-radius: 50%;
-    background-color: rgba(45, 156, 219, 0.3);
+    background-color: rgba(154, 117, 69, 0.3);
     position: absolute;
     top: 62px;
     transform-origin: 50%;
@@ -100,14 +112,14 @@ const StyledWrapper = styled.div`
   .shadow:nth-child(4) {
     left: 45%;
     animation-delay: .2s;
-    background-color: rgba(86, 204, 242, 0.3);
+    background-color: rgba(212, 180, 131, 0.3);
   }
 
   .shadow:nth-child(5) {
     left: auto;
     right: 15%;
     animation-delay: .3s;
-    background-color: rgba(167, 139, 250, 0.3);
+    background-color: rgba(201, 165, 116, 0.3);
   }
 `;
 

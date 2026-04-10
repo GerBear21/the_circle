@@ -177,7 +177,7 @@ export default function AuditPage() {
 
             <div className="flex flex-col h-[calc(100vh-64px)] overflow-hidden">
                 {/* 1. Header Section - Reverted to Premium Style (Without Icon) */}
-                <div className="flex-shrink-0 p-6 sm:p-8 bg-gradient-to-br from-brand-50 via-white to-purple-50/10 border-b border-gray-200 relative overflow-hidden shadow-sm z-10">
+                <div className="flex-shrink-0 p-6 sm:p-8 bg-gradient-to-br from-brand-50 via-white to-[#FAF6F1]/10 border-b border-gray-200 relative overflow-hidden shadow-sm z-10">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
                         <div className="space-y-2 max-w-2xl">
                             <h1 className="text-3xl md:text-4xl font-bold text-gray-900 font-heading tracking-tight">
@@ -195,13 +195,13 @@ export default function AuditPage() {
                                 <div className="text-2xl font-bold text-gray-900">{requests.length}</div>
                             </div>
                             <div className="hidden sm:block px-5 py-3 bg-white/60 backdrop-blur-md rounded-2xl border border-white/50 shadow-sm transition-transform hover:scale-105">
-                                <div className="text-xs text-purple-600 font-bold uppercase tracking-wider mb-1">Avg. Processing</div>
+                                <div className="text-xs text-[#9A7545] font-bold uppercase tracking-wider mb-1">Avg. Processing</div>
                                 <div className="text-2xl font-bold text-gray-900">2.4 <span className="text-sm font-medium text-gray-500">days</span></div>
                             </div>
                         </div>
                     </div>
                     {/* Background Blobs */}
-                    <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-gradient-to-bl from-brand-100/30 to-purple-100/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/4 pointer-events-none" />
+                    <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-gradient-to-bl from-brand-100/30 to-[#F3EADC]/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/4 pointer-events-none" />
                 </div>
 
                 {/* 2. Main Content Split View */}
@@ -286,7 +286,7 @@ export default function AuditPage() {
                                             onClick={() => setSelectedRequest(req)}
                                             className={`group px-4 py-4 cursor-pointer hover:bg-gray-50 transition-colors border-l-4 relative
                                                 ${selectedRequest?.id === req.id
-                                                    ? 'bg-blue-50/50 border-brand-500'
+                                                    ? 'bg-[#F3EADC]/50 border-brand-500'
                                                     : 'border-transparent'}`}
                                         >
                                             <div className="flex items-start gap-3">
@@ -438,12 +438,12 @@ export default function AuditPage() {
                                                     <div className={`absolute left-3 top-0 w-6 h-6 rounded-full border-4 border-white shadow-sm flex items-center justify-center z-10 
                                                         ${log.type === 'approval'
                                                             ? (log.action.toLowerCase().includes('approved') ? 'bg-green-100' : 'bg-red-100')
-                                                            : 'bg-blue-100'
+                                                            : 'bg-[#F3EADC]'
                                                         }`}>
                                                         <div className={`w-2 h-2 rounded-full 
                                                             ${log.type === 'approval'
                                                                 ? (log.action.toLowerCase().includes('approved') ? 'bg-green-500' : 'bg-red-500')
-                                                                : 'bg-blue-500'
+                                                                : 'bg-[#9A7545]'
                                                             }`}></div>
                                                     </div>
 

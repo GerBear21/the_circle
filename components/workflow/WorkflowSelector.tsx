@@ -115,7 +115,7 @@ export function WorkflowSelector({
                                 <span className="text-xs text-primary-600 bg-primary-100 px-2 py-0.5 rounded-full">
                                     {selectedWorkflow.steps?.filter((s: any) => s.type === 'approval').length || 0} approval steps
                                 </span>
-                                <span className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
+                                <span className="text-xs text-[#9A7545] bg-[#F3EADC] px-2 py-0.5 rounded-full">
                                     {selectedWorkflow.steps?.filter((s: any) => s.type === 'integration').length || 0} integrations
                                 </span>
                             </div>

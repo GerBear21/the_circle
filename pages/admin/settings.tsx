@@ -95,16 +95,16 @@ export default function AdminSettingsPage() {
       <div className="p-4 sm:p-6 max-w-7xl mx-auto">
 
         {/* Header */}
-        <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-3xl p-8 mb-8 text-white shadow-lg relative overflow-hidden">
+        <div className="bg-gradient-to-r from-[#9A7545] to-[#3F2D19] rounded-3xl p-8 mb-8 text-white shadow-lg relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-full overflow-hidden opacity-20 pointer-events-none">
             <div className="absolute -top-20 -right-20 w-64 h-64 bg-white rounded-full mix-blend-overlay filter blur-3xl animate-float-slow"></div>
-            <div className="absolute top-20 -left-20 w-72 h-72 bg-blue-300 rounded-full mix-blend-overlay filter blur-3xl animate-float-medium"></div>
+            <div className="absolute top-20 -left-20 w-72 h-72 bg-[#C9A574] rounded-full mix-blend-overlay filter blur-3xl animate-float-medium"></div>
           </div>
 
           <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div>
               <h1 className="text-3xl sm:text-4xl font-bold font-heading mb-2">System Configuration</h1>
-              <p className="text-blue-100 max-w-xl text-lg">
+              <p className="text-[#F3EADC] max-w-xl text-lg">
                 Full administrative control over SLAs, rates, travel rules, form behaviour, workflows, notifications, and global preferences.
               </p>
             </div>
@@ -116,7 +116,7 @@ export default function AdminSettingsPage() {
               )}
               <Button
                 variant="primary"
-                className="bg-white text-blue-700 hover:bg-blue-50 transition-all shadow-md font-semibold"
+                className="bg-white text-[#9A7545] hover:bg-[#F3EADC] transition-all shadow-md font-semibold"
                 onClick={handleSave}
                 disabled={saving}
               >
@@ -137,7 +137,7 @@ export default function AdminSettingsPage() {
         <div className="flex flex-col lg:flex-row gap-8">
           {/* Sidebar */}
           <div className="w-full lg:w-64 flex-shrink-0">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-3 sticky top-24 space-y-4">
+            <div className="bg-white rounded-2xl shadow-sm border border-[#C9B896] p-3 sticky top-24 space-y-4">
               {groups.map(group => (
                 <div key={group}>
                   <p className="px-3 mb-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-400">{group}</p>

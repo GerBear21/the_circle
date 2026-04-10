@@ -73,7 +73,7 @@ export const WatchersField = ({ label, sublabel, required, watchers = [], placeh
                     {watchers.map((watcher, index) => (
                         <span
                             key={index}
-                            className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-full text-sm border border-blue-200"
+                            className="inline-flex items-center gap-1 px-2 py-1 bg-[#F3EADC] text-[#5E4426] rounded-full text-sm border border-[#C9B896]"
                         >
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
@@ -81,7 +81,7 @@ export const WatchersField = ({ label, sublabel, required, watchers = [], placeh
                             {watcher.name || watcher.email}
                             <button
                                 onClick={(e) => { e.stopPropagation(); removeWatcher(watcher.email); }}
-                                className="hover:text-blue-900 ml-1"
+                                className="hover:text-[#3F2D19] ml-1"
                             >
                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

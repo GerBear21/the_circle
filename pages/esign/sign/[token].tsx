@@ -108,7 +108,7 @@ export default function ESignInvitePage() {
       <Head>
         <title>Sign Document — The Circle</title>
       </Head>
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+      <div className="min-h-screen bg-gradient-to-br from-[#FAF6F1] to-[#FAF6F1]">
         {/* Top bar */}
         <div className="bg-white border-b border-gray-200">
           <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
@@ -177,8 +177,8 @@ export default function ESignInvitePage() {
                     </p>
                   </div>
                   {invitation.message && (
-                    <div className="mx-8 mb-6 p-4 bg-blue-50 border-l-4 border-blue-500 rounded-r-lg">
-                      <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-1">Message</p>
+                    <div className="mx-8 mb-6 p-4 bg-[#F3EADC] border-l-4 border-[#9A7545] rounded-r-lg">
+                      <p className="text-xs font-semibold text-[#5E4426] uppercase tracking-wide mb-1">Message</p>
                       <p className="text-sm text-gray-700 whitespace-pre-wrap">{invitation.message}</p>
                     </div>
                   )}

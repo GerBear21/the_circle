@@ -78,12 +78,12 @@ export function WorkflowDefaultsConfig({ getSetting, queueChange }: ConfigTabPro
       <SectionHeading title="Approval & Workflow Defaults" subtitle="Configure global workflow behaviour, default step settings, and form-specific approval chains." />
 
       <Card className="!p-6">
-        <CardHeading icon={<WorkflowIcon />} iconBg="bg-blue-100" iconColor="text-blue-600" title="Global Workflow Defaults" />
+        <CardHeading icon={<WorkflowIcon />} iconBg="bg-[#F3EADC]" iconColor="text-[#9A7545]" title="Global Workflow Defaults" />
         <p className="text-sm text-gray-500 mb-4">These defaults apply to all new workflows unless overridden per-workflow.</p>
         <div className="space-y-2 mb-4">
           <ToggleSwitch checked={parallel} onChange={(v) => { setParallel(v); queueChange('workflows', 'allow_parallel_approvals', v); }} label="Allow parallel approvals" description="Multiple approvers can act simultaneously" />
           {parallel && (
-            <div className="pl-4 border-l-2 border-blue-200">
+            <div className="pl-4 border-l-2 border-[#C9B896]">
               <ToggleSwitch checked={allParallel} onChange={(v) => { setAllParallel(v); queueChange('workflows', 'require_all_parallel', v); }} label="Require all parallel approvers" description="All parallel approvers must approve (vs. any one)" />
             </div>
           )}

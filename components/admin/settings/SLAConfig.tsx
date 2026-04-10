@@ -52,7 +52,7 @@ export function SLAConfig({ getSetting, queueChange }: ConfigTabProps) {
       </Card>
 
       <Card className="!p-6">
-        <CardHeading icon={<FormsIcon />} iconBg="bg-blue-100" iconColor="text-blue-600" title="Module-Specific SLAs" />
+        <CardHeading icon={<FormsIcon />} iconBg="bg-[#F3EADC]" iconColor="text-[#9A7545]" title="Module-Specific SLAs" />
         <p className="text-sm text-gray-500 mb-4">Override the default SLA per form type. Each approval step uses this timer.</p>
         <div className="space-y-3">
           {[
