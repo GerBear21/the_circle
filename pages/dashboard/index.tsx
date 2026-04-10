@@ -1,3 +1,4 @@
+import 'styled-jsx';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
@@ -313,7 +314,7 @@ export default function Dashboard({
             </div>
 
             {/* Throb animation style */}
-            <style jsx>{`
+            <style dangerouslySetInnerHTML={{ __html: `
               @keyframes name-throb {
                 0%, 100% { background-position: 0% 50%; opacity: 1; }
                 50% { background-position: 100% 50%; opacity: 0.85; }
@@ -321,7 +322,7 @@ export default function Dashboard({
               .animate-name-throb {
                 animation: name-throb 2.5s ease-in-out infinite;
               }
-            `}</style>
+            ` }} />
           </section>
 
           {/* Stats Grid — minimal monochrome icons */}

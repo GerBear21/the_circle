@@ -1247,7 +1247,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                 variant="outline" 
                                 className="gap-2 bg-white text-primary-600 border-primary-200 hover:bg-primary-50" 
                                 onClick={() => {
-                                    const reqType = request?.metadata?.type || request?.type;
+                                    const reqType = request?.metadata?.type || (request as any)?.type;
                                     if (reqType === 'hotel_booking') {
                                         router.push(`/requests/new/hotel-booking?edit=${id}`);
                                     } else if (reqType === 'external_hotel_booking') {

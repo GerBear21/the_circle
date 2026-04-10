@@ -21,7 +21,20 @@
       "mcp__filesystem__get_file_info",
       "Bash(grep -l \"job_title\" /c/Users/Admin/the_circle/database/migrations/*.sql)",
       "Bash(xargs grep:*)",
-      "mcp__supabase__execute_sql"
+      "mcp__supabase__execute_sql",
+      "Bash(node -e \"console.log\\(require\\('./node_modules/react/package.json'\\).version\\)\")",
+      "Bash(node -e \"console.log\\(require\\('./node_modules/@types/react/package.json'\\).version\\)\")",
+      "Bash(ls node_modules/@types/react/*.d.ts)",
+      "Bash(node -e \"const r = require\\('react'\\); console.log\\(typeof r.useState\\)\")",
+      "Bash(node -e \"const p = require\\('@types/react/package.json'\\); console.log\\(p.types || p.typings || p.main\\)\")",
+      "Bash(node -e \"const ts = require\\('typescript'\\); const cfg = ts.readConfigFile\\('tsconfig.json', ts.sys.readFile\\); const parsed = ts.parseJsonConfigFileContent\\(cfg.config, ts.sys, '.'\\); console.log\\('module:', parsed.options.module, 'moduleResolution:', parsed.options.moduleResolution, 'esModuleInterop:', parsed.options.esModuleInterop\\)\")",
+      "Bash(node -e \"const ts = require\\('typescript'\\); console.log\\('ModuleKind.ESNext:', ts.ModuleKind.ESNext, 'ModuleResolutionKind.Node10:', ts.ModuleResolutionKind.Node10, 'ModuleResolutionKind.Bundler:', ts.ModuleResolutionKind.Bundler\\)\")",
+      "Bash(node -e \"const j = require\\('fs'\\).readFileSync\\(0,'utf8'\\); const p = JSON.parse\\(j\\); console.log\\('next version:', p.version\\); console.log\\('peer ts:', p.peerDependencies?.typescript\\)\")",
+      "Bash(node -e \"const j=require\\('fs'\\).readFileSync\\(0,'utf8'\\);console.log\\(JSON.parse\\(j\\).version\\)\")",
+      "Bash(npm install:*)",
+      "Bash(node the_circle_presentation.js)",
+      "Bash(npm root:*)",
+      "Bash(node -e \"require\\('pptxgenjs'\\)\")"
     ]
   }
 }
