@@ -68,6 +68,40 @@ export default function Home() {
           <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-40 brightness-100 contrast-150 mix-blend-overlay" />
         </div>
 
+        {/* The Circle Logo - Top Left Corner */}
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+          className="absolute top-6 left-6 z-20 flex items-center gap-2"
+        >
+          <div className="w-8 h-8 flex items-center justify-center shrink-0">
+            <svg className="w-8 h-8" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="brandGradientCorner" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#2D9CDB" />
+                  <stop offset="100%" stopColor="#A78BFA" />
+                </linearGradient>
+              </defs>
+              <path d="M 100 25
+                 C 145 25, 180 60, 180 100
+                 C 180 145, 145 180, 100 180
+                 C 55 180, 20 145, 20 100
+                 C 20 60, 52 28, 95 25
+                 L 100 25
+                 L 98 40
+                 C 60 42, 35 65, 35 100
+                 C 35 138, 65 167, 100 167
+                 C 138 167, 167 138, 167 100
+                 C 167 65, 140 38, 100 38
+                 Z"
+                fill="url(#brandGradientCorner)"
+              />
+            </svg>
+          </div>
+          <span className="text-gray-900 font-bold text-xl">The Circle</span>
+        </motion.div>
+
         {/* Main Content Container */}
         <div className="relative z-10 w-full max-w-7xl mx-auto p-6 flex flex-col lg:flex-row items-center justify-center lg:justify-between gap-12 lg:gap-24">
 
@@ -79,11 +113,7 @@ export default function Home() {
               transition={{ duration: 0.6 }}
               className="inline-flex items-center gap-2 mb-8 px-4 py-1.5 rounded-full bg-white/60 border border-gray-200/50 backdrop-blur-sm shadow-sm"
             >
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-              </span>
-              <span className="text-gray-600 text-xs font-semibold tracking-wide uppercase">System Operational</span>
+              
             </motion.div>
 
             <motion.h1
@@ -123,37 +153,18 @@ export default function Home() {
             className="w-full max-w-md relative"
           >
             {/* Glossy Card */}
-            <div className="relative bg-white/80 backdrop-blur-xl border border-white/50 p-8 sm:p-12 rounded-[2.5rem] shadow-2xl shadow-brand-900/5">
+            <div className="relative bg-white/90 backdrop-blur-xl border border-brand-100 p-8 sm:p-12 rounded-[2.5rem] shadow-2xl shadow-brand-900/10">
 
               <div className="flex flex-col items-center mb-10">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-10 h-10 flex items-center justify-center shrink-0">
-                    <svg className="w-10 h-10" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <defs>
-                        <linearGradient id="brandGradientLogin" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stopColor="#2D9CDB" />
-                          <stop offset="100%" stopColor="#A78BFA" />
-                        </linearGradient>
-                      </defs>
-                      <path d="M 100 25
-                         C 145 25, 180 60, 180 100
-                         C 180 145, 145 180, 100 180
-                         C 55 180, 20 145, 20 100
-                         C 20 60, 52 28, 95 25
-                         L 100 25
-                         L 98 40
-                         C 60 42, 35 65, 35 100
-                         C 35 138, 65 167, 100 167
-                         C 138 167, 167 138, 167 100
-                         C 167 65, 140 38, 100 38
-                         Z"
-                        fill="url(#brandGradientLogin)"
-                      />
-                    </svg>
-                  </div>
-                  <span className="text-gray-900 font-bold text-3xl">The Circle</span>
+                {/* RTG Logo - Full Color */}
+                <div className="mb-6">
+                  <img
+                    src="/images/RTG_LOGO.png"
+                    alt="Rainbow Tourism Group"
+                    className="h-16 w-auto"
+                  />
                 </div>
-                
+
                 <p className="text-gray-500 text-center text-sm">
                   Enter your credentials to access the workspace
                 </p>
