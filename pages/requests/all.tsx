@@ -20,7 +20,7 @@ interface Request {
   updated_at: string;
   current_step: number;
   total_steps: number;
-  type: 'approval' | 'capex' | 'leave' | 'expense' | 'procurement' | 'it_request' | 'hotel_booking';
+  type: 'approval' | 'capex' | 'leave' | 'expense' | 'procurement' | 'it_request' | 'hotel_booking' | 'voucher_request';
   amount?: number;
   currency?: string;
   requester: {
@@ -356,35 +356,35 @@ const mockRequests: Request[] = [
 
 const statusConfig: Record<string, { label: string; bg: string; text: string; dot: string }> = {
   pending: { label: 'Pending', bg: 'bg-yellow-100', text: 'text-yellow-800', dot: 'bg-yellow-500' },
-  in_review: { label: 'In Review', bg: 'bg-blue-100', text: 'text-blue-800', dot: 'bg-blue-500' },
+  in_review: { label: 'In Review', bg: 'bg-[#F3EADC]', text: 'text-[#3F2D19]', dot: 'bg-[#9A7545]' },
   approved: { label: 'Approved', bg: 'bg-green-100', text: 'text-green-800', dot: 'bg-green-500' },
   rejected: { label: 'Rejected', bg: 'bg-red-100', text: 'text-red-800', dot: 'bg-red-500' },
   withdrawn: { label: 'Withdrawn', bg: 'bg-gray-100', text: 'text-gray-600', dot: 'bg-gray-400' },
   cancelled: { label: 'Cancelled', bg: 'bg-gray-100', text: 'text-gray-600', dot: 'bg-gray-400' },
-  draft: { label: 'Draft', bg: 'bg-purple-100', text: 'text-purple-800', dot: 'bg-purple-500' },
+  draft: { label: 'Draft', bg: 'bg-[#F3EADC]', text: 'text-[#3F2D19]', dot: 'bg-[#9A7545]' },
 };
 
 const priorityConfig: Record<string, { label: string; color: string; bg: string }> = {
   low: { label: 'Low', color: 'text-gray-600', bg: 'bg-gray-100' },
-  normal: { label: 'Normal', color: 'text-blue-600', bg: 'bg-blue-50' },
+  normal: { label: 'Normal', color: 'text-[#9A7545]', bg: 'bg-[#F3EADC]' },
   high: { label: 'High', color: 'text-orange-600', bg: 'bg-orange-50' },
   urgent: { label: 'Urgent', color: 'text-red-600', bg: 'bg-red-50' },
 };
 
 const typeConfig: Record<string, { label: string; icon: string; color: string; bg: string }> = {
   approval: { label: 'Approval', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-brand-600', bg: 'bg-brand-100' },
-  capex: { label: 'CAPEX', icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-purple-600', bg: 'bg-purple-100' },
+  capex: { label: 'CAPEX', icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-[#9A7545]', bg: 'bg-[#F3EADC]' },
   leave: { label: 'Leave', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z', color: 'text-teal-600', bg: 'bg-teal-100' },
   expense: { label: 'Expense', icon: 'M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z', color: 'text-green-600', bg: 'bg-green-100' },
-  procurement: { label: 'Procurement', icon: 'M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z', color: 'text-indigo-600', bg: 'bg-indigo-100' },
+  procurement: { label: 'Procurement', icon: 'M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z', color: 'text-[#9A7545]', bg: 'bg-[#F3EADC]' },
   it_request: { label: 'IT Request', icon: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', color: 'text-cyan-600', bg: 'bg-cyan-100' },
   hotel_booking: { label: 'Hotel Booking', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4', color: 'text-amber-600', bg: 'bg-amber-100' },
 };
 
 const departmentColors: Record<string, string> = {
-  Engineering: 'bg-blue-100 text-blue-700',
+  Engineering: 'bg-[#F3EADC] text-[#5E4426]',
   Design: 'bg-pink-100 text-pink-700',
-  Marketing: 'bg-purple-100 text-purple-700',
+  Marketing: 'bg-[#F3EADC] text-[#5E4426]',
   Sales: 'bg-green-100 text-green-700',
   'Human Resources': 'bg-orange-100 text-orange-700',
   IT: 'bg-cyan-100 text-cyan-700',
@@ -393,7 +393,7 @@ const departmentColors: Record<string, string> = {
 };
 
 type StatusFilter = 'all' | 'pending' | 'in_review' | 'approved' | 'rejected' | 'withdrawn' | 'draft';
-type TypeFilter = 'all' | 'approval' | 'capex' | 'leave' | 'expense' | 'procurement' | 'it_request' | 'hotel_booking';
+type TypeFilter = 'all' | 'approval' | 'capex' | 'leave' | 'expense' | 'procurement' | 'it_request' | 'hotel_booking' | 'voucher_request';
 type SortOption = 'newest' | 'oldest' | 'amount_high' | 'amount_low' | 'priority';
 
 interface AllRequestsPageProps {
@@ -617,7 +617,7 @@ export default function AllRequestsPage({ initialRequests }: AllRequestsPageProp
     } else if (diffDays === 1) {
       return { label: 'Due tomorrow', className: 'text-yellow-600 bg-yellow-50', urgent: false };
     } else if (diffDays <= 3) {
-      return { label: `Due in ${diffDays} days`, className: 'text-blue-600 bg-blue-50', urgent: false };
+      return { label: `Due in ${diffDays} days`, className: 'text-[#9A7545] bg-[#F3EADC]', urgent: false };
     }
     return null;
   };

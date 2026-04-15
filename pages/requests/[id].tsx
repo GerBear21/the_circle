@@ -9,6 +9,7 @@ import dynamic from 'next/dynamic';
 import { AppLayout } from '../../components/layout';
 import { Card, Button, Input } from '../../components/ui';
 import DynamicFormDetails from '../../components/DynamicFormDetails';
+import PinVerificationModal from '../../components/PinVerificationModal';
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
 import criticalAnimation from '../../lotties/red critical.json';
@@ -104,7 +105,7 @@ interface RequestDetail {
 
 const statusConfig: Record<string, { label: string; bg: string; text: string; icon: string }> = {
     pending: { label: 'Pending', bg: 'bg-amber-100/50', text: 'text-amber-700', icon: 'clock' },
-    in_review: { label: 'In Review', bg: 'bg-blue-100/50', text: 'text-blue-700', icon: 'refresh' },
+    in_review: { label: 'In Review', bg: 'bg-[#F3EADC]/50', text: 'text-[#5E4426]', icon: 'refresh' },
     approved: { label: 'Approved', bg: 'bg-emerald-100/50', text: 'text-emerald-700', icon: 'check-circle' },
     rejected: { label: 'Rejected', bg: 'bg-rose-100/50', text: 'text-rose-700', icon: 'x-circle' },
     withdrawn: { label: 'Withdrawn', bg: 'bg-gray-100/50', text: 'text-gray-500', icon: 'minus-circle' },
@@ -321,11 +322,34 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
     isEditing?: boolean;
     onApproversChange?: (approverIds: string[]) => void;
 }) {
+    const { data: session } = useSession();
+    const currentUserId = session?.user?.id;
+    
+    // Check if current user is the requestor (creator of the request)
+    const isRequestor = request.creator?.id === currentUserId;
+    
     const [approvers, setApprovers] = useState<ApproverInfo[]>([]);
     const [loadingApprovers, setLoadingApprovers] = useState(true);
     const [allUsers, setAllUsers] = useState<Array<{ id: string; display_name: string; email: string; profile_picture_url?: string }>>([]);
     const [approverSearch, setApproverSearch] = useState('');
     const [showApproverDropdown, setShowApproverDropdown] = useState(false);
+    
+    // Delegation request state - tracks which approver the requestor wants to delegate
+    const [showDelegationModal, setShowDelegationModal] = useState(false);
+    const [delegationTargetApprover, setDelegationTargetApprover] = useState<{ id: string; name: string } | null>(null);
+    const [delegationUsers, setDelegationUsers] = useState<Array<{ id: string; display_name: string; email: string }>>([]);
+    const [delegationForm, setDelegationForm] = useState({ delegate_id: '', reason: '', starts_at: '', ends_at: '' });
+    const [delegationSubmitting, setDelegationSubmitting] = useState(false);
+    const [delegationFeedback, setDelegationFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    
+    // Track delegation requests for approvers - fetched from server
+    const [approverDelegations, setApproverDelegations] = useState<Array<{
+        approverId: string;
+        delegateName: string;
+        status: 'pending' | 'approved' | 'rejected';
+        submittedAt: string;
+    }>>([]);
+    const [loadingDelegations, setLoadingDelegations] = useState(false);
 
     // Fetch all users for editing mode
     useEffect(() => {
@@ -336,6 +360,74 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
                 .catch(err => console.error('Error fetching users:', err));
         }
     }, [isEditing]);
+
+    // Fetch users for delegation modal - exclude current user and approvers already in timeline
+    useEffect(() => {
+        if (showDelegationModal && delegationUsers.length === 0) {
+            fetch('/api/users')
+                .then(res => res.json())
+                .then(data => {
+                    const approverIds = new Set(approvers.map(a => a.id));
+                    setDelegationUsers((data.users || []).filter((u: any) => 
+                        u.id !== currentUserId && 
+                        u.id !== delegationTargetApprover?.id &&
+                        !approverIds.has(u.id)
+                    ));
+                })
+                .catch(() => setDelegationUsers([]));
+        }
+    }, [showDelegationModal, currentUserId, delegationUsers.length, approvers, delegationTargetApprover]);
+
+    // Handle delegation request submission - requestor asks for someone to act on behalf of the current approver
+    const handleDelegationSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!delegationTargetApprover || !delegationForm.delegate_id) return;
+
+        setDelegationSubmitting(true);
+        setDelegationFeedback(null);
+        try {
+            const res = await fetch('/api/rbac/delegations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    delegator_id: delegationTargetApprover.id, // The approver who will be delegated
+                    delegate_id: delegationForm.delegate_id,   // The person who will act on their behalf
+                    reason: delegationForm.reason || undefined,
+                    starts_at: delegationForm.starts_at ? new Date(delegationForm.starts_at).toISOString() : new Date().toISOString(),
+                    ends_at: delegationForm.ends_at ? new Date(delegationForm.ends_at).toISOString() : undefined,
+                    requested_by: currentUserId, // Track who requested this delegation
+                    request_id: request.id,      // Link to the specific request
+                }),
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.error || 'Failed to submit delegation request');
+            }
+            setDelegationFeedback({ type: 'success', text: 'Delegation request submitted. An admin will review it shortly.' });
+            
+            // Add to local delegations list with pending status
+            const delegateUser = delegationUsers.find(u => u.id === delegationForm.delegate_id);
+            if (delegationTargetApprover) {
+                setApproverDelegations(prev => [...prev, {
+                    approverId: delegationTargetApprover.id,
+                    delegateName: delegateUser?.display_name || 'Unknown',
+                    status: 'pending',
+                    submittedAt: new Date().toISOString(),
+                }]);
+            }
+            
+            setDelegationForm({ delegate_id: '', reason: '', starts_at: '', ends_at: '' });
+            setTimeout(() => {
+                setShowDelegationModal(false);
+                setDelegationTargetApprover(null);
+                setDelegationFeedback(null);
+            }, 2000);
+        } catch (err: any) {
+            setDelegationFeedback({ type: 'error', text: err.message || 'Failed to submit delegation request.' });
+        } finally {
+            setDelegationSubmitting(false);
+        }
+    };
 
     useEffect(() => {
         async function fetchApprovers() {
@@ -411,6 +503,36 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
 
         fetchApprovers();
     }, [request]);
+
+    // Fetch delegation data for approvers from server
+    useEffect(() => {
+        async function fetchDelegations() {
+            if (approvers.length === 0) return;
+            
+            setLoadingDelegations(true);
+            try {
+                const approverIds = approvers.map(a => a.id).join(',');
+                const res = await fetch(`/api/rbac/delegations?user_ids=${approverIds}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    // Map delegations to approver IDs
+                    const mapped = data.map((d: any) => ({
+                        approverId: d.delegator_id,
+                        delegateName: d.delegate?.display_name || d.delegate?.email || 'Unknown',
+                        status: d.status,
+                        submittedAt: d.created_at,
+                    }));
+                    setApproverDelegations(mapped);
+                }
+            } catch (err) {
+                console.error('Error fetching delegations:', err);
+            } finally {
+                setLoadingDelegations(false);
+            }
+        }
+        
+        fetchDelegations();
+    }, [approvers.length]);
 
     const handleAddApprover = (userId: string) => {
         const user = allUsers.find(u => u.id === userId);
@@ -657,9 +779,72 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
                                                         Rejected
                                                     </span>
                                                 ) : isActive ? (
-                                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-primary-50 text-primary-700 border border-primary-100 animate-pulse">
-                                                        Awaiting Action
-                                                    </span>
+                                                    <div className="flex flex-col items-end gap-2">
+                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-primary-50 text-primary-700 border border-primary-100 animate-pulse">
+                                                            Awaiting Action
+                                                        </span>
+                                                        {/* Check if there's a delegation for this approver */}
+                                                        {(() => {
+                                                            const delegation = approverDelegations.find(d => d.approverId === approver.id);
+                                                            if (delegation) {
+                                                                if (delegation.status === 'approved') {
+                                                                    return (
+                                                                        <div className="flex flex-col items-end gap-1">
+                                                                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-green-50 text-green-700 border border-green-200">
+                                                                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                                                                </svg>
+                                                                                Delegated to {delegation.delegateName}
+                                                                            </span>
+                                                                        </div>
+                                                                    );
+                                                                }
+                                                                if (delegation.status === 'rejected') {
+                                                                    return (
+                                                                        <div className="flex flex-col items-end gap-1">
+                                                                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-200">
+                                                                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                                                </svg>
+                                                                                Delegation Rejected
+                                                                            </span>
+                                                                        </div>
+                                                                    );
+                                                                }
+                                                                // Pending status
+                                                                return (
+                                                                    <div className="flex flex-col items-end gap-1">
+                                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-[#F3EADC] text-[#5E4426] border border-[#C9B896]">
+                                                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                                            </svg>
+                                                                            Delegation Requested
+                                                                        </span>
+                                                                        <span className="text-xs text-gray-500">
+                                                                            Waiting for admin approval
+                                                                        </span>
+                                                                    </div>
+                                                                );
+                                                            }
+                                                            return null;
+                                                        })()}
+                                                        {/* Requestor can request delegation for the current approver - only if no delegation exists */}
+                                                        {isRequestor && approver.id !== currentUserId && !approverDelegations.find(d => d.approverId === approver.id) && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setDelegationTargetApprover({ id: approver.id, name: approver.display_name });
+                                                                    setShowDelegationModal(true);
+                                                                }}
+                                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors"
+                                                            >
+                                                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                                </svg>
+                                                                Request Delegation
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 ) : (
                                                     <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-gray-50 text-gray-500 border border-gray-100">
                                                         Pending
@@ -694,6 +879,118 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
                     );
                 })}
             </div>
+
+            {/* Delegation Request Modal */}
+            {showDelegationModal && delegationTargetApprover && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl">
+                        <div className="border-b border-gray-100 bg-gray-50/50 px-6 py-4 rounded-t-2xl flex items-center justify-between">
+                            <div>
+                                <h2 className="text-lg font-bold text-gray-900">Request Delegation</h2>
+                                <p className="text-xs text-gray-500 mt-0.5">
+                                    Request someone to act on behalf of <span className="font-medium text-gray-700">{delegationTargetApprover.name}</span>
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setShowDelegationModal(false);
+                                    setDelegationTargetApprover(null);
+                                    setDelegationForm({ delegate_id: '', reason: '', starts_at: '', ends_at: '' });
+                                    setDelegationFeedback(null);
+                                }}
+                                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleDelegationSubmit} className="p-6 space-y-4">
+                            {delegationFeedback && (
+                                <div className={`px-4 py-3 rounded-xl text-sm font-medium ${
+                                    delegationFeedback.type === 'success' 
+                                        ? 'bg-green-50 text-green-700 border border-green-200' 
+                                        : 'bg-red-50 text-red-700 border border-red-200'
+                                }`}>
+                                    {delegationFeedback.text}
+                                </div>
+                            )}
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Delegate To</label>
+                                <select
+                                    value={delegationForm.delegate_id}
+                                    onChange={(e) => setDelegationForm(f => ({ ...f, delegate_id: e.target.value }))}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                                    required
+                                >
+                                    <option value="">Select a colleague...</option>
+                                    {delegationUsers.map((u) => (
+                                        <option key={u.id} value={u.id}>{u.display_name} ({u.email})</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+                                <textarea
+                                    value={delegationForm.reason}
+                                    onChange={(e) => setDelegationForm(f => ({ ...f, reason: e.target.value }))}
+                                    placeholder="e.g. Annual leave, business travel..."
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 resize-none"
+                                    rows={2}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                                    <input
+                                        type="date"
+                                        value={delegationForm.starts_at}
+                                        onChange={(e) => setDelegationForm(f => ({ ...f, starts_at: e.target.value }))}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                                    <input
+                                        type="date"
+                                        value={delegationForm.ends_at}
+                                        onChange={(e) => setDelegationForm(f => ({ ...f, ends_at: e.target.value }))}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                                <p className="text-xs text-amber-700">
+                                    <strong>Note:</strong> Your delegation request will be reviewed by an admin before taking effect. You will be notified once it's approved.
+                                </p>
+                            </div>
+
+                            <div className="flex gap-2 justify-end pt-2">
+                                <Button
+                                    variant="outline"
+                                    type="button"
+                                    onClick={() => {
+                                        setShowDelegationModal(false);
+                                        setDelegationTargetApprover(null);
+                                        setDelegationForm({ delegate_id: '', reason: '', starts_at: '', ends_at: '' });
+                                        setDelegationFeedback(null);
+                                    }}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button variant="primary" type="submit" disabled={delegationSubmitting || !delegationForm.delegate_id}>
+                                    {delegationSubmitting ? 'Submitting...' : 'Submit Request'}
+                                </Button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -1016,6 +1313,8 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     const [reviewProcessing, setReviewProcessing] = useState(false);
     const [reviewError, setReviewError] = useState<string | null>(null);
     const [userSignatureUrl, setUserSignatureUrl] = useState<string | null>(null);
+    const [showPinModal, setShowPinModal] = useState(false);
+    const [pendingApprovalAction, setPendingApprovalAction] = useState<'approve' | 'reject' | null>(null);
     const [isApproverEditing, setIsApproverEditing] = useState(false);
     const [approverEditedRequest, setApproverEditedRequest] = useState<RequestDetail | null>(null);
     const [savingApproverEdit, setSavingApproverEdit] = useState(false);
@@ -1121,6 +1420,14 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
             return;
         }
 
+        // Store the action and show PIN verification modal
+        setPendingApprovalAction(action);
+        setShowPinModal(true);
+    };
+
+    const executeApprovalAction = async () => {
+        if (!id || !effectivePendingStep || !pendingApprovalAction) return;
+
         setReviewProcessing(true);
         setReviewError(null);
 
@@ -1131,14 +1438,14 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                 body: JSON.stringify({
                     requestId: id,
                     stepId: effectivePendingStep.id,
-                    action,
+                    action: pendingApprovalAction,
                     comment: reviewComment || undefined,
                 }),
             });
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.error || `Failed to ${action} request`);
+                throw new Error(errorData.error || `Failed to ${pendingApprovalAction} request`);
             }
 
             // Refresh the request data
@@ -1150,11 +1457,22 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
 
             setShowReviewModal(false);
             setReviewComment('');
+            setPendingApprovalAction(null);
         } catch (err: any) {
-            setReviewError(err.message || `Failed to ${action} request`);
+            setReviewError(err.message || `Failed to ${pendingApprovalAction} request`);
         } finally {
             setReviewProcessing(false);
         }
+    };
+
+    const handlePinVerified = () => {
+        setShowPinModal(false);
+        executeApprovalAction();
+    };
+
+    const handlePinCancel = () => {
+        setShowPinModal(false);
+        setPendingApprovalAction(null);
     };
 
     const handlePublish = async () => {
@@ -1678,6 +1996,15 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     return (
         <AppLayout title={`Request #${request.id.substring(0, 8)}`}>
             <style dangerouslySetInnerHTML={{ __html: pulseKeyframes }} />
+            
+            {/* PIN Verification Modal */}
+            <PinVerificationModal
+                isOpen={showPinModal}
+                onVerified={handlePinVerified}
+                onCancel={handlePinCancel}
+                title={pendingApprovalAction === 'approve' ? 'Confirm Approval' : 'Confirm Rejection'}
+                description="Enter your 4-digit PIN to sign this action"
+            />
             <div className="max-w-[1400px] mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
 
                 {/* Priority Alert Banner */}
@@ -1777,6 +2104,17 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                 request.title
                             )}
                         </h1>
+                        {/* Show guest name or identifier if available */}
+                        {request.metadata?.guestNames && (
+                            <p className="text-primary-600 font-medium text-lg mt-1">
+                                {request.metadata.guestNames}
+                            </p>
+                        )}
+                        {!request.metadata?.guestNames && (request.metadata?.guestTitle || request.metadata?.guestFirstName) && (
+                            <p className="text-primary-600 font-medium text-lg mt-1">
+                                {request.metadata.guestTitle} {request.metadata.guestFirstName}
+                            </p>
+                        )}
                         <div className="text-text-secondary text-lg leading-relaxed max-w-3xl">
                             {isEditing && editedRequest ? (
                                 <textarea
@@ -2002,7 +2340,7 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                                                 <span className="font-semibold text-gray-900 text-sm">{mod.modified_by?.display_name || 'Unknown User'}</span>
                                                                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                                                                     mod.modification_type === 'field_edit' 
-                                                                        ? 'bg-blue-100 text-blue-700' 
+                                                                        ? 'bg-[#F3EADC] text-[#5E4426]' 
                                                                         : mod.modification_type === 'document_upload'
                                                                             ? 'bg-green-100 text-green-700'
                                                                             : 'bg-red-100 text-red-700'
@@ -2086,7 +2424,7 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                         </svg>
                                     );
                                     if (type?.includes('word') || type?.includes('doc')) return (
-                                        <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
+                                        <svg className="w-5 h-5 text-[#9A7545]" fill="currentColor" viewBox="0 0 24 24">
                                             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM9.5 11h5c.28 0 .5.22.5.5s-.22.5-.5.5h-5a.5.5 0 0 1-.5-.5c0-.28.22-.5.5-.5zm0 2h5c.28 0 .5.22.5.5s-.22.5-.5.5h-5a.5.5 0 0 1-.5-.5c0-.28.22-.5.5-.5zm0 2h5c.28 0 .5.22.5.5s-.22.5-.5.5h-5a.5.5 0 0 1-.5-.5c0-.28.22-.5.5-.5z" />
                                         </svg>
                                     );
@@ -2313,14 +2651,14 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                         {/* Supporting Documents Section */}
                                         {supportingDocs.length > 0 && (
                                             <Card className="!p-0 overflow-hidden border-gray-200 shadow-sm">
-                                                <div className="bg-blue-50/50 px-6 py-4 border-b border-blue-100 flex items-center justify-between">
-                                                    <h3 className="font-semibold text-blue-800 flex items-center gap-2">
-                                                        <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <div className="bg-[#F3EADC]/50 px-6 py-4 border-b border-[#E6D3B3] flex items-center justify-between">
+                                                    <h3 className="font-semibold text-[#3F2D19] flex items-center gap-2">
+                                                        <svg className="w-5 h-5 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                                                         </svg>
                                                         Supporting Documents
                                                     </h3>
-                                                    <span className="text-sm text-blue-600 font-medium">{supportingDocs.length} uploaded</span>
+                                                    <span className="text-sm text-[#9A7545] font-medium">{supportingDocs.length} uploaded</span>
                                                 </div>
                                                 <div className="p-4 space-y-3">
                                                     {supportingDocs.map((doc: any, index: number) => {
@@ -2328,41 +2666,155 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                                         const downloadUrl = uploadedDoc?.download_url;
                                                         
                                                         return (
-                                                            <div key={index} className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-200 hover:border-gray-300 transition-colors">
-                                                                <div className="flex items-center gap-3 flex-1 min-w-0">
-                                                                    <div className="w-12 h-12 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                                                                        {getFileIcon(doc.type || '')}
-                                                                    </div>
-                                                                    <div className="flex-1 min-w-0">
-                                                                        <p className="font-medium text-gray-900 truncate">{doc.name}</p>
-                                                                        <p className="text-xs text-gray-500">{formatFileSize(doc.size)}</p>
-                                                                        {doc.uploadedBy && (
-                                                                            <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
-                                                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                                                                                </svg>
-                                                                                Uploaded by {doc.uploadedBy.name}
-                                                                                {doc.uploadedBy.isApprover && (
-                                                                                    <span className="ml-1 px-1.5 py-0.5 rounded text-xs bg-primary-100 text-primary-700">Approver</span>
+                                                            <div key={index} className="p-4 bg-white rounded-xl border border-gray-200 hover:border-gray-300 transition-colors">
+                                                                <div className="flex items-start justify-between gap-4">
+                                                                    <div className="flex items-start gap-3 flex-1 min-w-0">
+                                                                        <div className="w-12 h-12 bg-[#F3EADC] rounded-lg flex items-center justify-center flex-shrink-0">
+                                                                            {getFileIcon(doc.type || '')}
+                                                                        </div>
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <p className="font-semibold text-gray-900">{doc.name}</p>
+                                                                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs">
+                                                                                <div>
+                                                                                    <span className="text-gray-500">Size:</span>
+                                                                                    <span className="ml-1 text-gray-700 font-medium">{formatFileSize(doc.size)}</span>
+                                                                                </div>
+                                                                                <div>
+                                                                                    <span className="text-gray-500">Type:</span>
+                                                                                    <span className="ml-1 text-gray-700 font-medium">{doc.type || 'Unknown'}</span>
+                                                                                </div>
+                                                                                {doc.uploadedBy && (
+                                                                                    <div className="col-span-2 flex items-center gap-1 mt-1">
+                                                                                        <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                                                                        </svg>
+                                                                                        <span className="text-gray-500">Uploaded by:</span>
+                                                                                        <span className="text-gray-700 font-medium">{doc.uploadedBy.name}</span>
+                                                                                        {doc.uploadedBy.isApprover && (
+                                                                                            <span className="px-1.5 py-0.5 rounded text-xs bg-primary-100 text-primary-700">Approver</span>
+                                                                                        )}
+                                                                                    </div>
                                                                                 )}
                                                                                 {doc.uploadedAt && (
-                                                                                    <span className="ml-1">• {new Date(doc.uploadedAt).toLocaleDateString('en-US')}</span>
+                                                                                    <div className="col-span-2">
+                                                                                        <span className="text-gray-500">Uploaded:</span>
+                                                                                        <span className="ml-1 text-gray-700 font-medium">
+                                                                                            {new Date(doc.uploadedAt).toLocaleDateString('en-US', { 
+                                                                                                year: 'numeric', month: 'short', day: 'numeric' 
+                                                                                            })} at {new Date(doc.uploadedAt).toLocaleTimeString('en-US', {
+                                                                                                hour: '2-digit', minute: '2-digit'
+                                                                                            })}
+                                                                                        </span>
+                                                                                    </div>
                                                                                 )}
-                                                                            </p>
-                                                                        )}
-                                                                        {doc.description && (
-                                                                            <p className="text-sm text-gray-600 mt-1">{doc.description}</p>
+                                                                            </div>
+                                                                            {doc.description && (
+                                                                                <p className="text-sm text-gray-600 mt-2 p-2 bg-gray-50 rounded-lg">{doc.description}</p>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="flex flex-col gap-2 flex-shrink-0">
+                                                                        {downloadUrl && (
+                                                                            <>
+                                                                                <Button
+                                                                                    variant="outline"
+                                                                                    size="sm"
+                                                                                    className="bg-white w-full"
+                                                                                    onClick={() => window.open(downloadUrl, '_blank', 'noopener,noreferrer')}
+                                                                                >
+                                                                                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                                                    </svg>
+                                                                                    View
+                                                                                </Button>
+                                                                                <Button
+                                                                                    variant="outline"
+                                                                                    size="sm"
+                                                                                    className="bg-white w-full"
+                                                                                    onClick={() => {
+                                                                                        const link = document.createElement('a');
+                                                                                        link.href = downloadUrl;
+                                                                                        link.download = doc.name;
+                                                                                        document.body.appendChild(link);
+                                                                                        link.click();
+                                                                                        document.body.removeChild(link);
+                                                                                    }}
+                                                                                >
+                                                                                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                                                    </svg>
+                                                                                    Download
+                                                                                </Button>
+                                                                            </>
                                                                         )}
                                                                     </div>
                                                                 </div>
-                                                                <div className="flex items-center gap-2 flex-shrink-0 ml-4">
-                                                                    {downloadUrl && (
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </Card>
+                                        )}
+
+                                        {/* Additional Uploaded Documents Section */}
+                                        {additionalDocuments.length > 0 && (
+                                            <Card className="!p-0 overflow-hidden border-gray-200 shadow-sm">
+                                                <div className="bg-[#F3EADC]/50 px-6 py-4 border-b border-[#E6D3B3] flex items-center justify-between">
+                                                    <h3 className="font-semibold text-[#3F2D19] flex items-center gap-2">
+                                                        <svg className="w-5 h-5 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                                        </svg>
+                                                        Additional Documents
+                                                    </h3>
+                                                    <span className="text-sm text-[#9A7545] font-medium">{additionalDocuments.length} uploaded</span>
+                                                </div>
+                                                <div className="p-4 space-y-3">
+                                                    {additionalDocuments.map((doc: any) => (
+                                                        <div key={doc.id} className="p-4 bg-white rounded-xl border border-gray-200 hover:border-gray-300 transition-colors">
+                                                            <div className="flex items-start justify-between gap-4">
+                                                                <div className="flex items-start gap-3 flex-1 min-w-0">
+                                                                    <div className="w-12 h-12 bg-[#F3EADC] rounded-lg flex items-center justify-center flex-shrink-0">
+                                                                        {getFileIcon(doc.mime_type || '')}
+                                                                    </div>
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <p className="font-semibold text-gray-900">{doc.filename}</p>
+                                                                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs">
+                                                                            <div>
+                                                                                <span className="text-gray-500">Size:</span>
+                                                                                <span className="ml-1 text-gray-700 font-medium">{formatFileSize(doc.file_size)}</span>
+                                                                            </div>
+                                                                            <div>
+                                                                                <span className="text-gray-500">Type:</span>
+                                                                                <span className="ml-1 text-gray-700 font-medium">{doc.mime_type || 'Unknown'}</span>
+                                                                            </div>
+                                                                            <div className="col-span-2">
+                                                                                <span className="text-gray-500">Uploaded:</span>
+                                                                                <span className="ml-1 text-gray-700 font-medium">
+                                                                                    {new Date(doc.created_at).toLocaleDateString('en-US', { 
+                                                                                        year: 'numeric', month: 'short', day: 'numeric' 
+                                                                                    })} at {new Date(doc.created_at).toLocaleTimeString('en-US', {
+                                                                                        hour: '2-digit', minute: '2-digit'
+                                                                                    })}
+                                                                                </span>
+                                                                            </div>
+                                                                            {doc.storage_path && (
+                                                                                <div className="col-span-2">
+                                                                                    <span className="text-gray-500">Path:</span>
+                                                                                    <span className="ml-1 text-gray-600 font-mono text-[10px] truncate">{doc.storage_path}</span>
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex flex-col gap-2 flex-shrink-0">
+                                                                    {doc.download_url && (
                                                                         <>
                                                                             <Button
                                                                                 variant="outline"
                                                                                 size="sm"
-                                                                                className="bg-white"
-                                                                                onClick={() => window.open(downloadUrl, '_blank', 'noopener,noreferrer')}
+                                                                                className="bg-white w-full"
+                                                                                onClick={() => window.open(doc.download_url, '_blank', 'noopener,noreferrer')}
                                                                             >
                                                                                 <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -2373,11 +2825,11 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                                                             <Button
                                                                                 variant="outline"
                                                                                 size="sm"
-                                                                                className="bg-white"
+                                                                                className="bg-white w-full"
                                                                                 onClick={() => {
                                                                                     const link = document.createElement('a');
-                                                                                    link.href = downloadUrl;
-                                                                                    link.download = doc.name;
+                                                                                    link.href = doc.download_url;
+                                                                                    link.download = doc.filename;
                                                                                     document.body.appendChild(link);
                                                                                     link.click();
                                                                                     document.body.removeChild(link);
@@ -2391,75 +2843,6 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                                                         </>
                                                                     )}
                                                                 </div>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                            </Card>
-                                        )}
-
-                                        {/* Additional Uploaded Documents Section */}
-                                        {additionalDocuments.length > 0 && (
-                                            <Card className="!p-0 overflow-hidden border-gray-200 shadow-sm">
-                                                <div className="bg-purple-50/50 px-6 py-4 border-b border-purple-100 flex items-center justify-between">
-                                                    <h3 className="font-semibold text-purple-800 flex items-center gap-2">
-                                                        <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                                                        </svg>
-                                                        Additional Documents
-                                                    </h3>
-                                                    <span className="text-sm text-purple-600 font-medium">{additionalDocuments.length} uploaded</span>
-                                                </div>
-                                                <div className="p-4 space-y-3">
-                                                    {additionalDocuments.map((doc: any) => (
-                                                        <div key={doc.id} className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-200 hover:border-gray-300 transition-colors">
-                                                            <div className="flex items-center gap-3 flex-1 min-w-0">
-                                                                <div className="w-12 h-12 bg-purple-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                                                                    {getFileIcon(doc.mime_type || '')}
-                                                                </div>
-                                                                <div className="flex-1 min-w-0">
-                                                                    <p className="font-medium text-gray-900 truncate">{doc.filename}</p>
-                                                                    <p className="text-xs text-gray-500">{formatFileSize(doc.file_size)}</p>
-                                                                    <p className="text-xs text-gray-400 mt-0.5">
-                                                                        Uploaded {new Date(doc.created_at).toLocaleDateString('en-US')} at {new Date(doc.created_at).toLocaleTimeString('en-US')}
-                                                                    </p>
-                                                                </div>
-                                                            </div>
-                                                            <div className="flex items-center gap-2 flex-shrink-0 ml-4">
-                                                                {doc.download_url && (
-                                                                    <>
-                                                                        <Button
-                                                                            variant="outline"
-                                                                            size="sm"
-                                                                            className="bg-white"
-                                                                            onClick={() => window.open(doc.download_url, '_blank', 'noopener,noreferrer')}
-                                                                        >
-                                                                            <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                                                            </svg>
-                                                                            View
-                                                                        </Button>
-                                                                        <Button
-                                                                            variant="outline"
-                                                                            size="sm"
-                                                                            className="bg-white"
-                                                                            onClick={() => {
-                                                                                const link = document.createElement('a');
-                                                                                link.href = doc.download_url;
-                                                                                link.download = doc.filename;
-                                                                                document.body.appendChild(link);
-                                                                                link.click();
-                                                                                document.body.removeChild(link);
-                                                                            }}
-                                                                        >
-                                                                            <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                                                            </svg>
-                                                                            Download
-                                                                        </Button>
-                                                                    </>
-                                                                )}
                                                             </div>
                                                         </div>
                                                     ))}
@@ -2798,7 +3181,7 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                             onClick={() => setUploadDocumentType('supporting')}
                                             className={`flex-1 p-3 rounded-xl border-2 transition-all ${
                                                 uploadDocumentType === 'supporting'
-                                                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                                    ? 'border-[#9A7545] bg-[#F3EADC] text-[#5E4426]'
                                                     : 'border-gray-200 hover:border-gray-300 text-gray-600'
                                             }`}
                                         >

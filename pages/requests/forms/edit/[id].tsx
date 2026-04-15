@@ -186,10 +186,10 @@ export default function EditFormTemplate() {
                       {log.change_type === 'updated' && log.changes_made && (
                         <div className="flex flex-wrap gap-1">
                           {log.changes_made.name_changed && (
-                            <span className="px-2 py-0.5 bg-blue-50 text-blue-600 text-[10px] font-medium rounded">Name</span>
+                            <span className="px-2 py-0.5 bg-[#F3EADC] text-[#9A7545] text-[10px] font-medium rounded">Name</span>
                           )}
                           {log.changes_made.fields_changed && (
-                            <span className="px-2 py-0.5 bg-purple-50 text-purple-600 text-[10px] font-medium rounded">Fields</span>
+                            <span className="px-2 py-0.5 bg-[#F3EADC] text-[#9A7545] text-[10px] font-medium rounded">Fields</span>
                           )}
                           {log.changes_made.workflow_changed && (
                             <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[10px] font-medium rounded">Workflow</span>

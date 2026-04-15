@@ -264,10 +264,10 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
                             <p className="text-sm text-gray-500 mt-1 mb-4">
                                 Scan the QR code with your mobile device to open the signature pad.
                             </p>
-                            <div className="text-xs px-3 py-2 bg-blue-50 text-blue-700 rounded-lg flex items-center gap-2 justify-center sm:justify-start">
+                            <div className="text-xs px-3 py-2 bg-[#F3EADC] text-[#5E4426] rounded-lg flex items-center gap-2 justify-center sm:justify-start">
                                 <span className="relative flex h-2 w-2">
-                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#C9A574] opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-[#9A7545]"></span>
                                 </span>
                                 Waiting for device...
                             </div>

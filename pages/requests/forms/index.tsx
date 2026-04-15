@@ -64,9 +64,9 @@ const BUILTIN_FORMS = [
 
 const getColorClasses = (color: string) => {
     const colors: Record<string, { bg: string; icon: string; hover: string; border: string; gradient: string }> = {
-        primary: { bg: 'bg-primary-50', icon: 'text-primary-600', hover: 'hover:shadow-lg hover:border-primary-300 hover:-translate-y-0.5', border: 'border-primary-100', gradient: 'from-primary-500/10' },
+        primary: { bg: 'bg-[#F3EADC]', icon: 'text-[#9A7545]', hover: 'hover:shadow-lg hover:border-[#C9A574] hover:-translate-y-0.5', border: 'border-[#C9B896]', gradient: 'from-[#9A7545]/10' },
         secondary: { bg: 'bg-gray-50', icon: 'text-gray-600', hover: 'hover:shadow-lg hover:border-gray-300 hover:-translate-y-0.5', border: 'border-gray-200', gradient: 'from-gray-500/10' },
-        accent: { bg: 'bg-accent/10', icon: 'text-accent', hover: 'hover:shadow-lg hover:border-accent/30 hover:-translate-y-0.5', border: 'border-accent/20', gradient: 'from-accent/10' },
+        accent: { bg: 'bg-[#F3EADC]', icon: 'text-[#C9A574]', hover: 'hover:shadow-lg hover:border-[#C9A574]/30 hover:-translate-y-0.5', border: 'border-[#C9A574]/20', gradient: 'from-[#C9A574]/10' },
         success: { bg: 'bg-emerald-50', icon: 'text-emerald-600', hover: 'hover:shadow-lg hover:border-emerald-200 hover:-translate-y-0.5', border: 'border-emerald-100', gradient: 'from-emerald-500/10' },
         warning: { bg: 'bg-amber-50', icon: 'text-amber-600', hover: 'hover:shadow-lg hover:border-amber-200 hover:-translate-y-0.5', border: 'border-amber-100', gradient: 'from-amber-500/10' },
         danger: { bg: 'bg-red-50', icon: 'text-red-600', hover: 'hover:shadow-lg hover:border-red-200 hover:-translate-y-0.5', border: 'border-red-100', gradient: 'from-red-500/10' },
@@ -75,9 +75,9 @@ const getColorClasses = (color: string) => {
 };
 
 const SCOPE_LABELS: Record<string, { label: string; color: string; icon: string }> = {
-    hotel_group: { label: 'Hotel Group', color: 'bg-purple-100 text-purple-700 border-purple-200', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
+    hotel_group: { label: 'Hotel Group', color: 'bg-[#F3EADC] text-[#5E4426] border-[#C9B896]', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
     business_unit: { label: 'Business Unit', color: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
-    departmental: { label: 'Departmental', color: 'bg-blue-100 text-blue-700 border-blue-200', icon: 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z' },
+    departmental: { label: 'Departmental', color: 'bg-[#F3EADC] text-[#9A7545] border-[#C9B896]', icon: 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z' },
 };
 
 type ViewMode = 'large' | 'medium' | 'compact' | 'list';
@@ -218,7 +218,7 @@ export default function AllFormsPage() {
             onClick={() => setViewMode(mode)}
             className={`p-2 rounded-lg transition-all duration-200 flex items-center gap-2 ${
                 viewMode === mode
-                    ? 'bg-primary-100 text-primary-700 shadow-sm'
+                    ? 'bg-[#F3EADC] text-[#9A7545] shadow-sm'
                     : 'bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-700'
             }`}
             title={label}
@@ -234,7 +234,7 @@ export default function AllFormsPage() {
         return (
             <AppLayout title="Form Templates">
                 <div className="flex items-center justify-center min-h-[60vh]">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500" />
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#9A7545]" />
                 </div>
             </AppLayout>
         );
@@ -269,8 +269,8 @@ export default function AllFormsPage() {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
                     <Card className="!p-3 bg-gradient-to-br from-white to-gray-50">
                         <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center">
-                                <svg className="w-5 h-5 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <div className="w-10 h-10 rounded-xl bg-[#F3EADC] flex items-center justify-center">
+                                <svg className="w-5 h-5 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                 </svg>
                             </div>
@@ -282,8 +282,8 @@ export default function AllFormsPage() {
                     </Card>
                     <Card className="!p-3 bg-gradient-to-br from-white to-gray-50">
                         <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center">
-                                <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <div className="w-10 h-10 rounded-xl bg-[#F3EADC] flex items-center justify-center">
+                                <svg className="w-5 h-5 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                                 </svg>
                             </div>
@@ -308,8 +308,8 @@ export default function AllFormsPage() {
                     </Card>
                     <Card className="!p-3 bg-gradient-to-br from-white to-gray-50">
                         <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
-                                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <div className="w-10 h-10 rounded-xl bg-[#F3EADC] flex items-center justify-center">
+                                <svg className="w-5 h-5 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                                 </svg>
                             </div>
@@ -333,7 +333,7 @@ export default function AllFormsPage() {
                                 <input
                                     type="text"
                                     placeholder="Search forms by name, description, or category..."
-                                    className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
+                                    className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#C9A574] focus:border-transparent text-sm"
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                 />
@@ -360,7 +360,7 @@ export default function AllFormsPage() {
                                     onClick={() => setShowFilters(!showFilters)}
                                     className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-medium transition-all ${
                                         showFilters || hasActiveFilters
-                                            ? 'bg-primary-50 border-primary-200 text-primary-700'
+                                            ? 'bg-[#F3EADC] border-[#C9B896] text-[#9A7545]'
                                             : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
                                     }`}
                                 >
@@ -369,7 +369,7 @@ export default function AllFormsPage() {
                                     </svg>
                                     <span className="hidden sm:inline">Filters</span>
                                     {hasActiveFilters && (
-                                        <span className="w-2 h-2 bg-primary-500 rounded-full" />
+                                        <span className="w-2 h-2 bg-[#F3EADC]0 rounded-full" />
                                     )}
                                 </button>
                             </div>
@@ -380,9 +380,9 @@ export default function AllFormsPage() {
                             <div className="flex flex-wrap items-center gap-2">
                                 <span className="text-xs text-gray-500 font-medium">Active filters:</span>
                                 {selectedCategory !== 'All' && (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary-50 text-primary-700 text-xs font-medium">
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F3EADC] text-[#9A7545] text-xs font-medium">
                                         {selectedCategory}
-                                        <button onClick={() => setSelectedCategory('All')} className="hover:text-primary-900">
+                                        <button onClick={() => setSelectedCategory('All')} className="hover:text-[#3F2D19]">
                                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                             </svg>
@@ -390,9 +390,9 @@ export default function AllFormsPage() {
                                     </span>
                                 )}
                                 {selectedScope !== 'All' && (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary-50 text-primary-700 text-xs font-medium">
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F3EADC] text-[#9A7545] text-xs font-medium">
                                         {SCOPE_LABELS[selectedScope]?.label}
-                                        <button onClick={() => setSelectedScope('All')} className="hover:text-primary-900">
+                                        <button onClick={() => setSelectedScope('All')} className="hover:text-[#3F2D19]">
                                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                             </svg>
@@ -400,9 +400,9 @@ export default function AllFormsPage() {
                                     </span>
                                 )}
                                 {selectedDepartment !== 'All' && (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary-50 text-primary-700 text-xs font-medium">
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F3EADC] text-[#9A7545] text-xs font-medium">
                                         {departments.find(d => d.id === selectedDepartment)?.name || 'Department'}
-                                        <button onClick={() => setSelectedDepartment('All')} className="hover:text-primary-900">
+                                        <button onClick={() => setSelectedDepartment('All')} className="hover:text-[#3F2D19]">
                                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                             </svg>
@@ -424,7 +424,7 @@ export default function AllFormsPage() {
                                 <div>
                                     <label className="block text-xs font-medium text-gray-500 mb-1.5">Category</label>
                                     <select
-                                        className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm bg-white"
+                                        className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#C9A574] text-sm bg-white"
                                         value={selectedCategory}
                                         onChange={(e) => setSelectedCategory(e.target.value)}
                                     >
@@ -434,7 +434,7 @@ export default function AllFormsPage() {
                                 <div>
                                     <label className="block text-xs font-medium text-gray-500 mb-1.5">Scope</label>
                                     <select
-                                        className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm bg-white"
+                                        className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#C9A574] text-sm bg-white"
                                         value={selectedScope}
                                         onChange={(e) => setSelectedScope(e.target.value)}
                                     >
@@ -447,7 +447,7 @@ export default function AllFormsPage() {
                                 <div>
                                     <label className="block text-xs font-medium text-gray-500 mb-1.5">Department</label>
                                     <select
-                                        className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm bg-white disabled:bg-gray-50"
+                                        className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#C9A574] text-sm bg-white disabled:bg-gray-50"
                                         value={selectedDepartment}
                                         onChange={(e) => setSelectedDepartment(e.target.value)}
                                         disabled={loadingDepartments}
@@ -461,7 +461,7 @@ export default function AllFormsPage() {
                                 <div>
                                     <label className="block text-xs font-medium text-gray-500 mb-1.5">Sort By</label>
                                     <select
-                                        className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm bg-white"
+                                        className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#C9A574] text-sm bg-white"
                                         value={sortBy}
                                         onChange={(e) => setSortBy(e.target.value as any)}
                                     >
@@ -478,7 +478,7 @@ export default function AllFormsPage() {
                 {/* Loading State */}
                 {loadingTemplates ? (
                     <div className="text-center py-16">
-                        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-500 mx-auto" />
+                        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#9A7545] mx-auto" />
                         <p className="text-sm text-gray-500 mt-3">Loading form templates...</p>
                     </div>
                 ) : (
@@ -552,10 +552,10 @@ export default function AllFormsPage() {
                                                             </div>
                                                             <div className="flex-1 min-w-0">
                                                                 <div className="flex items-start justify-between gap-3">
-                                                                    <h3 className="font-semibold text-gray-900 text-lg group-hover:text-primary-600 transition-colors">
+                                                                    <h3 className="font-semibold text-gray-900 text-lg group-hover:text-[#9A7545] transition-colors">
                                                                         {form.name}
                                                                     </h3>
-                                                                    <svg className="w-5 h-5 text-gray-300 group-hover:text-primary-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <svg className="w-5 h-5 text-gray-300 group-hover:text-[#C9A574] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                                                                     </svg>
                                                                 </div>
@@ -573,12 +573,12 @@ export default function AllFormsPage() {
                                                                         </span>
                                                                     )}
                                                                     {deptName && (
-                                                                        <span className="px-2.5 py-1 rounded-lg text-xs font-medium bg-blue-50 text-blue-600">
+                                                                        <span className="px-2.5 py-1 rounded-lg text-xs font-medium bg-[#F3EADC] text-[#9A7545]">
                                                                             {deptName}
                                                                         </span>
                                                                     )}
                                                                     {form.isBuiltin ? (
-                                                                        <span className="px-2.5 py-1 rounded-lg text-xs font-medium bg-primary-50 text-primary-600">
+                                                                        <span className="px-2.5 py-1 rounded-lg text-xs font-medium bg-[#F3EADC] text-[#9A7545]">
                                                                             Built-in
                                                                         </span>
                                                                     ) : (
@@ -629,7 +629,7 @@ export default function AllFormsPage() {
                                                             </svg>
                                                         </div>
                                                         <div className="flex-1 min-w-0 flex flex-col h-full">
-                                                            <h3 className="font-semibold text-gray-900 line-clamp-1 group-hover:text-primary-600 transition-colors text-sm">
+                                                            <h3 className="font-semibold text-gray-900 line-clamp-1 group-hover:text-[#9A7545] transition-colors text-sm">
                                                                 {form.name}
                                                             </h3>
                                                             <p className="text-xs text-gray-500 mt-1 line-clamp-2 mb-3 flex-1">
@@ -645,12 +645,12 @@ export default function AllFormsPage() {
                                                                     </span>
                                                                 )}
                                                                 {deptName && (
-                                                                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-600">
+                                                                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[#F3EADC] text-[#9A7545]">
                                                                         {deptName}
                                                                     </span>
                                                                 )}
                                                                 {form.isBuiltin ? (
-                                                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-primary-50 text-primary-600">
+                                                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#F3EADC] text-[#9A7545]">
                                                                         Built-in
                                                                     </span>
                                                                 ) : (
@@ -661,7 +661,7 @@ export default function AllFormsPage() {
                                                             </div>
                                                         </div>
                                                         <div className="self-center opacity-0 -translate-x-2 transition-all duration-300 group-hover:opacity-100 group-hover:translate-x-0 flex-shrink-0">
-                                                            <svg className="w-5 h-5 text-gray-300 group-hover:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <svg className="w-5 h-5 text-gray-300 group-hover:text-[#C9A574]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                                                             </svg>
                                                         </div>
@@ -701,7 +701,7 @@ export default function AllFormsPage() {
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={form.icon} />
                                                         </svg>
                                                     </div>
-                                                    <h3 className="font-medium text-gray-900 text-xs line-clamp-2 group-hover:text-primary-600 transition-colors mb-2">
+                                                    <h3 className="font-medium text-gray-900 text-xs line-clamp-2 group-hover:text-[#9A7545] transition-colors mb-2">
                                                         {form.name}
                                                     </h3>
                                                     <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${scopeInfo.color}`}>
@@ -733,7 +733,7 @@ export default function AllFormsPage() {
                                                     </div>
                                                     <div className="flex-1 min-w-0">
                                                         <div className="flex items-center gap-3">
-                                                            <h3 className="font-medium text-gray-900 text-sm group-hover:text-primary-600 transition-colors">
+                                                            <h3 className="font-medium text-gray-900 text-sm group-hover:text-[#9A7545] transition-colors">
                                                                 {form.name}
                                                             </h3>
                                                             <span className={`text-[10px] font-medium px-2 py-0.5 rounded border ${scopeInfo.color}`}>
@@ -745,12 +745,12 @@ export default function AllFormsPage() {
                                                                 </span>
                                                             )}
                                                             {deptName && (
-                                                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-600 hidden md:inline">
+                                                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[#F3EADC] text-[#9A7545] hidden md:inline">
                                                                     {deptName}
                                                                 </span>
                                                             )}
                                                             {form.isBuiltin ? (
-                                                                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-primary-50 text-primary-600">
+                                                                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#F3EADC] text-[#9A7545]">
                                                                     Built-in
                                                                 </span>
                                                             ) : (
@@ -772,7 +772,7 @@ export default function AllFormsPage() {
                                                             </svg>
                                                         </button>
                                                     )}
-                                                    <svg className="w-5 h-5 text-gray-300 group-hover:text-primary-400 transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <svg className="w-5 h-5 text-gray-300 group-hover:text-[#C9A574] transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                                                     </svg>
                                                 </div>

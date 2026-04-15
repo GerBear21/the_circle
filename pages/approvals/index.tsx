@@ -12,6 +12,8 @@ import { useApprovals } from '../../hooks';
 import tickAnimation from '../../tick.json';
 import criticalAnimation from '../../lotties/red critical.json';
 import urgentAnimation from '../../lotties/orange warning exclamation.json';
+import { useRBAC } from '../../contexts/RBACContext';
+import { DelegationConfig } from '../../components/admin/settings';
 
 const Lottie = dynamic(() => import('lottie-react'), { ssr: false });
 
@@ -53,7 +55,7 @@ function getRequestDetailPath(request: any): string {
 const statusConfig: Record<string, { label: string; bg: string; text: string }> = {
   pending: { label: 'Pending', bg: 'bg-yellow-100', text: 'text-yellow-800' },
   pending_approval: { label: 'Pending', bg: 'bg-yellow-100', text: 'text-yellow-800' },
-  in_review: { label: 'In Review', bg: 'bg-blue-100', text: 'text-blue-800' },
+  in_review: { label: 'In Review', bg: 'bg-[#F3EADC]', text: 'text-[#3F2D19]' },
   approved: { label: 'Approved', bg: 'bg-green-100', text: 'text-green-800' },
   rejected: { label: 'Rejected', bg: 'bg-red-100', text: 'text-red-800' },
   completed: { label: 'Completed', bg: 'bg-green-100', text: 'text-green-800' },
@@ -63,12 +65,12 @@ const priorityConfig: Record<string, { label: string; bg: string; text: string; 
   critical: { label: 'Critical', bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200' },
   high: { label: 'High', bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200' },
   urgent: { label: 'Urgent', bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-200' },
-  medium: { label: 'Medium', bg: 'bg-blue-50', text: 'text-blue-600', border: 'border-blue-200' },
-  normal: { label: 'Normal', bg: 'bg-blue-50', text: 'text-blue-600', border: 'border-blue-200' },
+  medium: { label: 'Medium', bg: 'bg-[#F3EADC]', text: 'text-[#9A7545]', border: 'border-[#C9B896]' },
+  normal: { label: 'Normal', bg: 'bg-[#F3EADC]', text: 'text-[#9A7545]', border: 'border-[#C9B896]' },
   low: { label: 'Low', bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-200' },
 };
 
-type TabType = 'pending' | 'watching' | 'history';
+type TabType = 'pending' | 'watching' | 'history' | 'admin';
 
 interface ApprovalsPageProps {
   initialPendingApprovals: any[];
@@ -93,16 +95,30 @@ export const getServerSideProps: GetServerSideProps<ApprovalsPageProps> = async 
   const organizationId = (session.user as any).org_id;
 
   try {
-    // Fetch pending approvals
+    // Fetch active delegations where current user is the delegate
+    const now = new Date().toISOString();
+    const { data: activeDelegations } = await supabaseAdmin
+      .from('approval_delegations')
+      .select('delegator_id')
+      .eq('delegate_id', userId)
+      .eq('is_active', true)
+      .eq('status', 'approved')
+      .lte('starts_at', now)
+      .or(`ends_at.is.null,ends_at.gte.${now}`);
+
+    const delegatorIds = (activeDelegations || []).map(d => d.delegator_id);
+
+    // Fetch pending approvals (own + delegated)
+    const approverIds = [userId, ...delegatorIds];
     const { data: pendingSteps, error: stepsError } = await supabaseAdmin
       .from('request_steps')
-      .select('request_id')
-      .eq('approver_user_id', userId)
+      .select('request_id, approver_user_id')
+      .in('approver_user_id', approverIds)
       .eq('status', 'pending');
 
     let pendingApprovals: any[] = [];
     if (!stepsError && pendingSteps && pendingSteps.length > 0) {
-      const requestIds = pendingSteps.map(s => s.request_id);
+      const requestIds = [...new Set(pendingSteps.map(s => s.request_id))];
       const { data: pendingData, error: fetchError } = await supabaseAdmin
         .from('requests')
         .select(`
@@ -139,7 +155,7 @@ export const getServerSideProps: GetServerSideProps<ApprovalsPageProps> = async 
       if (!fetchError && pendingData) {
         pendingApprovals = pendingData.filter((req: any) => {
           const userStep = req.request_steps?.find(
-            (step: any) => step.approver_user_id === userId && step.status === 'pending'
+            (step: any) => approverIds.includes(step.approver_user_id) && step.status === 'pending'
           );
           return !!userStep;
         });
@@ -264,6 +280,7 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
   const { data: session, status } = useSession();
   const router = useRouter();
   const { pendingApprovals, watchingRequests, historyRequests, loading, watchingLoading, historyLoading, error } = useApprovals();
+  const { isSuperAdmin, isSystemAdmin } = useRBAC();
   const [activeTab, setActiveTab] = useState<TabType>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -366,7 +383,7 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
     } else if (diffDays === 1) {
       return { label: 'Due tomorrow', className: 'text-yellow-600 bg-yellow-50' };
     } else if (diffDays <= 3) {
-      return { label: `Due in ${diffDays} days`, className: 'text-blue-600 bg-blue-50' };
+      return { label: `Due in ${diffDays} days`, className: 'text-[#9A7545] bg-[#F3EADC]' };
     }
     return null;
   };
@@ -385,7 +402,7 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
     return null;
   }
 
-  const tabs: { id: TabType; label: string; count: number; icon: JSX.Element }[] = [
+  const tabs: { id: TabType; label: string; count?: number; icon: JSX.Element }[] = [
     {
       id: 'pending',
       label: 'Pending',
@@ -418,6 +435,19 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
       ),
     },
   ];
+
+  if (isSuperAdmin || isSystemAdmin) {
+    tabs.push({
+      id: 'admin',
+      label: 'Admin Approvals',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+      ),
+    });
+  }
 
   const getTabDescription = () => {
     switch (activeTab) {
@@ -471,21 +501,29 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
                 >
                   {tab.icon}
                   {tab.label}
-                  <span className={`ml-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                    activeTab === tab.id
-                      ? 'bg-brand-100 text-brand-700'
-                      : 'bg-gray-100 text-gray-600'
-                  }`}>
-                    {tab.count}
-                  </span>
+                  {tab.count !== undefined && (
+                    <span className={`ml-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                      activeTab === tab.id
+                        ? 'bg-brand-100 text-brand-700'
+                        : 'bg-gray-100 text-gray-600'
+                    }`}>
+                      {tab.count}
+                    </span>
+                  )}
                 </button>
               ))}
             </nav>
           </div>
         </div>
 
-        {/* Error State */}
-        {error && (
+        {activeTab === 'admin' ? (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <DelegationConfig />
+          </div>
+        ) : (
+          <>
+            {/* Error State */}
+            {error && (
           <Card className="bg-red-50 border-red-200 mb-6">
             <div className="flex items-center gap-3">
               <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -825,12 +863,12 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
                           )}
 
                           {activeTab === 'watching' && (
-                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 rounded-lg">
-                              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[#F3EADC] rounded-lg">
+                              <svg className="w-4 h-4 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                               </svg>
-                              <span className="text-sm font-medium text-blue-700">Watching</span>
+                              <span className="text-sm font-medium text-[#5E4426]">Watching</span>
                             </div>
                           )}
                         </div>
@@ -856,6 +894,8 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
               })}
             </div>
           )}
+          </>
+        )}
       </div>
     </AppLayout>
   );

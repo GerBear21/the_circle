@@ -4,6 +4,7 @@ import AppHeader from './AppHeader';
 import Sidebar from './Sidebar';
 import SignatureRequiredModal from '../SignatureRequiredModal';
 import ProfileSetupModal from '../ProfileSetupModal';
+import PinSetupModal from '../PinSetupModal';
 import { useSignatureCheck, useCurrentUser } from '@/hooks';
 
 interface AppLayoutProps {
@@ -28,7 +29,7 @@ export default function AppLayout({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const router = useRouter();
   const { hasSignature, loading: signatureLoading, refetch } = useSignatureCheck();
-  const { user, loading: userLoading, needsProfileSetup, refetch: refetchUser } = useCurrentUser();
+  const { user, loading: userLoading, needsProfileSetup, needsPinSetup, refetch: refetchUser } = useCurrentUser();
 
   // Pages that should skip signature check
   const isSettingsPage = router.pathname === '/profile/settings';
@@ -39,6 +40,10 @@ export default function AppLayout({
   };
 
   const handleProfileSetupComplete = async () => {
+    await refetchUser();
+  };
+
+  const handlePinSetupComplete = async () => {
     await refetchUser();
   };
 
@@ -56,8 +61,16 @@ export default function AppLayout({
         />
       )}
 
-      {/* Signature Required Modal - shown after profile is set up */}
-      {shouldCheckSignature && !signatureLoading && !hasSignature && !needsProfileSetup && (
+      {/* PIN Setup Modal - shown for existing users who need to set up PIN */}
+      {!userLoading && user && !needsProfileSetup && needsPinSetup && (
+        <PinSetupModal
+          isOpen={true}
+          onComplete={handlePinSetupComplete}
+        />
+      )}
+
+      {/* Signature Required Modal - shown after profile and PIN are set up */}
+      {shouldCheckSignature && !signatureLoading && !hasSignature && !needsProfileSetup && !needsPinSetup && (
         <SignatureRequiredModal
           isOpen={true}
           onSignatureSaved={handleSignatureSaved}

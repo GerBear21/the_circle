@@ -279,3 +279,132 @@ export function calculateBudgetTotal(budget: Record<string, any>, budgetItems: {
         return sum + totalCost;
     }, 0);
 }
+
+// ============ TOLLGATE CONFIGURATION ============
+
+export interface TollgateRoute {
+    from: string;
+    to: string;
+    premium: number;
+    standard: number;
+    premiumCost: number;
+    standardCost: number;
+}
+
+// Tollgate data for routes between RTG locations
+export const TOLLGATE_ROUTES: TollgateRoute[] = [
+    // From RTH
+    { from: 'RTH', to: 'NAH', premium: 0, standard: 0, premiumCost: 4, standardCost: 3 },
+    { from: 'RTH', to: 'KHCC', premium: 1, standard: 0, premiumCost: 4, standardCost: 3 },
+    { from: 'RTH', to: 'BRH', premium: 5, standard: 0, premiumCost: 4, standardCost: 3 },
+    { from: 'RTH', to: 'AZAM', premium: 5, standard: 2, premiumCost: 4, standardCost: 3 },
+    { from: 'RTH', to: 'VFRH', premium: 5, standard: 2, premiumCost: 4, standardCost: 3 },
+    { from: 'RTH', to: 'MRC', premium: 2, standard: 0, premiumCost: 4, standardCost: 3 },
+    // From NAH
+    { from: 'NAH', to: 'RTH', premium: 0, standard: 0, premiumCost: 4, standardCost: 3 },
+    { from: 'NAH', to: 'KHCC', premium: 1, standard: 0, premiumCost: 4, standardCost: 3 },
+    { from: 'NAH', to: 'BRH', premium: 5, standard: 0, premiumCost: 4, standardCost: 3 },
+    { from: 'NAH', to: 'AZAM', premium: 5, standard: 2, premiumCost: 4, standardCost: 3 },
+    { from: 'NAH', to: 'VFRH', premium: 5, standard: 2, premiumCost: 4, standardCost: 3 },
+    { from: 'NAH', to: 'MRC', premium: 2, standard: 0, premiumCost: 4, standardCost: 3 },
+    // From KHCC
+    { from: 'KHCC', to: 'BRH', premium: 4, standard: 0, premiumCost: 4, standardCost: 3 },
+    { from: 'KHCC', to: 'AZAM', premium: 5, standard: 4, premiumCost: 4, standardCost: 3 },
+    { from: 'KHCC', to: 'VFRH', premium: 4, standard: 2, premiumCost: 4, standardCost: 3 },
+    { from: 'KHCC', to: 'MRC', premium: 3, standard: 0, premiumCost: 4, standardCost: 3 },
+    // From BRH
+    { from: 'BRH', to: 'AZAM', premium: 0, standard: 2, premiumCost: 4, standardCost: 3 },
+    { from: 'BRH', to: 'VFRH', premium: 0, standard: 2, premiumCost: 4, standardCost: 3 },
+    { from: 'BRH', to: 'MRC', premium: 7, standard: 0, premiumCost: 4, standardCost: 3 },
+    // From AZAM
+    { from: 'AZAM', to: 'VFRH', premium: 0, standard: 0, premiumCost: 4, standardCost: 3 },
+    { from: 'AZAM', to: 'MRC', premium: 7, standard: 2, premiumCost: 4, standardCost: 3 },
+    // From VFRH
+    { from: 'VFRH', to: 'MRC', premium: 7, standard: 2, premiumCost: 4, standardCost: 3 },
+];
+
+export interface TollgateEntry {
+    road: string;
+    quantity: string;
+    unitCost: string;
+    totalCost: string;
+}
+
+export interface ItineraryRow {
+    date: string;
+    from: string;
+    fromCustom?: string;
+    to: string;
+    toCustom?: string;
+    km: string;
+    justification: string;
+}
+
+export type TollgateRouteType = 'premium' | 'standard';
+
+/**
+ * Calculate tollgates based on itinerary routes
+ * Returns array of tollgate entries with calculated costs
+ */
+export function calculateTollgatesForItinerary(
+    itinerary: ItineraryRow[],
+    routeType: TollgateRouteType = 'premium'
+): TollgateEntry[] {
+    const tollgates: TollgateEntry[] = [];
+
+    for (const row of itinerary) {
+        if (!row.from || !row.to || row.from === 'OTHER' || row.to === 'OTHER') {
+            continue;
+        }
+
+        // Find matching route (try both directions)
+        let route = TOLLGATE_ROUTES.find(r => r.from === row.from && r.to === row.to);
+        if (!route) {
+            route = TOLLGATE_ROUTES.find(r => r.from === row.to && r.to === row.from);
+        }
+
+        if (!route) {
+            continue;
+        }
+
+        const tollCount = routeType === 'premium' ? route.premium : route.standard;
+        const unitCost = routeType === 'premium' ? route.premiumCost : route.standardCost;
+        const totalCost = tollCount * unitCost;
+
+        if (tollCount > 0) {
+            tollgates.push({
+                road: `${row.from} → ${row.to} (${routeType})`,
+                quantity: tollCount.toString(),
+                unitCost: unitCost.toString(),
+                totalCost: totalCost.toFixed(2),
+            });
+        }
+    }
+
+    return tollgates.length > 0 ? tollgates : [{ road: '', quantity: '1', unitCost: '', totalCost: '' }];
+}
+
+/**
+ * Get tollgate summary for an itinerary route
+ */
+export function getTollgateRouteInfo(from: string, to: string): { premium: number; standard: number; premiumCost: number; standardCost: number } | null {
+    if (!from || !to || from === 'OTHER' || to === 'OTHER') {
+        return null;
+    }
+
+    let route = TOLLGATE_ROUTES.find(r => r.from === from && r.to === to);
+    if (!route) {
+        route = TOLLGATE_ROUTES.find(r => r.from === to && r.to === from);
+    }
+
+    if (!route) {
+        return null;
+    }
+
+    return {
+        premium: route.premium,
+        standard: route.standard,
+        premiumCost: route.premiumCost,
+        standardCost: route.standardCost,
+    };
+}

@@ -2,9 +2,15 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import { useEffect, useState, useMemo } from 'react';
 import Lottie from 'lottie-react';
+import dynamic from 'next/dynamic';
 import sendingApprovalAnimation from '../../Sending approval lottie.json';
 import { AppLayout } from '../../components/layout';
 import { Card } from '../../components/ui';
+
+const ESignModal = dynamic(
+  () => import('../../components/esign/ESignModal'),
+  { ssr: false }
+);
 
 // Defined types for better type safety
 type RequestCategory = 'Finance' | 'Travel & Events' | 'BIS forms' | 'System & Design';
@@ -23,6 +29,17 @@ interface RequestItem {
 }
 
 const allRequestItems: RequestItem[] = [
+  // --- E-Sign ---
+  {
+    id: 'esign',
+    title: 'E-Sign PDF',
+    description: 'Electronically sign PDF documents',
+    icon: 'M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z',
+    color: 'success',
+    href: '#esign',
+    category: 'Finance',
+    popular: true,
+  },
   // --- Finance ---
   // {
   //   id: 'approval',
@@ -33,16 +50,16 @@ const allRequestItems: RequestItem[] = [
   //   href: '/requests/new/approval',
   //   category: 'Finance',
   // },
-  {
-    id: 'capex',
-    title: 'CAPEX Request',
-    description: 'Capital expenditure approval form',
-    icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
-    color: 'warning',
-    href: '/requests/new/capex',
-    category: 'Finance',
-    popular: true,
-  },
+  // {
+  //   id: 'capex',
+  //   title: 'CAPEX Request',
+  //   description: 'Capital expenditure approval form',
+  //   icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+  //   color: 'warning',
+  //   href: '/requests/new/capex',
+  //   category: 'Finance',
+  //   popular: true,
+  // },
   // {
   //   id: 'expense',
   //   title: 'Expense Claim',
@@ -117,24 +134,15 @@ const allRequestItems: RequestItem[] = [
   },
 
   // --- System & Design ---
-  // {
-  //   id: 'form',
-  //   title: 'Design New Form',
-  //   description: 'Create a custom form with fields',
-  //   icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
-  //   color: 'accent',
-  //   href: '/requests/new/form',
-  //   category: 'System & Design',
-  // },
-  // {
-  //   id: 'template',
-  //   title: 'Create Template',
-  //   description: 'Build reusable approval templates',
-  //   icon: 'M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z',
-  //   color: 'accent',
-  //   href: '/requests/new/template',
-  //   category: 'System & Design',
-  // },
+  {
+    id: 'form',
+    title: 'Design New Form',
+    description: 'Create a custom form template for your team',
+    icon: 'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z',
+    color: 'accent',
+    href: '/requests/new/form',
+    category: 'System & Design',
+  },
   {
     id: 'workflow',
     title: 'Custom Workflow',
@@ -147,22 +155,28 @@ const allRequestItems: RequestItem[] = [
 ];
 
 const getColorClasses = (color: string) => {
-  const colors: Record<string, { bg: string; icon: string; hover: string; border: string }> = {
-    primary: { bg: 'bg-primary-50', icon: 'text-primary-600', hover: 'hover:bg-primary-50 hover:shadow-primary-100', border: 'hover:border-primary-200' },
-    accent: { bg: 'bg-accent/10', icon: 'text-accent', hover: 'hover:bg-accent/5 hover:shadow-accent/20', border: 'hover:border-accent/30' },
-    success: { bg: 'bg-emerald-50', icon: 'text-emerald-600', hover: 'hover:bg-emerald-50 hover:shadow-emerald-100', border: 'hover:border-emerald-200' },
-    warning: { bg: 'bg-amber-50', icon: 'text-amber-600', hover: 'hover:bg-amber-50 hover:shadow-amber-100', border: 'hover:border-amber-200' },
-    secondary: { bg: 'bg-gray-100', icon: 'text-gray-600', hover: 'hover:bg-gray-50 hover:shadow-gray-200', border: 'hover:border-gray-300' },
-    indigo: { bg: 'bg-indigo-50', icon: 'text-indigo-600', hover: 'hover:bg-indigo-50 hover:shadow-indigo-100', border: 'hover:border-indigo-200' },
-    rose: { bg: 'bg-rose-50', icon: 'text-rose-600', hover: 'hover:bg-rose-50 hover:shadow-rose-100', border: 'hover:border-rose-200' },
-  };
-  return colors[color] || colors.primary;
+  // Unified brown/beige style matching dashboard icons
+  const base = { bg: 'bg-[#F3EADC]', icon: 'text-[#9A7545]', hover: 'hover:bg-[#F3EADC] hover:shadow-[#F3EADC]', border: 'hover:border-[#E6D3B3]' };
+  return base;
 };
 
 export default function NewRequestPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
+  const [showESignModal, setShowESignModal] = useState(false);
+
+  const handleESignComplete = async (signedPdfBlob: Blob, filename: string) => {
+    // Download the signed PDF
+    const url = URL.createObjectURL(signedPdfBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -197,6 +211,7 @@ export default function NewRequestPage() {
   if (!session) return null;
 
   return (
+    <>
     <AppLayout title="Create New">
       <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-8">
 
@@ -261,7 +276,13 @@ export default function NewRequestPage() {
                 return (
                   <div
                     key={item.id}
-                    onClick={() => router.push(item.href)}
+                    onClick={() => {
+                      if (item.id === 'esign') {
+                        setShowESignModal(true);
+                      } else {
+                        router.push(item.href);
+                      }
+                    }}
                     className={`
                       group relative overflow-hidden bg-white rounded-xl border border-gray-100 
                       p-4 cursor-pointer transition-all duration-300
@@ -314,26 +335,34 @@ export default function NewRequestPage() {
         </div>
 
         {/* Footer Support Card
-        <div className="mt-12 rounded-2xl bg-blue-50 border border-blue-100 p-6 flex flex-col sm:flex-row items-center justify-between gap-6">
+        <div className="mt-12 rounded-2xl bg-[#F3EADC] border border-[#E6D3B3] p-6 flex flex-col sm:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm text-blue-500">
+            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm text-[#9A7545]">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
               </svg>
             </div>
             <div>
-              <h4 className="font-bold text-blue-900 text-lg">Can't find what you're looking for?</h4>
-              <p className="text-blue-700/80">Check our documentation or contact the system administrator for help.</p>
+              <h4 className="font-bold text-[#3F2D19] text-lg">Can't find what you're looking for?</h4>
+              <p className="text-[#5E4426]/80">Check our documentation or contact the system administrator for help.</p>
             </div>
           </div>
           <button
             onClick={() => router.push('/help')}
-            className="px-6 py-2.5 bg-white text-blue-600 font-semibold rounded-lg shadow-sm border border-blue-200 hover:bg-blue-50 transition-all whitespace-nowrap"
+            className="px-6 py-2.5 bg-white text-[#9A7545] font-semibold rounded-lg shadow-sm border border-[#C9B896] hover:bg-[#F3EADC] transition-all whitespace-nowrap"
           >
             Contact Support
           </button>
         </div> */}
       </div>
     </AppLayout>
+
+      {/* E-Sign Modal */}
+      <ESignModal
+        isOpen={showESignModal}
+        onClose={() => setShowESignModal(false)}
+        onComplete={handleESignComplete}
+      />
+    </>
   );
 }

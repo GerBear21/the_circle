@@ -276,7 +276,7 @@ export default function AdminIntegrationsPage() {
           <div 
             className="absolute inset-0 z-0"
             style={{
-              background: 'radial-gradient(125% 125% at 50% 10%, #2D9CDB 40%, #23285C 100%)'
+              background: 'radial-gradient(125% 125% at 50% 10%, #9A7545 40%, #23285C 100%)'
             }}
           />
           
@@ -501,10 +501,10 @@ export default function AdminIntegrationsPage() {
         )}
 
         {/* Help Section */}
-        <div className="mt-10 p-6 rounded-2xl bg-gradient-to-r from-gray-50 to-blue-50 border border-gray-200">
+        <div className="mt-10 p-6 rounded-2xl bg-gradient-to-r from-gray-50 to-[#FAF6F1] border border-gray-200">
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-            <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
-              <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-12 h-12 bg-[#F3EADC] rounded-xl flex items-center justify-center flex-shrink-0">
+              <svg className="w-6 h-6 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>

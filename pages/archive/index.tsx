@@ -54,8 +54,6 @@ export default function ArchivePage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [filterDate, setFilterDate] = useState('All Time');
     const [sortBy, setSortBy] = useState('newest');
-    const [syncing, setSyncing] = useState(false);
-    const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
     useEffect(() => {
         if (status === 'unauthenticated') {
@@ -104,29 +102,22 @@ export default function ArchivePage() {
 
     useEffect(() => {
         if (status === 'authenticated') {
-            fetchArchived();
+            // Auto-sync archives on page load, then fetch
+            const autoSync = async () => {
+                try {
+                    await fetch('/api/archives/backfill', { 
+                        method: 'POST', 
+                        headers: { 'Content-Type': 'application/json' }, 
+                        body: JSON.stringify({ force: false }) 
+                    });
+                } catch (err) {
+                    console.log('Auto-sync skipped:', err);
+                }
+                fetchArchived();
+            };
+            autoSync();
         }
     }, [session, status]);
-
-    const syncArchives = async () => {
-        setSyncing(true);
-        setSyncMessage(null);
-        try {
-            const response = await fetch('/api/archives/backfill', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ force: true }) });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error);
-            const msg = data.errors?.length
-                ? `${data.message}. Errors: ${data.errors.join('; ')}`
-                : data.message;
-            setSyncMessage(msg);
-            await fetchArchived();
-        } catch (err: any) {
-            setSyncMessage(`Error: ${err.message}`);
-        } finally {
-            setSyncing(false);
-            setTimeout(() => setSyncMessage(null), 5000);
-        }
-    };
 
     // Filter and sort archived documents
     const filteredData = archivedDocuments.filter((archive) => {
@@ -239,7 +230,7 @@ export default function ArchivePage() {
             <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-8">
 
                 {/* Header Section */}
-                <div className="rounded-3xl bg-gradient-to-br from-brand-50 via-white to-purple-50/10 border border-brand-100/50 p-6 sm:p-10 relative overflow-hidden shadow-sm">
+                <div className="rounded-3xl bg-gradient-to-br from-brand-50 via-white to-[#FAF6F1]/10 border border-brand-100/50 p-6 sm:p-10 relative overflow-hidden shadow-sm">
                     <div className="flex flex-col md:flex-row items-center gap-8 relative z-10">
                         <div className="w-60 h-60 sm:w-72 sm:h-72 flex-shrink-0 transition-transform hover:scale-105 duration-500">
                             <Lottie
@@ -262,30 +253,11 @@ export default function ArchivePage() {
                                     <div className="text-sm text-gray-500 font-medium">Total Archived</div>
                                     <div className="text-2xl font-bold text-brand-600">{totalRequests} Requests</div>
                                 </div>
-                                <div className="px-5 py-3 bg-white/60 backdrop-blur-md rounded-2xl border border-white/50 shadow-sm">
-                                    <div className="text-sm text-gray-500 font-medium">Total Value</div>
-                                    <div className="text-2xl font-bold text-gray-900">{currency} {totalValue.toLocaleString()}</div>
-                                </div>
-                                <button
-                                    onClick={syncArchives}
-                                    disabled={syncing}
-                                    className="px-5 py-3 bg-brand-600 hover:bg-brand-700 disabled:bg-brand-400 text-white rounded-2xl shadow-sm font-medium text-sm flex items-center gap-2 transition-colors"
-                                >
-                                    <svg className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                    </svg>
-                                    {syncing ? 'Syncing...' : 'Sync Archives'}
-                                </button>
                             </div>
-                            {syncMessage && (
-                                <div className={`mt-3 text-sm font-medium px-4 py-2 rounded-xl inline-block ${syncMessage.startsWith('Error') ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                                    {syncMessage}
-                                </div>
-                            )}
                         </div>
                     </div>
                     {/* Background Decoration */}
-                    <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-gradient-to-br from-brand-100/40 to-purple-100/30 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none" />
+                    <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-gradient-to-br from-brand-100/40 to-[#F3EADC]/30 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none" />
                 </div>
 
                 {/* Breadcrumb Navigation */}
