@@ -10,6 +10,7 @@ import { SettingsIllustration } from '@/components/illustrations/SettingsIllustr
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useUserHrimsProfile } from '@/hooks/useUserHrimsProfile';
 import dynamic from 'next/dynamic';
+import BiometricSetupModal from '@/components/approvals/BiometricSetupModal';
 
 const SignaturePad = dynamic(() => import('@/components/SignaturePad'), {
   ssr: false,
@@ -66,16 +67,10 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
     const [uploadingPicture, setUploadingPicture] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     
-    // Security/PIN state
-    const [sendingPinReset, setSendingPinReset] = useState(false);
-    const [pinResetSent, setPinResetSent] = useState(false);
-    const [pinResetError, setPinResetError] = useState<string | null>(null);
-    const [changingPin, setChangingPin] = useState(false);
-    const [currentPin, setCurrentPin] = useState('');
-    const [newPin, setNewPin] = useState('');
-    const [confirmNewPin, setConfirmNewPin] = useState('');
-    const [pinChangeError, setPinChangeError] = useState<string | null>(null);
-    const [pinChangeSuccess, setPinChangeSuccess] = useState(false);
+    // Biometric credentials state
+    const [biometricCredentials, setBiometricCredentials] = useState<any[]>([]);
+    const [loadingBiometrics, setLoadingBiometrics] = useState(false);
+    const [showBiometricSetup, setShowBiometricSetup] = useState(false);
 
     // Load profile picture when user data is available
     useEffect(() => {
@@ -162,75 +157,37 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
         }, 1500);
     };
 
-    const handleSendPinResetEmail = async () => {
-        setSendingPinReset(true);
-        setPinResetError(null);
-        setPinResetSent(false);
-
+    const fetchBiometricCredentials = async () => {
+        setLoadingBiometrics(true);
         try {
-            const response = await fetch('/api/user/pin/request-reset', {
-                method: 'POST',
-            });
-
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.error || 'Failed to send reset email');
+            const res = await fetch('/api/webauthn/credentials');
+            if (res.ok) {
+                const data = await res.json();
+                setBiometricCredentials(data.credentials || []);
             }
-
-            setPinResetSent(true);
-        } catch (err: any) {
-            setPinResetError(err.message || 'Failed to send reset email');
+        } catch (err) {
+            console.error('Failed to load biometric credentials:', err);
         } finally {
-            setSendingPinReset(false);
+            setLoadingBiometrics(false);
         }
     };
 
-    const handleChangePin = async () => {
-        setPinChangeError(null);
-        setPinChangeSuccess(false);
-
-        if (!/^\d{4}$/.test(currentPin)) {
-            setPinChangeError('Current PIN must be 4 digits');
-            return;
+    // Load biometric credentials when security tab is active
+    useEffect(() => {
+        if (activeTab === 'security') {
+            fetchBiometricCredentials();
         }
+    }, [activeTab]);
 
-        if (!/^\d{4}$/.test(newPin)) {
-            setPinChangeError('New PIN must be 4 digits');
-            return;
-        }
-
-        if (newPin !== confirmNewPin) {
-            setPinChangeError('New PINs do not match');
-            return;
-        }
-
-        if (currentPin === newPin) {
-            setPinChangeError('New PIN must be different from current PIN');
-            return;
-        }
-
-        setChangingPin(true);
-
+    const handleDeleteCredential = async (id: string) => {
+        if (!confirm('Remove this device? You will need to re-register it to use biometric verification.')) return;
         try {
-            const response = await fetch('/api/user/pin/change', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ currentPin, newPin }),
-            });
-
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.error || 'Failed to change PIN');
+            const res = await fetch(`/api/webauthn/credentials/${id}`, { method: 'DELETE' });
+            if (res.ok) {
+                setBiometricCredentials(prev => prev.filter(c => c.id !== id));
             }
-
-            setPinChangeSuccess(true);
-            setCurrentPin('');
-            setNewPin('');
-            setConfirmNewPin('');
-        } catch (err: any) {
-            setPinChangeError(err.message || 'Failed to change PIN');
-        } finally {
-            setChangingPin(false);
+        } catch (err) {
+            console.error('Failed to delete credential:', err);
         }
     };
 
@@ -387,133 +344,79 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
                                 <Card className="p-6 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                                     <div>
                                         <h2 className="text-xl font-bold text-gray-900">Security Settings</h2>
-                                        <p className="text-sm text-gray-500 mt-1">Manage your approval PIN and account security.</p>
+                                        <p className="text-sm text-gray-500 mt-1">Manage biometric verification devices for high-risk approvals.</p>
                                     </div>
 
-                                    {/* PIN Status */}
-                                    <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
-                                        <div className="flex items-center gap-3">
-                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${user?.pin_setup_completed ? 'bg-green-100' : 'bg-amber-100'}`}>
-                                                <svg className={`w-5 h-5 ${user?.pin_setup_completed ? 'text-green-600' : 'text-amber-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                                                </svg>
-                                            </div>
+                                    {/* Biometric Credentials */}
+                                    <div>
+                                        <div className="flex items-center justify-between mb-4">
                                             <div>
-                                                <h3 className="font-medium text-gray-900">Approval PIN</h3>
-                                                <p className="text-sm text-gray-500">
-                                                    {user?.pin_setup_completed 
-                                                        ? `PIN is set up${user?.pin_last_changed ? ` • Last changed ${new Date(user.pin_last_changed).toLocaleDateString()}` : ''}`
-                                                        : 'PIN not set up yet'
-                                                    }
+                                                <h3 className="font-medium text-gray-900">Biometric Devices</h3>
+                                                <p className="text-sm text-gray-500 mt-0.5">
+                                                    Use Windows Hello, Touch ID, or Face ID for secure approval verification.
                                                 </p>
                                             </div>
+                                            <Button variant="outline" onClick={() => setShowBiometricSetup(true)}>
+                                                Register device
+                                            </Button>
                                         </div>
+
+                                        {loadingBiometrics ? (
+                                            <div className="text-sm text-gray-500 py-4 text-center">Loading devices...</div>
+                                        ) : biometricCredentials.length === 0 ? (
+                                            <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 text-center">
+                                                <p className="text-sm text-gray-500">No biometric devices registered yet.</p>
+                                                <p className="text-xs text-gray-400 mt-1">
+                                                    You can register a device now or during your first high-risk approval.
+                                                </p>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-3">
+                                                {biometricCredentials.map((cred: any) => (
+                                                    <div key={cred.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center">
+                                                                <svg className="w-5 h-5 text-primary-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 11c0-1.1.9-2 2-2s2 .9 2 2m-8 0c0-3.3 2.7-6 6-6s6 2.7 6 6v1c0 5-4 9-6 10-2-1-6-5-6-10v-1z" />
+                                                                </svg>
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-sm font-medium text-gray-900">{cred.device_name || 'Biometric Device'}</p>
+                                                                <p className="text-xs text-gray-500">
+                                                                    Added {new Date(cred.created_at).toLocaleDateString()}
+                                                                    {cred.last_used_at ? ` • Last used ${new Date(cred.last_used_at).toLocaleDateString()}` : ''}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        <button
+                                                            onClick={() => handleDeleteCredential(cred.id)}
+                                                            className="text-sm text-red-600 hover:text-red-700 font-medium"
+                                                        >
+                                                            Remove
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
 
-                                    {/* Change PIN Section */}
-                                    {user?.pin_setup_completed && (
-                                        <div className="pt-4 border-t border-gray-100">
-                                            <h3 className="font-medium text-gray-900 mb-4">Change PIN</h3>
-                                            
-                                            {pinChangeSuccess && (
-                                                <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700 flex items-center gap-2">
-                                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                    </svg>
-                                                    PIN changed successfully!
-                                                </div>
-                                            )}
-
-                                            {pinChangeError && (
-                                                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-                                                    {pinChangeError}
-                                                </div>
-                                            )}
-
-                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                                <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-1">Current PIN</label>
-                                                    <input
-                                                        type="password"
-                                                        inputMode="numeric"
-                                                        maxLength={4}
-                                                        value={currentPin}
-                                                        onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                                                        placeholder="••••"
-                                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-center text-lg tracking-widest"
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-1">New PIN</label>
-                                                    <input
-                                                        type="password"
-                                                        inputMode="numeric"
-                                                        maxLength={4}
-                                                        value={newPin}
-                                                        onChange={(e) => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                                                        placeholder="••••"
-                                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-center text-lg tracking-widest"
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-1">Confirm New PIN</label>
-                                                    <input
-                                                        type="password"
-                                                        inputMode="numeric"
-                                                        maxLength={4}
-                                                        value={confirmNewPin}
-                                                        onChange={(e) => setConfirmNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                                                        placeholder="••••"
-                                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-center text-lg tracking-widest"
-                                                    />
-                                                </div>
+                                    {/* Authentication info */}
+                                    <div className="pt-4 border-t border-gray-100">
+                                        <h3 className="font-medium text-gray-900 mb-2">How verification works</h3>
+                                        <div className="space-y-2 text-sm text-gray-600">
+                                            <div className="flex items-start gap-2">
+                                                <span className="inline-block w-2 h-2 mt-1.5 rounded-full bg-emerald-400 shrink-0"></span>
+                                                <span><strong>Low risk:</strong> Standard session verification (one-click confirmation).</span>
                                             </div>
-                                            <div className="mt-4">
-                                                <Button
-                                                    onClick={handleChangePin}
-                                                    disabled={changingPin || currentPin.length !== 4 || newPin.length !== 4 || confirmNewPin.length !== 4}
-                                                    isLoading={changingPin}
-                                                    variant="outline"
-                                                >
-                                                    Change PIN
-                                                </Button>
+                                            <div className="flex items-start gap-2">
+                                                <span className="inline-block w-2 h-2 mt-1.5 rounded-full bg-blue-400 shrink-0"></span>
+                                                <span><strong>Medium risk:</strong> Microsoft re-authentication with MFA.</span>
+                                            </div>
+                                            <div className="flex items-start gap-2">
+                                                <span className="inline-block w-2 h-2 mt-1.5 rounded-full bg-amber-400 shrink-0"></span>
+                                                <span><strong>High risk:</strong> Biometric verification (Windows Hello, Touch ID, Face ID).</span>
                                             </div>
                                         </div>
-                                    )}
-
-                                    {/* Reset PIN via Email */}
-                                    <div className="pt-4 border-t border-gray-100">
-                                        <h3 className="font-medium text-gray-900 mb-2">Forgot PIN?</h3>
-                                        <p className="text-sm text-gray-500 mb-4">
-                                            If you've forgotten your PIN, we can send a reset link to your RTG email address.
-                                        </p>
-
-                                        {pinResetSent && (
-                                            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700 flex items-center gap-2">
-                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                                </svg>
-                                                Reset link sent to {user?.email}. Please check your inbox.
-                                            </div>
-                                        )}
-
-                                        {pinResetError && (
-                                            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-                                                {pinResetError}
-                                            </div>
-                                        )}
-
-                                        <Button
-                                            onClick={handleSendPinResetEmail}
-                                            disabled={sendingPinReset || pinResetSent}
-                                            isLoading={sendingPinReset}
-                                            variant="outline"
-                                        >
-                                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                            </svg>
-                                            {pinResetSent ? 'Email Sent' : 'Send Reset Link to Email'}
-                                        </Button>
                                     </div>
                                 </Card>
                             )}
@@ -529,6 +432,14 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
                         </div>
                     </div>
                 </div>
+            <BiometricSetupModal
+                isOpen={showBiometricSetup}
+                onClose={() => setShowBiometricSetup(false)}
+                onSuccess={() => {
+                    setShowBiometricSetup(false);
+                    fetchBiometricCredentials();
+                }}
+            />
             </AppLayout>
             <style>{`
                 .toggle-checkbox:checked {

@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { PDFDocument, rgb } from 'pdf-lib';
-import PinVerificationModal from '../PinVerificationModal';
+import type ReactSignatureCanvas from 'react-signature-canvas';
 import { useUserSignature } from '../../hooks/useUserSignature';
 
 // =============================================================================
@@ -82,16 +82,13 @@ interface PlacedElement {
   height: number;
   page: number;
   content?: string;
-  color?: string;
   fontSize?: number;
+  /** For signature elements: the image source used to embed (public URL for
+   *  a saved signature, data URL for a freshly drawn one). */
+  imageSrc?: string;
+  /** 'saved' | 'manual' — recorded for audit/UI hinting. */
+  signatureSource?: 'saved' | 'manual';
 }
-
-const SIGNATURE_COLORS = [
-  { name: 'Black', value: '#000000' },
-  { name: 'Blue', value: '#1e40af' },
-  { name: 'Navy', value: '#1e3a5f' },
-  { name: 'Dark Gray', value: '#374151' },
-];
 
 interface DiagnosticEntry {
   ts: number;
@@ -107,23 +104,38 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
   const [pdfBytes, setPdfBytes] = useState<ArrayBuffer | null>(null);
   const [placedElements, setPlacedElements] = useState<PlacedElement[]>([]);
   const [selectedElement, setSelectedElement] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [showPinModal, setShowPinModal] = useState(false);
-  const [pinVerified, setPinVerified] = useState(false);
-  const [signatureColor, setSignatureColor] = useState('#000000');
-  const [textColor, setTextColor] = useState('#000000');
   const [textInput, setTextInput] = useState('');
   const [showTextInput, setShowTextInput] = useState(false);
   const [activeMode, setActiveMode] = useState<'select' | 'signature' | 'text'>('select');
   const [saving, setSaving] = useState(false);
+
+  // Signature source picker + manual-draw state. The ESign flow is ranked as a
+  // medium-risk approval, so the user must either (a) use their registered
+  // saved signature or (b) draw one in the moment — mirroring the options the
+  // approval confirm modal exposes.
+  const [showSignaturePicker, setShowSignaturePicker] = useState(false);
+  const [signatureChoice, setSignatureChoice] = useState<'saved' | 'manual'>('saved');
+  const [manualSigDataUrl, setManualSigDataUrl] = useState<string | null>(null);
+  const [SigCanvas, setSigCanvas] = useState<typeof ReactSignatureCanvas | null>(null);
+  const sigCanvasRef = useRef<ReactSignatureCanvas | null>(null);
+  /** The image source to use for the next signature placement. Set when the
+   *  picker closes; consumed by handlePageClick. */
+  const [pendingSigSrc, setPendingSigSrc] = useState<string | null>(null);
+  const [pendingSigSource, setPendingSigSource] = useState<'saved' | 'manual'>('saved');
+
+  // Microsoft step-up state. E-sign is medium risk → microsoft_mfa required
+  // before the signed PDF is finalized. We verify once per editor session.
+  const [stepUpVerified, setStepUpVerified] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const stepUpPopupRef = useRef<Window | null>(null);
   // originalWidth/originalHeight of the PDF page in PDF points (scale-independent)
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
 
   // --- Diagnostics ---------------------------------------------------------
   const [diagnostics, setDiagnostics] = useState<DiagnosticEntry[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [showDebug, setShowDebug] = useState(true);
+  const [showDebug, setShowDebug] = useState(false);
   const [workerProbe, setWorkerProbe] = useState<{ status: string; contentType?: string } | null>(null);
   const [libProbe, setLibProbe] = useState<{ status: string; contentType?: string } | null>(null);
   const [pdfDoc, setPdfDoc] = useState<PdfJsDocument | null>(null);
@@ -140,6 +152,22 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const { signatureUrl, hasSignature, loading: signatureLoading } = useUserSignature();
+
+  // Lazy-load react-signature-canvas on the client only (same pattern as
+  // SignatureSelector). Next.js SSR can't render the class component.
+  useEffect(() => {
+    import('react-signature-canvas').then((mod) => {
+      setSigCanvas(() => mod.default);
+    });
+  }, []);
+
+  // If the user has no saved signature, default the picker to 'manual' so
+  // they don't land on a disabled tab.
+  useEffect(() => {
+    if (!signatureLoading && !hasSignature && signatureChoice === 'saved') {
+      setSignatureChoice('manual');
+    }
+  }, [signatureLoading, hasSignature, signatureChoice]);
 
   // ---------------------------------------------------------------------------
   // Boot: probe assets, fetch PDF bytes, load pdfjs, parse the document.
@@ -284,20 +312,31 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
   }, [pdfDoc, currentPage, scale, log]);
 
   const handleAddSignature = () => {
-    if (!hasSignature) {
-      alert('Please set up your signature in your profile settings first.');
-      return;
-    }
-    if (!pinVerified) {
-      setShowPinModal(true);
-      return;
-    }
-    setActiveMode('signature');
+    // Open the picker so the user can choose saved vs. manually drawn.
+    // If they have no saved signature on file, the picker auto-selects 'manual'.
+    setShowSignaturePicker(true);
   };
 
-  const handlePinVerified = () => {
-    setShowPinModal(false);
-    setPinVerified(true);
+  /** Close the picker and arm the next click to place the chosen signature. */
+  const confirmSignaturePicker = () => {
+    if (signatureChoice === 'saved') {
+      if (!signatureUrl) return; // tab should already be disabled
+      setPendingSigSrc(signatureUrl);
+      setPendingSigSource('saved');
+    } else {
+      // Read the current drawing straight off the pad — the canvas may not
+      // have fired onEnd yet if the user clicks Place before releasing.
+      const sig = sigCanvasRef.current;
+      let dataUrl = manualSigDataUrl;
+      if (sig && !sig.isEmpty()) {
+        dataUrl = sig.toDataURL('image/png');
+        setManualSigDataUrl(dataUrl);
+      }
+      if (!dataUrl) return;
+      setPendingSigSrc(dataUrl);
+      setPendingSigSource('manual');
+    }
+    setShowSignaturePicker(false);
     setActiveMode('signature');
   };
 
@@ -315,7 +354,7 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
     const x = (e.clientX - rect.left) / scale;
     const y = (e.clientY - rect.top) / scale;
 
-    if (activeMode === 'signature' && signatureUrl) {
+    if (activeMode === 'signature' && pendingSigSrc) {
       const newElement: PlacedElement = {
         id: `sig-${Date.now()}`,
         type: 'signature',
@@ -324,7 +363,8 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
         width: 150,
         height: 60,
         page: currentPage,
-        color: signatureColor,
+        imageSrc: pendingSigSrc,
+        signatureSource: pendingSigSource,
       };
       setPlacedElements(prev => [...prev, newElement]);
       setSelectedElement(newElement.id);
@@ -339,7 +379,6 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
         height: 30,
         page: currentPage,
         content: textInput,
-        color: textColor,
         fontSize: 14,
       };
       setPlacedElements(prev => [...prev, newElement]);
@@ -350,52 +389,45 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
     }
   };
 
-  const handleElementMouseDown = (e: React.MouseEvent, elementId: string) => {
-    e.stopPropagation();
-    setSelectedElement(elementId);
-    setIsDragging(true);
+  // Drag via closure-scoped values. Previously this read React state inside
+  // the move handler, but the handler was attached in the same tick as the
+  // setState call — so `isDragging` was still false and the guard bailed out.
+  // Capturing start coordinates locally sidesteps the whole stale-state issue.
+  const handleOverlayMouseDown = useCallback(
+    (e: React.MouseEvent, elementId: string) => {
+      e.stopPropagation();
+      e.preventDefault();
+      setSelectedElement(elementId);
 
-    const element = placedElements.find(el => el.id === elementId);
-    if (element) {
-      const rect = (e.target as HTMLElement).getBoundingClientRect();
-      setDragOffset({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
-      });
-    }
-  };
+      const element = placedElements.find(el => el.id === elementId);
+      if (!element) return;
 
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!isDragging || !selectedElement || !pageRef.current) return;
+      const startMouseX = e.clientX;
+      const startMouseY = e.clientY;
+      const startX = element.x;
+      const startY = element.y;
+      const currentScale = scale;
 
-    const rect = pageRef.current.getBoundingClientRect();
-    const x = (e.clientX - rect.left - dragOffset.x) / scale;
-    const y = (e.clientY - rect.top - dragOffset.y) / scale;
-
-    setPlacedElements(elements =>
-      elements.map(el =>
-        el.id === selectedElement
-          ? { ...el, x: Math.max(0, x), y: Math.max(0, y) }
-          : el
-      )
-    );
-  }, [isDragging, selectedElement, dragOffset, scale]);
-
-  const handleMouseUp = useCallback(() => {
-    setIsDragging(false);
-  }, []);
-
-  // Attach/detach drag listeners
-  const handleOverlayMouseDown = useCallback((e: React.MouseEvent, elementId: string) => {
-    handleElementMouseDown(e, elementId);
-    window.addEventListener('mousemove', handleMouseMove);
-    const cleanup = () => {
-      handleMouseUp();
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', cleanup);
-    };
-    window.addEventListener('mouseup', cleanup);
-  }, [handleMouseMove, handleMouseUp, placedElements]); // eslint-disable-line
+      const onMove = (ev: MouseEvent) => {
+        const dx = (ev.clientX - startMouseX) / currentScale;
+        const dy = (ev.clientY - startMouseY) / currentScale;
+        setPlacedElements(els =>
+          els.map(el =>
+            el.id === elementId
+              ? { ...el, x: Math.max(0, startX + dx), y: Math.max(0, startY + dy) }
+              : el
+          )
+        );
+      };
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    },
+    [placedElements, scale]
+  );
 
   const handleDeleteElement = (elementId: string) => {
     setPlacedElements(elements => elements.filter(el => el.id !== elementId));
@@ -412,8 +444,89 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
     );
   };
 
+  // Microsoft MFA step-up popup — mirrors ApprovalConfirmModal's medium-risk
+  // ceremony. Resolves to a stepUpToken (currently unused downstream because
+  // the self-sign flow hands the blob straight back to the opener, but having
+  // the ceremony completed is the thing the risk policy requires).
+  const runMicrosoftStepUp = async (): Promise<{ stepUpToken: string } | null> => {
+    setVerifying(true);
+    setVerifyError(null);
+    try {
+      const res = await fetch('/api/stepup/ms/initiate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.url) {
+        throw new Error(json.error || 'Could not start Microsoft verification');
+      }
+
+      const popup = window.open(json.url, 'ms-stepup-esign', 'width=520,height=640');
+      stepUpPopupRef.current = popup;
+      if (!popup) throw new Error('Popup blocked. Please allow popups for this site.');
+
+      return await new Promise((resolve, reject) => {
+        let channel: BroadcastChannel | null = null;
+        let timeoutId: ReturnType<typeof setTimeout>;
+        let settled = false;
+        const cleanup = () => {
+          if (settled) return;
+          settled = true;
+          window.removeEventListener('message', handler);
+          clearTimeout(timeoutId);
+          try { channel?.close(); } catch (_) {}
+        };
+        const onResult = (payload: any) => {
+          cleanup();
+          try { popup.close(); } catch (_) {}
+          if (payload.success && payload.stepUpToken) {
+            resolve({ stepUpToken: payload.stepUpToken });
+          } else {
+            reject(new Error(payload.error || 'Microsoft verification failed'));
+          }
+        };
+        try {
+          channel = new BroadcastChannel('stepup-ms');
+          channel.onmessage = (event) => {
+            if (event.data?.type === 'stepup-ms-result') onResult(event.data.payload || {});
+          };
+        } catch (_) {}
+        const handler = (event: MessageEvent) => {
+          if (event.origin !== window.location.origin) return;
+          if (event.data?.type !== 'stepup-ms-result') return;
+          onResult(event.data.payload || {});
+        };
+        window.addEventListener('message', handler);
+        timeoutId = setTimeout(() => {
+          cleanup();
+          reject(new Error('Verification timed out. Please try again.'));
+        }, 5 * 60 * 1000);
+      });
+    } catch (err: any) {
+      setVerifyError(err?.message || 'Microsoft verification failed');
+      return null;
+    } finally {
+      setVerifying(false);
+      stepUpPopupRef.current = null;
+    }
+  };
+
   const handleSave = async () => {
     if (!pdfBytes || placedElements.length === 0) return;
+
+    // Hand-drawn signatures are themselves an intentional verification act,
+    // so we skip the MS MFA ceremony when the user drew their own signature
+    // (matches the bypass in pages/api/approvals/action.ts).
+    const manuallySigned = placedElements.some(
+      el => el.type === 'signature' && el.signatureSource === 'manual'
+    );
+
+    if (!manuallySigned && !stepUpVerified) {
+      const result = await runMicrosoftStepUp();
+      if (!result) return; // user cancelled or verification failed
+      setStepUpVerified(true);
+    }
 
     setSaving(true);
     try {
@@ -435,9 +548,10 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
         const pdfX = element.x * scaleX;
         const pdfY = pageHeight - (element.y * scaleY) - (element.height * scaleY);
 
-        if (element.type === 'signature' && signatureUrl) {
+        if (element.type === 'signature' && (element.imageSrc || signatureUrl)) {
           try {
-            const sigResponse = await fetch(signatureUrl);
+            const sigSrc = element.imageSrc || signatureUrl!;
+            const sigResponse = await fetch(sigSrc);
             const sigBytes = await sigResponse.arrayBuffer();
 
             let sigImage;
@@ -457,16 +571,11 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
             console.error('Error embedding signature:', error);
           }
         } else if (element.type === 'text' && element.content) {
-          const colorHex = element.color || '#000000';
-          const r = parseInt(colorHex.slice(1, 3), 16) / 255;
-          const g = parseInt(colorHex.slice(3, 5), 16) / 255;
-          const b = parseInt(colorHex.slice(5, 7), 16) / 255;
-
           page.drawText(element.content, {
             x: pdfX,
             y: pdfY + (element.height * scaleY * 0.7),
             size: (element.fontSize || 14) * scaleX,
-            color: rgb(r, g, b),
+            color: rgb(0, 0, 0),
           });
         }
       }
@@ -528,43 +637,6 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
 
           <div className="h-6 w-px bg-gray-300 mx-1" />
 
-          {activeMode === 'signature' && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500">Color:</span>
-              <div className="flex gap-1">
-                {SIGNATURE_COLORS.map((color) => (
-                  <button
-                    key={color.value}
-                    onClick={() => setSignatureColor(color.value)}
-                    className={`w-6 h-6 rounded-full border-2 transition-all ${
-                      signatureColor === color.value ? 'border-primary-500 scale-110' : 'border-gray-300 hover:border-gray-400'
-                    }`}
-                    style={{ backgroundColor: color.value }}
-                    title={color.name}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {activeMode === 'text' && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500">Color:</span>
-              <div className="flex gap-1">
-                {SIGNATURE_COLORS.map((color) => (
-                  <button
-                    key={color.value}
-                    onClick={() => setTextColor(color.value)}
-                    className={`w-6 h-6 rounded-full border-2 transition-all ${
-                      textColor === color.value ? 'border-primary-500 scale-110' : 'border-gray-300 hover:border-gray-400'
-                    }`}
-                    style={{ backgroundColor: color.value }}
-                    title={color.name}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Zoom controls */}
@@ -588,6 +660,132 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
           </button>
         </div>
       </div>
+
+      {/* Signature Picker Modal — choose saved or draw manually */}
+      {showSignaturePicker && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setShowSignaturePicker(false)}
+            aria-hidden="true"
+          />
+          <div className="relative w-full max-w-md bg-white rounded-xl shadow-2xl border border-gray-200 p-5">
+            <h3 className="font-semibold text-gray-900 mb-1">Add your signature</h3>
+            <p className="text-xs text-gray-500 mb-4">
+              Use your saved signature or draw one now. A Microsoft verification
+              step runs when you save the signed document.
+            </p>
+
+            <div className="flex gap-2 mb-3">
+              <button
+                type="button"
+                onClick={() => hasSignature && setSignatureChoice('saved')}
+                disabled={!hasSignature}
+                className={`flex-1 px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
+                  signatureChoice === 'saved'
+                    ? 'bg-primary-600 text-white border-primary-600'
+                    : !hasSignature
+                    ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+                title={hasSignature ? 'Use your registered signature' : 'No saved signature on file'}
+              >
+                Use saved
+              </button>
+              <button
+                type="button"
+                onClick={() => setSignatureChoice('manual')}
+                className={`flex-1 px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
+                  signatureChoice === 'manual'
+                    ? 'bg-primary-600 text-white border-primary-600'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                Draw
+              </button>
+            </div>
+
+            <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 min-h-[150px] mb-4">
+              {signatureChoice === 'saved' && signatureUrl && (
+                <div className="flex items-center justify-center h-[130px]">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={signatureUrl}
+                    alt="Your saved signature"
+                    className="max-h-[130px] max-w-full object-contain"
+                  />
+                </div>
+              )}
+              {signatureChoice === 'manual' && (
+                <div>
+                  <div className="bg-white border border-dashed border-gray-300 rounded">
+                    {SigCanvas ? (
+                      <SigCanvas
+                        ref={(ref: ReactSignatureCanvas | null) => { sigCanvasRef.current = ref; }}
+                        penColor="#111827"
+                        canvasProps={{
+                          width: 400,
+                          height: 130,
+                          className: 'w-full h-[130px] rounded',
+                          style: { touchAction: 'none' },
+                        }}
+                        onEnd={() => {
+                          const sig = sigCanvasRef.current;
+                          if (!sig || sig.isEmpty()) {
+                            setManualSigDataUrl(null);
+                            return;
+                          }
+                          setManualSigDataUrl(sig.toDataURL('image/png'));
+                        }}
+                      />
+                    ) : (
+                      <div className="w-full h-[130px] flex items-center justify-center text-gray-400 text-sm">
+                        Loading…
+                      </div>
+                    )}
+                  </div>
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sigCanvasRef.current?.clear();
+                        setManualSigDataUrl(null);
+                      }}
+                      className="text-xs text-gray-500 hover:text-gray-700"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowSignaturePicker(false)}
+                className="flex-1 py-2 px-4 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmSignaturePicker}
+                disabled={
+                  (signatureChoice === 'saved' && !signatureUrl) ||
+                  (signatureChoice === 'manual' && !manualSigDataUrl)
+                }
+                className="flex-1 py-2 px-4 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                Click to place
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-2 text-center">
+              Click on the document to place your signature
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Text Input Modal */}
       {showTextInput && (
@@ -723,23 +921,18 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
                   }}
                   onMouseDown={(e) => handleOverlayMouseDown(e, element.id)}
                 >
-                  {element.type === 'signature' && signatureUrl && (
+                  {element.type === 'signature' && (element.imageSrc || signatureUrl) && (
                     <img
-                      src={signatureUrl}
+                      src={element.imageSrc || signatureUrl!}
                       alt="Signature"
                       className="w-full h-full object-contain"
-                      style={{
-                        filter: element.color !== '#000000'
-                          ? `drop-shadow(0 0 0 ${element.color})`
-                          : undefined,
-                      }}
                       draggable={false}
                     />
                   )}
                   {element.type === 'text' && (
                     <div
-                      className="w-full h-full flex items-center"
-                      style={{ color: element.color, fontSize: (element.fontSize || 14) * scale }}
+                      className="w-full h-full flex items-center text-gray-900"
+                      style={{ fontSize: (element.fontSize || 14) * scale }}
                     >
                       {element.content}
                     </div>
@@ -815,9 +1008,23 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
       {/* Footer Actions */}
       <div className="flex items-center justify-between p-4 border-t border-gray-200 bg-gray-50 flex-shrink-0">
         <div className="text-sm text-gray-500">
-          {placedElements.length === 0
-            ? 'Add your signature or text to the document'
-            : `${placedElements.length} element${placedElements.length > 1 ? 's' : ''} added`}
+          {verifyError ? (
+            <span className="text-red-600">{verifyError}</span>
+          ) : placedElements.length === 0 ? (
+            'Add your signature or text to the document'
+          ) : (
+            <>
+              {placedElements.length} element{placedElements.length > 1 ? 's' : ''} added
+              {stepUpVerified && (
+                <span className="ml-2 inline-flex items-center gap-1 text-emerald-600">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Microsoft verified
+                </span>
+              )}
+            </>
+          )}
         </div>
         <div className="flex gap-3">
           <button
@@ -828,10 +1035,15 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
           </button>
           <button
             onClick={handleSave}
-            disabled={placedElements.length === 0 || saving}
+            disabled={placedElements.length === 0 || saving || verifying}
             className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
           >
-            {saving ? (
+            {verifying ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Verifying...
+              </>
+            ) : saving ? (
               <>
                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                 Saving...
@@ -848,13 +1060,6 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
         </div>
       </div>
 
-      <PinVerificationModal
-        isOpen={showPinModal}
-        onVerified={handlePinVerified}
-        onCancel={() => setShowPinModal(false)}
-        title="Verify Your Identity"
-        description="Enter your PIN to access your signature"
-      />
     </div>
   );
 }

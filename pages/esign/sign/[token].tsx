@@ -49,14 +49,20 @@ export default function ESignInvitePage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [accepted, setAccepted] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     if (!token || typeof token !== "string") return;
     let cancelled = false;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
     (async () => {
       setLoading(true);
+      setError(null);
       try {
-        const resp = await fetch(`/api/esign/invitation/${token}`);
+        const resp = await fetch(`/api/esign/invitation/${token}`, {
+          signal: controller.signal,
+        });
         const data = await resp.json();
         if (cancelled) return;
         if (!resp.ok) {
@@ -65,15 +71,25 @@ export default function ESignInvitePage() {
           setInvitation(data);
         }
       } catch (e: any) {
-        if (!cancelled) setError(e?.message || "Network error");
+        if (cancelled) return;
+        if (e?.name === "AbortError") {
+          setError(
+            "The server is taking too long to respond. Please check your connection and try again."
+          );
+        } else {
+          setError(e?.message || "Network error");
+        }
       } finally {
+        clearTimeout(timeout);
         if (!cancelled) setLoading(false);
       }
     })();
     return () => {
       cancelled = true;
+      clearTimeout(timeout);
+      controller.abort();
     };
-  }, [token]);
+  }, [token, reloadKey]);
 
   const handleSave = async (signedBlob: Blob) => {
     if (!token || typeof token !== "string") return;
@@ -147,6 +163,12 @@ export default function ESignInvitePage() {
               </div>
               <h2 className="text-xl font-semibold text-gray-900 mb-2">Unable to load document</h2>
               <p className="text-gray-600">{error}</p>
+              <button
+                onClick={() => setReloadKey((k) => k + 1)}
+                className="mt-6 px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white font-semibold rounded-lg transition-colors"
+              >
+                Try again
+              </button>
             </div>
           )}
 

@@ -618,7 +618,6 @@ export default function TravelAuthPage() {
                         acceptConditions: travelData.acceptConditions,
                         itinerary: travelData.itinerary,
                         budget: travelData.budget,
-                        costAllocation: calculateCostAllocation(),
                         grandTotal: calculateGrandTotal(),
                         isEmergencyRequest: isTravelWithin7Days() ? isEmergencyRequest : false,
                         emergencyReason: isTravelWithin7Days() && isEmergencyRequest ? emergencyReason : '',
@@ -740,7 +739,6 @@ export default function TravelAuthPage() {
                         acceptConditions: travelData.acceptConditions,
                         itinerary: travelData.itinerary,
                         budget: travelData.budget,
-                        costAllocation: calculateCostAllocation(),
                         grandTotal: calculateGrandTotal(),
                         isEmergencyRequest: isTravelWithin7Days() ? isEmergencyRequest : false,
                         emergencyReason: isTravelWithin7Days() && isEmergencyRequest ? emergencyReason : '',
@@ -786,7 +784,6 @@ export default function TravelAuthPage() {
                         acceptConditions: travelData.acceptConditions,
                         itinerary: travelData.itinerary,
                         budget: travelData.budget,
-                        costAllocation: calculateCostAllocation(),
                         grandTotal: calculateGrandTotal(),
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
@@ -1246,38 +1243,12 @@ export default function TravelAuthPage() {
                             </table>
                         </div>
 
-                        {/* Cost Allocation Table - Auto-filled based on itinerary */}
+                        {/* Cost Allocation — filled in by HR Director at approval time */}
                         <div className="mt-6 pt-6 border-t border-gray-200">
-                            <h4 className="font-semibold text-gray-700 uppercase text-sm mb-3">Allocation Cost to Unit <span className="text-gray-500 text-xs font-normal">(Auto-calculated based on itinerary destinations)</span></h4>
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-sm border border-gray-200">
-                                    <thead>
-                                        <tr className="bg-gray-100">
-                                            <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">Corp</th>
-                                            <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">MRC</th>
-                                            <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">NAH</th>
-                                            <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">RTH</th>
-                                            <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">KHCC</th>
-                                            <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">BRH</th>
-                                            <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">VFRH</th>
-                                            <th className="px-2 py-2 text-center font-semibold text-gray-700">AZAM</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr>
-                                            {(() => {
-                                                const allocation = calculateCostAllocation();
-                                                return (['corp', 'mrc', 'nah', 'rth', 'khcc', 'brh', 'vfrh', 'azam'] as const).map((unit, idx) => (
-                                                    <td key={unit} className={`px-1 py-2 text-center ${idx < 7 ? 'border-r border-gray-200' : ''} ${allocation[unit] ? 'bg-green-50 text-green-800 font-medium' : 'text-gray-400'}`}>
-                                                        {allocation[unit] ? `$${allocation[unit]}` : '-'}
-                                                    </td>
-                                                ));
-                                            })()}
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                            <p className="text-xs text-gray-500 mt-2">* Costs are automatically distributed based on the proportion of visits to each business unit in your itinerary.</p>
+                            <h4 className="font-semibold text-gray-700 uppercase text-sm mb-2">Allocation Cost to Unit</h4>
+                            <p className="text-xs text-gray-500">
+                                The HR Director will allocate the cost across business units when approving this request.
+                            </p>
                         </div>
                     </Card>
 
