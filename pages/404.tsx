@@ -36,18 +36,19 @@ export default function Custom404() {
         </div>
 
         {/* Main Content Container */}
-        <div className="relative z-10 w-full max-w-4xl mx-auto p-6 flex flex-col items-center justify-center text-center">
+        <div className="relative z-10 w-full max-w-5xl mx-auto p-6 flex flex-col items-center justify-center text-center">
 
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7 }}
-            className="w-full max-w-sm sm:max-w-md lg:max-w-lg mx-auto mb-2"
+            className="w-full max-w-2xl sm:max-w-3xl lg:max-w-4xl mx-auto mb-2"
           >
-            <Lottie 
-              animationData={notFoundAnimation} 
-              loop={true} 
+            <Lottie
+              animationData={notFoundAnimation}
+              loop={true}
               className="w-full h-auto drop-shadow-2xl"
+              style={{ minHeight: '400px' }}
             />
           </motion.div>
 

@@ -1314,7 +1314,16 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                             <Button 
                                 variant="outline" 
                                 className="gap-2 bg-white text-primary-600 border-primary-200 hover:bg-primary-50" 
-                                onClick={() => router.push(`/requests/new/voucher?edit=${id}`)}
+                                onClick={() => {
+                                    const reqType = request?.metadata?.type || (request as any)?.type;
+                                    if (reqType === 'hotel_booking') {
+                                        router.push(`/requests/new/hotel-booking?edit=${id}`);
+                                    } else if (reqType === 'external_hotel_booking') {
+                                        router.push(`/requests/new/external-hotel-booking?edit=${id}`);
+                                    } else {
+                                        router.push(`/requests/new/voucher?edit=${id}`);
+                                    }
+                                }}
                             >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />

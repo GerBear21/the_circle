@@ -5,23 +5,6 @@ import { useUserSignature } from '../../hooks/useUserSignature';
 
 // =============================================================================
 // pdf.js loader — bypasses webpack entirely.
-//
-// Background: react-pdf v10 + pdfjs-dist v5 ships an ESM-only `pdf.mjs`. When
-// webpack bundles it, the CJS interop wrapper crashes with
-// "Object.defineProperty called on non-object" inside `__webpack_require__.r`,
-// the chunk fails to load, and the e-sign editor hangs forever. We tried
-// `transpilePackages`, `type: 'javascript/auto'`, `fullySpecified: false`, and
-// none of them fix it for Next 14.2 + react-pdf 10.
-//
-// The fix: load pdfjs-dist at runtime from /public via a dynamic import marked
-// with /* webpackIgnore: true */. Webpack leaves the import statement alone,
-// the browser fetches /pdf.min.mjs natively as an ES module, and we get a real
-// ESM namespace back — no CJS interop, no webpack runtime involved at all.
-//
-// Make sure these two files exist in public/ and are the SAME version:
-//   public/pdf.min.mjs        (the library)
-//   public/pdf.worker.min.mjs (the worker)
-// Both are copied verbatim from node_modules/pdfjs-dist/build/.
 // =============================================================================
 
 interface PdfJsLib {
@@ -50,17 +33,13 @@ let pdfjsLibPromise: Promise<PdfJsLib> | null = null;
 function loadPdfJs(): Promise<PdfJsLib> {
   if (pdfjsLibPromise) return pdfjsLibPromise;
   pdfjsLibPromise = (async () => {
-    // The /* webpackIgnore: true */ comment is REQUIRED. Without it, webpack
-    // tries to bundle the file and we hit the original interop bug again.
     // @ts-expect-error - runtime import served from /public, not a real module path
     const mod = (await import(/* webpackIgnore: true */ '/pdf.min.mjs')) as unknown as PdfJsLib;
     mod.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
-    // eslint-disable-next-line no-console
     console.log('[esign] pdfjs-dist loaded via webpackIgnore', { version: mod.version, workerSrc: mod.GlobalWorkerOptions.workerSrc });
     return mod;
   })().catch((err) => {
-    pdfjsLibPromise = null; // allow retry
-    // eslint-disable-next-line no-console
+    pdfjsLibPromise = null;
     console.error('[esign] failed to load pdfjs-dist from /pdf.min.mjs', err);
     throw err;
   });
@@ -90,6 +69,13 @@ interface PlacedElement {
   signatureSource?: 'saved' | 'manual';
 }
 
+const TEXT_COLORS = [
+  { name: 'Black', value: '#000000' },
+  { name: 'Blue', value: '#1e40af' },
+  { name: 'Navy', value: '#1e3a5f' },
+  { name: 'Dark Gray', value: '#374151' },
+];
+
 interface DiagnosticEntry {
   ts: number;
   level: 'info' | 'warn' | 'error';
@@ -104,32 +90,13 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
   const [pdfBytes, setPdfBytes] = useState<ArrayBuffer | null>(null);
   const [placedElements, setPlacedElements] = useState<PlacedElement[]>([]);
   const [selectedElement, setSelectedElement] = useState<string | null>(null);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinVerified, setPinVerified] = useState(false);
+  const [textColor, setTextColor] = useState('#000000');
   const [textInput, setTextInput] = useState('');
   const [showTextInput, setShowTextInput] = useState(false);
   const [activeMode, setActiveMode] = useState<'select' | 'signature' | 'text'>('select');
   const [saving, setSaving] = useState(false);
-
-  // Signature source picker + manual-draw state. The ESign flow is ranked as a
-  // medium-risk approval, so the user must either (a) use their registered
-  // saved signature or (b) draw one in the moment — mirroring the options the
-  // approval confirm modal exposes.
-  const [showSignaturePicker, setShowSignaturePicker] = useState(false);
-  const [signatureChoice, setSignatureChoice] = useState<'saved' | 'manual'>('saved');
-  const [manualSigDataUrl, setManualSigDataUrl] = useState<string | null>(null);
-  const [SigCanvas, setSigCanvas] = useState<typeof ReactSignatureCanvas | null>(null);
-  const sigCanvasRef = useRef<ReactSignatureCanvas | null>(null);
-  /** The image source to use for the next signature placement. Set when the
-   *  picker closes; consumed by handlePageClick. */
-  const [pendingSigSrc, setPendingSigSrc] = useState<string | null>(null);
-  const [pendingSigSource, setPendingSigSource] = useState<'saved' | 'manual'>('saved');
-
-  // Microsoft step-up state. E-sign is medium risk → microsoft_mfa required
-  // before the signed PDF is finalized. We verify once per editor session.
-  const [stepUpVerified, setStepUpVerified] = useState(false);
-  const [verifying, setVerifying] = useState(false);
-  const [verifyError, setVerifyError] = useState<string | null>(null);
-  const stepUpPopupRef = useRef<Window | null>(null);
-  // originalWidth/originalHeight of the PDF page in PDF points (scale-independent)
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
 
   // --- Diagnostics ---------------------------------------------------------
@@ -141,15 +108,27 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
   const [pdfDoc, setPdfDoc] = useState<PdfJsDocument | null>(null);
   const [renderingPage, setRenderingPage] = useState(false);
 
+  // --- Drag refs (avoids stale closure issues in window listeners) ----------
+  const dragRef = useRef({
+    active: false,
+    elementId: null as string | null,
+    offsetX: 0,
+    offsetY: 0,
+    startX: 0,
+    startY: 0,
+    hasMoved: false,
+  });
+
   const log = useCallback((level: DiagnosticEntry['level'], message: string, detail?: unknown) => {
     const entry: DiagnosticEntry = { ts: Date.now(), level, message, detail };
-    // eslint-disable-next-line no-console
     console[level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'log'](`[esign] ${message}`, detail ?? '');
     setDiagnostics(prev => [...prev, entry].slice(-50));
   }, []);
 
   const pageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const scaleRef = useRef(scale);
+  scaleRef.current = scale;
 
   const { signatureUrl, hasSignature, loading: signatureLoading } = useUserSignature();
 
@@ -178,7 +157,6 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
 
     log('info', 'mounted', { pdfUrl });
 
-    // Probe both /public assets so we know they're reachable.
     fetch('/pdf.worker.min.mjs', { method: 'HEAD' })
       .then(r => {
         const probe = { status: `${r.status} ${r.statusText}`, contentType: r.headers.get('content-type') || undefined };
@@ -229,7 +207,6 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
         if (cancelled) return;
         log('info', 'pdfjs loaded', { version: pdfjsLib.version });
 
-        // pdf.js transfers (detaches) the TypedArray we hand it, so clone.
         const docTask = pdfjsLib.getDocument({ data: new Uint8Array(bytes.slice(0)) });
         const doc = await docTask.promise;
         if (cancelled) {
@@ -272,7 +249,6 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
         const page = await pdfDoc.getPage(currentPage);
         if (cancelled) return;
 
-        // Capture the unscaled (scale=1) viewport for coordinate math when saving.
         const baseViewport = page.getViewport({ scale: 1 });
         setPageSize({ width: baseViewport.width, height: baseViewport.height });
 
@@ -295,7 +271,6 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
       } catch (err: unknown) {
         if (cancelled) return;
         const msg = err instanceof Error ? err.message : String(err);
-        // pdf.js throws "Rendering cancelled" when we cancel — that's fine.
         if (!msg.toLowerCase().includes('cancel')) {
           log('error', 'page render error', { message: msg });
           setLoadError(`Failed to render page: ${msg}`);
@@ -363,8 +338,6 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
         width: 150,
         height: 60,
         page: currentPage,
-        imageSrc: pendingSigSrc,
-        signatureSource: pendingSigSource,
       };
       setPlacedElements(prev => [...prev, newElement]);
       setSelectedElement(newElement.id);
@@ -389,52 +362,84 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
     }
   };
 
-  // Drag via closure-scoped values. Previously this read React state inside
-  // the move handler, but the handler was attached in the same tick as the
-  // setState call — so `isDragging` was still false and the guard bailed out.
-  // Capturing start coordinates locally sidesteps the whole stale-state issue.
-  const handleOverlayMouseDown = useCallback(
-    (e: React.MouseEvent, elementId: string) => {
-      e.stopPropagation();
-      e.preventDefault();
-      setSelectedElement(elementId);
+  // =========================================================================
+  // Drag system using refs — no stale closures
+  // =========================================================================
+  const handleDragStart = useCallback((e: React.MouseEvent | React.TouchEvent, elementId: string) => {
+    e.stopPropagation();
+    e.preventDefault();
 
-      const element = placedElements.find(el => el.id === elementId);
-      if (!element) return;
+    const pageEl = pageRef.current;
+    if (!pageEl) return;
 
-      const startMouseX = e.clientX;
-      const startMouseY = e.clientY;
-      const startX = element.x;
-      const startY = element.y;
-      const currentScale = scale;
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
 
-      const onMove = (ev: MouseEvent) => {
-        const dx = (ev.clientX - startMouseX) / currentScale;
-        const dy = (ev.clientY - startMouseY) / currentScale;
-        setPlacedElements(els =>
-          els.map(el =>
-            el.id === elementId
-              ? { ...el, x: Math.max(0, startX + dx), y: Math.max(0, startY + dy) }
-              : el
-          )
-        );
-      };
-      const onUp = () => {
-        window.removeEventListener('mousemove', onMove);
-        window.removeEventListener('mouseup', onUp);
-      };
-      window.addEventListener('mousemove', onMove);
-      window.addEventListener('mouseup', onUp);
-    },
-    [placedElements, scale]
-  );
+    // Find the element container (the div with data-element-id), not the inner img/text
+    const containerEl = (e.currentTarget as HTMLElement);
+    const containerRect = containerEl.getBoundingClientRect();
+
+    dragRef.current = {
+      active: true,
+      elementId,
+      offsetX: clientX - containerRect.left,
+      offsetY: clientY - containerRect.top,
+      startX: clientX,
+      startY: clientY,
+      hasMoved: false,
+    };
+
+    setSelectedElement(elementId);
+
+    const onMove = (ev: MouseEvent | TouchEvent) => {
+      const drag = dragRef.current;
+      if (!drag.active || !drag.elementId) return;
+
+      const cx = 'touches' in ev ? ev.touches[0].clientX : ev.clientX;
+      const cy = 'touches' in ev ? ev.touches[0].clientY : ev.clientY;
+
+      // Mark as moved if dragged more than 3px (prevents accidental micro-drags)
+      if (!drag.hasMoved) {
+        const dist = Math.sqrt((cx - drag.startX) ** 2 + (cy - drag.startY) ** 2);
+        if (dist < 3) return;
+        drag.hasMoved = true;
+      }
+
+      const pageRect = pageEl.getBoundingClientRect();
+      const sc = scaleRef.current;
+      const newX = (cx - pageRect.left - drag.offsetX) / sc;
+      const newY = (cy - pageRect.top - drag.offsetY) / sc;
+
+      setPlacedElements(prev =>
+        prev.map(el =>
+          el.id === drag.elementId
+            ? { ...el, x: Math.max(0, newX), y: Math.max(0, newY) }
+            : el
+        )
+      );
+    };
+
+    const onEnd = () => {
+      dragRef.current.active = false;
+      dragRef.current.elementId = null;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onEnd);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onEnd);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onEnd);
+    window.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('touchend', onEnd);
+  }, []);
 
   const handleDeleteElement = (elementId: string) => {
     setPlacedElements(elements => elements.filter(el => el.id !== elementId));
     setSelectedElement(null);
   };
 
-  const handleResizeElement = (elementId: string, newWidth: number, newHeight: number) => {
+  const handleResizeElement = useCallback((elementId: string, newWidth: number, newHeight: number) => {
     setPlacedElements(elements =>
       elements.map(el =>
         el.id === elementId
@@ -442,7 +447,31 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
           : el
       )
     );
-  };
+  }, []);
+
+  const handleResizeStart = useCallback((e: React.MouseEvent, element: PlacedElement) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startWidth = element.width;
+    const startHeight = element.height;
+    const sc = scaleRef.current;
+
+    const onMove = (ev: MouseEvent) => {
+      const newWidth = Math.max(50, startWidth + (ev.clientX - startX) / sc);
+      const newHeight = Math.max(30, startHeight + (ev.clientY - startY) / sc);
+      setPlacedElements(prev =>
+        prev.map(el => el.id === element.id ? { ...el, width: newWidth, height: newHeight } : el)
+      );
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
 
   // Microsoft MFA step-up popup — mirrors ApprovalConfirmModal's medium-risk
   // ceremony. Resolves to a stepUpToken (currently unused downstream because
@@ -540,11 +569,9 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
         const pageHeight = page.getHeight();
         const pageWidth = page.getWidth();
 
-        // Scale from rendered (CSS px at scale=1) to PDF points
         const scaleX = pageWidth / pageSize.width;
         const scaleY = pageHeight / pageSize.height;
 
-        // Convert coordinates (PDF origin is bottom-left)
         const pdfX = element.x * scaleX;
         const pdfY = pageHeight - (element.y * scaleY) - (element.height * scaleY);
 
@@ -635,8 +662,36 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
             Add Text
           </button>
 
-          <div className="h-6 w-px bg-gray-300 mx-1" />
+          {activeMode === 'signature' && (
+            <>
+              <div className="h-6 w-px bg-gray-300 mx-1" />
+              <span className="text-xs text-gray-500 bg-primary-50 border border-primary-200 rounded-lg px-3 py-1.5">
+                Click on the document to place your signature
+              </span>
+            </>
+          )}
 
+          {activeMode === 'text' && (
+            <>
+              <div className="h-6 w-px bg-gray-300 mx-1" />
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500">Color:</span>
+                <div className="flex gap-1">
+                  {TEXT_COLORS.map((color) => (
+                    <button
+                      key={color.value}
+                      onClick={() => setTextColor(color.value)}
+                      className={`w-6 h-6 rounded-full border-2 transition-all ${
+                        textColor === color.value ? 'border-primary-500 scale-110' : 'border-gray-300 hover:border-gray-400'
+                      }`}
+                      style={{ backgroundColor: color.value }}
+                      title={color.name}
+                    />
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Zoom controls */}
@@ -824,7 +879,7 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
         </div>
       )}
 
-      {/* Debug panel — visible by default until preview works. Click "Hide debug" to collapse. */}
+      {/* Debug panel — hidden by default */}
       {showDebug && (
         <div className="border-b border-amber-200 bg-amber-50 text-xs text-amber-900 px-3 py-2 font-mono space-y-1 max-h-56 overflow-auto flex-shrink-0">
           <div className="flex items-center justify-between">
@@ -898,7 +953,7 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
           ) : (
             <div
               ref={pageRef}
-              className="relative bg-white shadow-lg"
+              className="relative bg-white shadow-lg select-none"
               onClick={handlePageClick}
               style={{ cursor: activeMode !== 'select' ? 'crosshair' : 'default' }}
             >
@@ -908,69 +963,70 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
               {currentPageElements.map((element) => (
                 <div
                   key={element.id}
-                  className={`absolute cursor-move ${
+                  data-element-id={element.id}
+                  className={`absolute group touch-none ${
                     selectedElement === element.id
-                      ? 'ring-2 ring-primary-500 ring-offset-1'
-                      : 'hover:ring-2 hover:ring-primary-300'
+                      ? 'ring-2 ring-primary-500 ring-offset-1 z-20'
+                      : 'hover:ring-2 hover:ring-primary-300 hover:ring-offset-1 z-10'
                   }`}
                   style={{
                     left: element.x * scale,
                     top: element.y * scale,
                     width: element.width * scale,
                     height: element.height * scale,
+                    cursor: 'grab',
                   }}
-                  onMouseDown={(e) => handleOverlayMouseDown(e, element.id)}
+                  onMouseDown={(e) => handleDragStart(e, element.id)}
+                  onTouchStart={(e) => handleDragStart(e, element.id)}
                 >
-                  {element.type === 'signature' && (element.imageSrc || signatureUrl) && (
+                  {/* Drag handle indicator */}
+                  <div className={`absolute -top-6 left-1/2 -translate-x-1/2 flex items-center gap-1 px-2 py-0.5 rounded-t-md text-[10px] font-medium whitespace-nowrap pointer-events-none transition-opacity ${
+                    selectedElement === element.id ? 'opacity-100 bg-primary-500 text-white' : 'opacity-0 group-hover:opacity-100 bg-gray-700 text-white'
+                  }`}>
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0m-3 6a1.5 1.5 0 00-3 0v2a7.5 7.5 0 0015 0v-5a1.5 1.5 0 00-3 0m-6-3V11m0-5.5v-1a1.5 1.5 0 013 0v1m0 0V11m0-5.5a1.5 1.5 0 013 0v3m0 0V11" />
+                    </svg>
+                    Drag to move
+                  </div>
+
+                  {element.type === 'signature' && signatureUrl && (
                     <img
                       src={element.imageSrc || signatureUrl!}
                       alt="Signature"
-                      className="w-full h-full object-contain"
+                      className="w-full h-full object-contain pointer-events-none"
                       draggable={false}
                     />
                   )}
                   {element.type === 'text' && (
                     <div
-                      className="w-full h-full flex items-center text-gray-900"
-                      style={{ fontSize: (element.fontSize || 14) * scale }}
+                      className="w-full h-full flex items-center pointer-events-none"
+                      style={{ color: element.color, fontSize: (element.fontSize || 14) * scale }}
                     >
                       {element.content}
                     </div>
                   )}
 
+                  {/* Controls — always visible when selected */}
                   {selectedElement === element.id && (
                     <>
+                      {/* Delete button */}
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDeleteElement(element.id); }}
-                        className="absolute -top-3 -right-3 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors shadow-md z-10"
+                        className="absolute -top-3 -right-3 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors shadow-md z-30"
                       >
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
                       </button>
+                      {/* Resize handle */}
                       <div
-                        className="absolute -bottom-2 -right-2 w-4 h-4 bg-primary-500 rounded-full cursor-se-resize"
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          const startX = e.clientX;
-                          const startY = e.clientY;
-                          const startWidth = element.width;
-                          const startHeight = element.height;
-                          const onMove = (ev: MouseEvent) => {
-                            handleResizeElement(
-                              element.id,
-                              Math.max(50, startWidth + (ev.clientX - startX) / scale),
-                              Math.max(30, startHeight + (ev.clientY - startY) / scale)
-                            );
-                          };
-                          const onUp = () => {
-                            window.removeEventListener('mousemove', onMove);
-                            window.removeEventListener('mouseup', onUp);
-                          };
-                          window.addEventListener('mousemove', onMove);
-                          window.addEventListener('mouseup', onUp);
-                        }}
-                      />
+                        className="absolute -bottom-2 -right-2 w-5 h-5 bg-primary-500 rounded-full cursor-se-resize shadow-md z-30 flex items-center justify-center"
+                        onMouseDown={(e) => handleResizeStart(e, element)}
+                      >
+                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m6 0l-6 6" />
+                        </svg>
+                      </div>
                     </>
                   )}
                 </div>
