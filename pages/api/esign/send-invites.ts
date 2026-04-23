@@ -63,9 +63,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ message: "Missing required fields" });
   }
 
+  const ALLOWED_DOMAIN = "rtg.co.zw";
   const cleanInvitees = body.invitees
-    .map((i) => ({ email: (i.email || "").trim(), name: (i.name || "").trim() || undefined }))
+    .map((i) => ({
+      email: (i.email || "").trim().toLowerCase(),
+      name: (i.name || "").trim() || undefined,
+    }))
     .filter((i) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(i.email));
+  const invalidDomain = cleanInvitees.find(
+    (i) => !i.email.endsWith(`@${ALLOWED_DOMAIN}`)
+  );
+  if (invalidDomain) {
+    return res.status(400).json({
+      message: `Only @${ALLOWED_DOMAIN} email addresses can be invited to sign (got ${invalidDomain.email}).`,
+    });
+  }
   if (cleanInvitees.length === 0) {
     return res.status(400).json({ message: "At least one valid invitee is required" });
   }
@@ -139,6 +151,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         token,
         status: "pending",
         sent_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       })
       .select("id")
       .single();

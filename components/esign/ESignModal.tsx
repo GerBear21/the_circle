@@ -56,6 +56,9 @@ interface SendResult {
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const ALLOWED_DOMAIN = 'rtg.co.zw';
+const isAllowedEmail = (email: string) =>
+  EMAIL_RE.test(email) && email.toLowerCase().endsWith(`@${ALLOWED_DOMAIN}`);
 const newId = () => Math.random().toString(36).slice(2);
 
 export default function ESignModal({ isOpen, onClose, onComplete }: ESignModalProps) {
@@ -119,7 +122,7 @@ export default function ESignModal({ isOpen, onClose, onComplete }: ESignModalPr
   const removeInvitee = (id: string) =>
     setInvitees(prev => (prev.length === 1 ? prev : prev.filter(i => i.id !== id)));
 
-  const validInvitees = invitees.filter(i => EMAIL_RE.test(i.email.trim()));
+  const validInvitees = invitees.filter(i => isAllowedEmail(i.email.trim().toLowerCase()));
   const canSend = validInvitees.length > 0 && pdfFile !== null && step === 'invite';
 
   // ---- Send invitations ----
@@ -403,7 +406,7 @@ export default function ESignModal({ isOpen, onClose, onComplete }: ESignModalPr
                   </div>
                   <div className="space-y-2">
                     {invitees.map((inv, idx) => {
-                      const emailValid = inv.email === '' || EMAIL_RE.test(inv.email.trim());
+                      const emailValid = inv.email === '' || isAllowedEmail(inv.email.trim().toLowerCase());
                       return (
                         <div key={inv.id} className="flex items-center gap-2">
                           <div className="flex-1 grid grid-cols-1 sm:grid-cols-5 gap-2">
@@ -418,7 +421,7 @@ export default function ESignModal({ isOpen, onClose, onComplete }: ESignModalPr
                               type="email"
                               value={inv.email}
                               onChange={(e) => updateInvitee(inv.id, { email: e.target.value })}
-                              placeholder={`signer${idx + 1}@example.com`}
+                              placeholder={`signer${idx + 1}@${ALLOWED_DOMAIN}`}
                               className={`sm:col-span-3 px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
                                 emailValid ? 'border-gray-300' : 'border-red-300 bg-red-50'
                               }`}

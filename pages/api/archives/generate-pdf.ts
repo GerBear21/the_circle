@@ -121,6 +121,8 @@ export async function generateAndStoreArchive(
             comment,
             signed_at,
             approver_id,
+            authentication_method,
+            signature_type,
             approver:app_users!approvals_approver_id_fkey (
               id,
               display_name,
@@ -948,7 +950,7 @@ async function generatePdfBuffer(
       yPos += 25;
 
       if (request.request_steps && request.request_steps.length > 0) {
-        const sigBoxHeight = 110;
+        const sigBoxHeight = 120;
         const sigBoxWidth = Math.min(160, (pageWidth - 40) / Math.min(request.request_steps.length, 3));
 
         request.request_steps.forEach((step: any, index: number) => {
@@ -1030,6 +1032,19 @@ async function generatePdfBuffer(
           // Signed date
           if (signedAt) {
             doc.fontSize(7).fillColor('#6b7280').text(formatDateTime(signedAt), xPos + 5, yPos + 90, {
+              width: sigBoxWidth - 10,
+              align: 'center',
+            });
+          }
+
+          // "Digitally Approved" label and auth method annotation
+          if (approval?.decision === 'approved') {
+            const authMethod = approval.authentication_method;
+            const authLabel =
+              authMethod === 'biometric' ? 'Verified via biometric authentication' :
+              authMethod === 'microsoft_mfa' ? 'Verified via Microsoft authentication' :
+              'Digitally Approved';
+            doc.fontSize(6).fillColor('#16a34a').text(authLabel, xPos + 5, yPos + 100, {
               width: sigBoxWidth - 10,
               align: 'center',
             });
