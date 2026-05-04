@@ -2214,6 +2214,11 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                 {statusInfo.label}
                             </span>
                             <span className="text-text-secondary text-sm">#{request.id.substring(0, 8)}</span>
+                            {request.metadata?.referenceCode ? (
+                                <span className="font-mono text-xs font-semibold text-gray-600 bg-gray-100 px-2.5 py-1 rounded border border-gray-200 tracking-wider">
+                                    {request.metadata.referenceCode}
+                                </span>
+                            ) : null}
                         </div>
 
                         <h1 className="text-3xl font-bold text-text-primary font-heading leading-tight mb-2">

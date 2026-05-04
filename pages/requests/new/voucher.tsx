@@ -2,8 +2,10 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
-import { Card, Button, Input } from '../../../components/ui';
+import { Card, Button, Input, RequestPreviewModal, UnsavedChangesModal, ReferenceCodeBanner } from '../../../components/ui';
+import type { PreviewSection } from '../../../components/ui';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
+import { useUnsavedChangesPrompt } from '../../../hooks';
 import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
 import { Span } from 'next/dist/trace';
 
@@ -51,6 +53,8 @@ export default function VoucherRequestPage() {
     const [originalBusinessUnits, setOriginalBusinessUnits] = useState<SelectedBusinessUnit[]>([]);
     const [originalApprovers, setOriginalApprovers] = useState<Record<string, string> | null>(null);
     const [requestStatus, setRequestStatus] = useState<string>('draft');
+    const [referenceCode, setReferenceCode] = useState<string | null>(null);
+    const [existingReferenceCode, setExistingReferenceCode] = useState<string | null>(null);
 
     const handleSupportingDocUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
@@ -99,6 +103,9 @@ export default function VoucherRequestPage() {
         reason: '',
         processTravelDocument: false,
     });
+
+    // Unsaved-changes tracking — flipped true on first real user interaction via form onChange.
+    const [isDirty, setIsDirty] = useState(false);
 
     // Auto-generate voucher number
     useEffect(() => {
@@ -243,6 +250,7 @@ export default function VoucherRequestPage() {
                 const metadata = request.metadata || {};
 
                 setRequestStatus(request.status || 'draft');
+                if (metadata.referenceCode) setExistingReferenceCode(metadata.referenceCode);
 
                 // Store original data for comparison
                 setOriginalFormData({
@@ -588,6 +596,7 @@ export default function VoucherRequestPage() {
                     description: formData.reason,
                     metadata: {
                         type: 'voucher_request',
+                        referenceCode: existingReferenceCode || referenceCode || undefined,
                         voucherNumber: formData.voucherNumber,
                         guestNames: formData.guestNames,
                         guestTitle: formData.guestTitle,
@@ -684,6 +693,7 @@ export default function VoucherRequestPage() {
                     description: formData.reason || 'Draft request',
                     metadata: {
                         type: 'voucher_request',
+                        referenceCode: existingReferenceCode || referenceCode || undefined,
                         voucherNumber: formData.voucherNumber,
                         guestNames: formData.guestNames,
                         guestTitle: formData.guestTitle,
@@ -755,6 +765,37 @@ export default function VoucherRequestPage() {
         }
     };
 
+    const [showPreview, setShowPreview] = useState(false);
+    const [showConfirm, setShowConfirm] = useState(false);
+
+    const buildPreviewSections = (): PreviewSection[] => [
+        {
+            title: 'Voucher Details',
+            fields: [
+                { label: 'Voucher Number', value: formData.voucherNumber },
+                { label: 'Guest Title', value: formData.guestTitle || '—' },
+                { label: 'Guest First Name', value: formData.guestFirstName || '—' },
+                { label: 'Guest Name(s)', value: formData.guestNames, fullWidth: true },
+                { label: 'Show name on voucher', value: formData.showNameOnVoucher ? 'Yes' : 'No' },
+                { label: 'Allocation', value: formData.allocationType || '—' },
+                { label: 'Discount %', value: formData.percentageDiscount || '—' },
+                { label: 'Reason', value: formData.reason, fullWidth: true },
+                { label: 'Process Travel Document', value: formData.processTravelDocument ? 'Yes' : 'No' },
+            ],
+        },
+        {
+            title: 'Approvers',
+            fields: approvalRoles.map(r => ({
+                label: r.label,
+                value: users.find(u => u.id === selectedApprovers[r.key])?.display_name || 'Not selected',
+            })),
+        },
+    ];
+
+    const performSubmit = async () => {
+        await doSubmit();
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
@@ -770,6 +811,10 @@ export default function VoucherRequestPage() {
             return;
         }
 
+        setShowConfirm(true);
+    };
+
+    const doSubmit = async () => {
         setLoading(true);
         setError(null);
 
@@ -895,6 +940,7 @@ export default function VoucherRequestPage() {
                     status: 'pending', // Submit for approval immediately
                     metadata: {
                         type: 'voucher_request',
+                        referenceCode: existingReferenceCode || referenceCode || undefined,
                         voucherNumber: formData.voucherNumber,
                         guestNames: formData.guestNames,
                         guestTitle: formData.guestTitle,
@@ -988,6 +1034,7 @@ export default function VoucherRequestPage() {
                     status: 'draft',
                     metadata: {
                         type: 'voucher_request',
+                        referenceCode: existingReferenceCode || referenceCode || undefined,
                         voucherNumber: formData.voucherNumber,
                         guestNames: formData.guestNames,
                         guestTitle: formData.guestTitle,
@@ -1067,15 +1114,27 @@ export default function VoucherRequestPage() {
 
     if (!session) return null;
 
+    const unsavedPrompt = useUnsavedChangesPrompt({
+        isDirty,
+        disabled: loading || savingDraft,
+    });
+
     const pageTitle = isApproverEditing ? 'Edit Voucher Request (Approver)' : isEditMode ? 'Edit Voucher Request' : 'Voucher Request';
 
     return (
         <AppLayout title={pageTitle} showBack onBack={() => router.back()} hideNav>
-            <form onSubmit={handleSubmit} className="p-4 sm:p-6 max-w-5xl mx-auto pb-32">
+            <form onSubmit={handleSubmit} onChange={() => setIsDirty(true)} className="p-4 sm:p-6 max-w-5xl mx-auto pb-32">
                 <div className="mb-6 text-center">
                     <h1 className="text-2xl font-bold text-text-primary font-heading uppercase tracking-wide">
                         {isApproverEditing ? 'Edit Voucher Request' : 'Complimentary Voucher Request Form'}
                     </h1>
+                    <div className="mt-4 max-w-lg mx-auto">
+                        <ReferenceCodeBanner
+                            requestType="voucher_request"
+                            existingCode={existingReferenceCode}
+                            onCodeAssigned={setReferenceCode}
+                        />
+                    </div>
                     {isApproverEditing && (
                         <div className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-primary-50 border border-primary-200 rounded-xl">
                             <svg className="w-4 h-4 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1900,6 +1959,34 @@ export default function VoucherRequestPage() {
                     </div>
                 </div>
             </form>
+
+            <RequestPreviewModal
+                isOpen={showPreview}
+                onClose={() => setShowPreview(false)}
+                mode="preview"
+                title="Voucher Request"
+                sections={buildPreviewSections()}
+            />
+            <RequestPreviewModal
+                isOpen={showConfirm}
+                onClose={() => setShowConfirm(false)}
+                mode="confirm"
+                title="Voucher Request"
+                sections={buildPreviewSections()}
+                confirming={loading}
+                onConfirm={async () => {
+                    setShowConfirm(false);
+                    await performSubmit();
+                }}
+            />
+            <UnsavedChangesModal
+                isOpen={unsavedPrompt.isOpen}
+                savingDraft={savingDraft}
+                canSaveDraft={!isApproverEditing}
+                onSaveDraft={() => unsavedPrompt.saveDraftAndContinue(handleSaveDraft)}
+                onDiscard={unsavedPrompt.discardAndContinue}
+                onCancel={unsavedPrompt.cancel}
+            />
         </AppLayout>
     );
 }

@@ -16,6 +16,7 @@ import {
   resolveApprovalChainFromOrganogram,
   findEmployeeByPositionTitle,
 } from './hrimsClient';
+import { onCapexApproved, onCapexRejected } from './capexTrackerHooks';
 
 // ============================================================================
 // Types
@@ -723,7 +724,7 @@ export class ApprovalEngine {
           .from('requests')
           .update({ status: 'approved' })
           .eq('id', requestId);
-        
+
         if (request) {
           await this.notifyRequester(
             requestId,
@@ -732,7 +733,7 @@ export class ApprovalEngine {
             `Your request "${request.title}" has been fully approved! All ${totalSteps} approvers have approved.`,
             requestType
           );
-          
+
           // Auto-generate and store PDF archive
           try {
             await generateAndStoreArchive(requestId, request.organization_id, approverId);
@@ -740,8 +741,11 @@ export class ApprovalEngine {
           } catch (archiveError) {
             console.error('Failed to generate archive:', archiveError);
           }
+
+          // CAPEX Tracker: flip status to awaiting funding. Safe for all types — hook guards internally.
+          await onCapexApproved(requestId, approverId);
         }
-        
+
         return { success: true, message: 'Request fully approved (parallel)' };
       }
       
@@ -829,7 +833,7 @@ export class ApprovalEngine {
         .from('requests')
         .update({ status: 'approved' })
         .eq('id', requestId);
-      
+
       // Notify the requester (request already fetched above)
       if (request) {
         const requestType = request.metadata?.type || request.metadata?.requestType;
@@ -840,7 +844,7 @@ export class ApprovalEngine {
           `Your request "${request.title}" has been fully approved by ${approverName}!`,
           requestType
         );
-        
+
         // Auto-generate and store PDF archive
         try {
           await generateAndStoreArchive(requestId, request.organization_id, approverId);
@@ -848,8 +852,11 @@ export class ApprovalEngine {
         } catch (archiveError) {
           console.error('Failed to generate archive:', archiveError);
         }
+
+        // CAPEX Tracker: flip status to awaiting funding. Safe for all types — hook guards internally.
+        await onCapexApproved(requestId, approverId);
       }
-      
+
       return { success: true, message: 'Request fully approved' };
     }
     
@@ -884,7 +891,7 @@ export class ApprovalEngine {
         .select('display_name')
         .eq('id', rejecterId)
         .single();
-      
+
       const requestType = request.metadata?.type || request.metadata?.requestType;
       await this.notifyRequester(
         requestId,
@@ -893,8 +900,11 @@ export class ApprovalEngine {
         `Your request "${request.title}" was rejected by ${rejecter?.display_name || 'an approver'}`,
         requestType
       );
+
+      // CAPEX Tracker: flip status to rejected. Safe for all types — hook guards internally.
+      await onCapexRejected(requestId, rejecterId);
     }
-    
+
     return { success: true, message: 'Request rejected' };
   }
   

@@ -2,11 +2,31 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
-import { Card, Button, Input } from '../../../components/ui';
+import { Card, Button, Input, RequestPreviewModal, UnsavedChangesModal } from '../../../components/ui';
+import type { PreviewSection, DocumentHeader } from '../../../components/ui';
+import { useUnsavedChangesPrompt } from '../../../hooks';
+import { useCurrentUser } from '../../../hooks/useCurrentUser';
+import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
+
+const ACCOMMODATION_LABELS: Record<string, string> = {
+    accommodation_only: 'Accommodation Only (Bed only)',
+    accommodation_and_breakfast: 'Accommodation + Breakfast',
+    accommodation_and_meals: 'Accommodation + Meals',
+    accommodation_meals_drink: 'Accommodation + Meals + 1 Soft Drink/Meal',
+};
+const ALLOCATION_LABELS: Record<string, string> = {
+    marketing_domestic: 'Marketing – Domestic',
+    marketing_international: 'Marketing – International',
+    administration: 'Administration',
+    promotions: 'Promotions',
+    personnel: 'Personnel',
+};
 
 export default function ExternalHotelBookingPage() {
     const { data: session, status } = useSession();
     const router = useRouter();
+    const { user } = useCurrentUser();
+    const { departmentName, businessUnitName } = useUserHrimsProfile();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -33,6 +53,10 @@ export default function ExternalHotelBookingPage() {
         processTravelDocument: false,
     });
 
+    // Unsaved-changes tracking — flipped true on first real user interaction via form onChange.
+    const [isDirty, setIsDirty] = useState(false);
+    const unsavedPrompt = useUnsavedChangesPrompt({ isDirty, disabled: loading });
+
     useEffect(() => {
         if (status === 'unauthenticated') {
             router.push('/');
@@ -50,8 +74,170 @@ export default function ExternalHotelBookingPage() {
         }
     }, [formData.arrivalDate, formData.departureDate]);
 
+    const [showPreview, setShowPreview] = useState(false);
+    const [showConfirm, setShowConfirm] = useState(false);
+
+    // Shared inline styles so the preview and the printed HTML look the same.
+    const tableStyle: React.CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 11 };
+    const cellStyle: React.CSSProperties = { border: '1px solid #333', padding: '6px 8px', verticalAlign: 'top' };
+    const headCellStyle: React.CSSProperties = { ...cellStyle, background: '#F3EADC', color: '#5E4426', fontWeight: 700, textAlign: 'left' };
+    const labelCellStyle: React.CSSProperties = { ...cellStyle, background: '#FAF7F0', fontWeight: 700, textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.04em', width: '22%' };
+
+    const approvalColumns = [
+        { key: 'line_manager', label: 'Line Manager', description: 'Recommendation' },
+        { key: 'functional_head', label: 'Functional Head', description: 'Functional Approval' },
+        { key: 'hrd', label: 'HR Director', description: 'HR Director Approval' },
+        { key: 'ceo', label: 'CEO', description: 'Authorisation' },
+    ];
+
+    const externalHotelDocumentHeader: DocumentHeader = {
+        logoUrl: '/images/RTG_LOGO.png',
+        docNo: 'DOC NO. FIN 101',
+        department: 'DEPARTMENT: FINANCE',
+        page: 'PAGE: 1 of 1',
+    };
+
+    const buildPreviewSections = (): PreviewSection[] => {
+        const requestTimestamp = new Date().toLocaleString('en-GB', {
+            day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+        });
+        const requestorName = user?.display_name || session?.user?.name || '—';
+
+        return [
+            // Main form header section — table layout
+            {
+                content: (
+                    <table className="doc-grid" style={tableStyle}>
+                        <tbody>
+                            <tr>
+                                <td style={labelCellStyle}>Name of Employee</td>
+                                <td style={cellStyle}>{requestorName}</td>
+                                <td style={labelCellStyle}>Department</td>
+                                <td style={cellStyle}>{departmentName || '—'}</td>
+                            </tr>
+                            <tr>
+                                <td style={labelCellStyle}>Date &amp; Time of Request</td>
+                                <td style={cellStyle}>{requestTimestamp}</td>
+                                <td style={labelCellStyle}>Business Unit</td>
+                                <td style={cellStyle}>{businessUnitName || formData.hotelUnit || '—'}</td>
+                            </tr>
+                            <tr>
+                                <td style={labelCellStyle}>Guest Details</td>
+                                <td style={cellStyle} colSpan={3}>{formData.guestNames || '—'}</td>
+                            </tr>
+                            <tr>
+                                <td style={labelCellStyle}>Booking Already Made</td>
+                                <td style={cellStyle} colSpan={3}>{formData.telBookingMade ? 'Yes' : 'No'}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                ),
+            },
+            // Business unit and booking details grid table
+            {
+                title: 'Business Unit and Booking Details',
+                content: (
+                    <table className="doc-grid" style={tableStyle}>
+                        <thead>
+                            <tr>
+                                <th style={headCellStyle}>Hotel Unit</th>
+                                <th style={headCellStyle}>Arrival Date</th>
+                                <th style={headCellStyle}>Departure Date</th>
+                                <th style={{ ...headCellStyle, textAlign: 'right', width: '8%' }}>Nights</th>
+                                <th style={{ ...headCellStyle, textAlign: 'right', width: '8%' }}>Rooms</th>
+                                <th style={headCellStyle}>Accommodation Type</th>
+                                <th style={headCellStyle}>Special Arrangements</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td style={cellStyle}>{formData.hotelUnit || '—'}</td>
+                                <td style={cellStyle}>{formData.arrivalDate || '—'}</td>
+                                <td style={cellStyle}>{formData.departureDate || '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{formData.numberOfNights || '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{formData.numberOfRooms || '—'}</td>
+                                <td style={cellStyle}>{ACCOMMODATION_LABELS[formData.accommodationType] || formData.accommodationType || '—'}</td>
+                                <td style={cellStyle}>{formData.specialArrangements || '—'}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                ),
+            },
+            // Cost allocation, percentage discount, reason for complimentary
+            {
+                title: 'Cost Allocation, Discount & Reason',
+                content: (
+                    <table className="doc-grid" style={tableStyle}>
+                        <tbody>
+                            <tr>
+                                <td style={labelCellStyle}>Cost Allocation</td>
+                                <td style={cellStyle}>{ALLOCATION_LABELS[formData.allocationType] || formData.allocationType || '—'}</td>
+                                <td style={labelCellStyle}>Percentage Discount</td>
+                                <td style={{ ...cellStyle, width: '18%' }}>
+                                    {formData.percentageDiscount ? `${formData.percentageDiscount}%` : '—'}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style={labelCellStyle}>Reason for Complimentary</td>
+                                <td style={cellStyle} colSpan={3}>{formData.reason || '—'}</td>
+                            </tr>
+                            <tr>
+                                <td style={labelCellStyle}>Process Travel Document</td>
+                                <td style={cellStyle} colSpan={3}>{formData.processTravelDocument ? 'Yes' : 'No'}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                ),
+            },
+            // Approval section — multi-column horizontal
+            {
+                title: 'Approval',
+                content: (
+                    <table className="doc-grid approval-row" style={tableStyle}>
+                        <thead>
+                            <tr>
+                                {approvalColumns.map(r => (
+                                    <th key={r.key} style={{ ...headCellStyle, textAlign: 'center', width: '25%' }}>
+                                        {r.label}
+                                        <div style={{ fontSize: 9, fontWeight: 500, color: '#7C5A33', textTransform: 'none' }}>
+                                            {r.description}
+                                        </div>
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                {approvalColumns.map(r => (
+                                    <td key={r.key} style={{ ...cellStyle, width: '25%' }}>
+                                        <div style={{ fontSize: 9, fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Name</div>
+                                        <div style={{ fontSize: 11, marginBottom: 8 }}>&nbsp;</div>
+                                        <div style={{ fontSize: 9, fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Signature</div>
+                                        <div
+                                            className="sig-line"
+                                            style={{ borderBottom: '1px solid #666', height: 28, marginTop: 4, marginBottom: 8 }}
+                                        />
+                                        <div style={{ fontSize: 9, fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Date</div>
+                                        <div
+                                            className="sig-line"
+                                            style={{ borderBottom: '1px solid #666', height: 18, marginTop: 4 }}
+                                        />
+                                    </td>
+                                ))}
+                            </tr>
+                        </tbody>
+                    </table>
+                ),
+            },
+        ];
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        setShowConfirm(true);
+    };
+
+    const performSubmit = async () => {
         setLoading(true);
 
         try {
@@ -106,10 +292,10 @@ export default function ExternalHotelBookingPage() {
 
     return (
         <AppLayout title="External Guest Hotel Booking" showBack onBack={() => router.back()} hideNav>
-            <form onSubmit={handleSubmit} className="p-4 sm:p-6 max-w-5xl mx-auto pb-32">
+            <form onSubmit={handleSubmit} onChange={() => setIsDirty(true)} className="p-4 sm:p-6 max-w-5xl mx-auto pb-32">
                 <div className="mb-6 text-center">
                     <h1 className="text-2xl font-bold text-text-primary font-heading uppercase tracking-wide">
-                        External Guest Hotel Booking
+                        External Complimentary Hotel Booking Form
                     </h1>
                     <p className="text-gray-500 mt-2">DOC NO: HR APX – 2 EXTERNAL GUEST BOOKING</p>
                 </div>
@@ -395,7 +581,7 @@ export default function ExternalHotelBookingPage() {
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                                     </svg>
                                 </div>
-                                <span className="font-semibold text-gray-900 text-center">HRD</span>
+                                <span className="font-semibold text-gray-900 text-center">HR Director</span>
                                 <span className="text-xs text-gray-500 text-center mt-1">Approval</span>
                             </div>
 
@@ -460,6 +646,37 @@ export default function ExternalHotelBookingPage() {
                     </div>
                 </div>
             </form>
+
+            <RequestPreviewModal
+                isOpen={showPreview}
+                onClose={() => setShowPreview(false)}
+                mode="preview"
+                title="External Complimentary Hotel Booking Form"
+                subtitle={`Date: ${today}`}
+                sections={buildPreviewSections()}
+                documentHeader={externalHotelDocumentHeader}
+            />
+            <RequestPreviewModal
+                isOpen={showConfirm}
+                onClose={() => setShowConfirm(false)}
+                mode="confirm"
+                title="External Complimentary Hotel Booking Form"
+                subtitle={`Date: ${today}`}
+                sections={buildPreviewSections()}
+                documentHeader={externalHotelDocumentHeader}
+                confirming={loading}
+                onConfirm={async () => {
+                    setShowConfirm(false);
+                    await performSubmit();
+                }}
+            />
+            <UnsavedChangesModal
+                isOpen={unsavedPrompt.isOpen}
+                canSaveDraft={false}
+                onSaveDraft={() => {}}
+                onDiscard={unsavedPrompt.discardAndContinue}
+                onCancel={unsavedPrompt.cancel}
+            />
         </AppLayout>
     );
 }

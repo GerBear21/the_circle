@@ -10,3 +10,4 @@ export { useHrimsOrganogram, useHrimsEmployees, useHrimsBusinessUnits, useHrimsD
 export { useFormTemplates, useFormTemplate } from './useFormTemplates';
 export { useRBACRoles } from './useRBACRoles';
 export { useDelegations } from './useDelegations';
+export { useUnsavedChangesPrompt } from './useUnsavedChangesPrompt';

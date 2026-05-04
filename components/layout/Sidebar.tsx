@@ -77,6 +77,55 @@ const navSections: NavSection[] = [
     ],
   },
   {
+    title: 'Finance',
+    items: [
+      {
+        href: '/finance/capex-tracker',
+        label: 'CAPEX Tracker',
+        requiredPermissions: ['finance.view_tracker'],
+        requireAny: true,
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2a4 4 0 014-4h3M9 17l-3 3m0 0l-3-3m3 3V4m6 13h6m-6-4h6m-6-4h6" />
+          </svg>
+        ),
+      },
+      {
+        href: '/finance/budget',
+        label: 'Budget Management',
+        requiredPermissions: ['finance.view_budget'],
+        requireAny: true,
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+        ),
+      },
+      {
+        href: '/finance/commitments',
+        label: 'Commitments & Spend',
+        requiredPermissions: ['finance.view_tracker'],
+        requireAny: true,
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        ),
+      },
+      {
+        href: '/finance/reports',
+        label: 'Financial Reports',
+        requiredPermissions: ['finance.view_tracker'],
+        requireAny: true,
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+          </svg>
+        ),
+      },
+    ],
+  },
+  {
     title: 'Reporting and Archives',
     items: [
       {
@@ -175,7 +224,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const router = useRouter();
   const { data: session } = useSession();
   const { hasPermission, hasAnyPermission, hasAllPermissions, loading: rbacLoading } = useRBAC();
-  const [expandedSections, setExpandedSections] = useState<string[]>(['Requests', 'Reporting and Archives', 'System']);
+  const [expandedSections, setExpandedSections] = useState<string[]>(['Requests', 'Finance', 'Reporting and Archives', 'System']);
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
 
@@ -220,6 +269,11 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         .catch(err => console.error('Error fetching profile:', err));
     }
   }, [session]);
+
+  useEffect(() => {
+    if (!router.pathname.startsWith('/finance')) return;
+    setExpandedSections((prev) => (prev.includes('Finance') ? prev : [...prev, 'Finance']));
+  }, [router.pathname]);
 
   const toggleSection = (title: string) => {
     setExpandedSections((prev) =>

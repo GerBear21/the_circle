@@ -4,7 +4,9 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
-import { Card, Button, Input } from '../../../components/ui';
+import { Card, Button, Input, RequestPreviewModal, UnsavedChangesModal, ReferenceCodeBanner } from '../../../components/ui';
+import type { PreviewSection, DocumentHeader } from '../../../components/ui';
+import { useUnsavedChangesPrompt } from '../../../hooks';
 import { useToast } from '../../../components/ui/ToastProvider';
 
 interface DocumentMetadata {
@@ -34,7 +36,7 @@ export default function NewCapexRequestPage() {
   // Fixed approver roles in order (CAPEX approval chain)
   const approvalRoles = [
     { key: 'finance_manager', label: 'Finance Manager / Accountant', description: 'Financial Review' },
-    { key: 'general_manager', label: 'General Manager (Unit)', description: 'Unit Approval' },
+    { key: 'general_manager', label: 'Head of Department', description: 'Department Head Approval' },
     { key: 'procurement_manager', label: 'Procurement Manager', description: 'Procurement Review' },
     { key: 'corporate_hod', label: 'Corporate Head of Dept', description: 'Department Approval' },
     { key: 'projects_manager', label: 'Projects Manager', description: 'Projects Review' },
@@ -64,6 +66,8 @@ export default function NewCapexRequestPage() {
   });
   const [showApproverDropdown, setShowApproverDropdown] = useState<string | null>(null);
   const [useParallelApprovals, setUseParallelApprovals] = useState(false);
+  const [loadingApproverResolution, setLoadingApproverResolution] = useState(false);
+  const [autoResolvedRoles, setAutoResolvedRoles] = useState<Record<string, boolean>>({});
   const [selectedWatchers, setSelectedWatchers] = useState<Array<{ id: string; addedBy?: { id: string; name: string; isApprover: boolean }; addedAt?: string }>>([]);
   const [watcherSearch, setWatcherSearch] = useState('');
   const [showWatcherDropdown, setShowWatcherDropdown] = useState(false);
@@ -83,6 +87,8 @@ export default function NewCapexRequestPage() {
   const [originalWatchers, setOriginalWatchers] = useState<Array<{ id: string; addedBy?: { id: string; name: string; isApprover: boolean }; addedAt?: string }>>([]);
   const [existingQuotations, setExistingQuotations] = useState<any[]>([]);
   const [existingSupportingDocs, setExistingSupportingDocs] = useState<any[]>([]);
+  const [referenceCode, setReferenceCode] = useState<string | null>(null);
+  const [existingReferenceCode, setExistingReferenceCode] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     requester: session?.user?.name || '',
@@ -91,6 +97,7 @@ export default function NewCapexRequestPage() {
     projectName: '',
     description: '',
     budgetType: '', // budget, non-budget, emergency
+    isBudgeted: true, // "This CAPEX is not part of the approved annual budget" = false
     amount: '', // project cost
     currency: 'USD',
     justification: '',
@@ -103,6 +110,14 @@ export default function NewCapexRequestPage() {
     startDate: '', // kept
     endDate: '', // kept
     priority: '', // urgency/priority level
+  });
+
+  // Unsaved-changes tracking — flipped true on first real user interaction via form onChange.
+  const [isDirty, setIsDirty] = useState(false);
+
+  const unsavedPrompt = useUnsavedChangesPrompt({
+    isDirty,
+    disabled: loading || savingDraft,
   });
 
   const handleQuotationUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -218,6 +233,7 @@ export default function NewCapexRequestPage() {
 
         // Store request status
         setRequestStatus(request.status || 'draft');
+        if (metadata.referenceCode) setExistingReferenceCode(metadata.referenceCode);
 
         // Store original data for comparison (for modification tracking)
         setOriginalFormData({
@@ -227,6 +243,9 @@ export default function NewCapexRequestPage() {
           projectName: capexData.projectName || metadata.projectName || '',
           description: capexData.description || request.description || '',
           budgetType: capexData.budgetType || metadata.budgetType || '',
+          isBudgeted: typeof capexData.isBudgeted === 'boolean'
+            ? capexData.isBudgeted
+            : (typeof metadata.isBudgeted === 'boolean' ? metadata.isBudgeted : true),
           amount: capexData.amount || metadata.amount || '',
           currency: capexData.currency || metadata.currency || 'USD',
           justification: capexData.justification || metadata.justification || '',
@@ -248,6 +267,9 @@ export default function NewCapexRequestPage() {
           projectName: capexData.projectName || metadata.projectName || '',
           description: capexData.description || request.description || '',
           budgetType: capexData.budgetType || metadata.budgetType || '',
+          isBudgeted: typeof capexData.isBudgeted === 'boolean'
+            ? capexData.isBudgeted
+            : (typeof metadata.isBudgeted === 'boolean' ? metadata.isBudgeted : true),
           amount: capexData.amount || metadata.amount || '',
           currency: capexData.currency || metadata.currency || 'USD',
           justification: capexData.justification || metadata.justification || '',
@@ -420,8 +442,379 @@ export default function NewCapexRequestPage() {
     }
   }, [status]);
 
-  const handleSubmit = async (e: React.FormEvent, isDraft: boolean = false) => {
+  // Auto-resolve approvers from HRIMS organogram (only on new requests, not edits)
+  useEffect(() => {
+    const resolveApprovers = async () => {
+      if (!session?.user?.email || isEditMode) return;
+      setLoadingApproverResolution(true);
+      try {
+        const response = await fetch(
+          `/api/hrims/resolve-approvers?email=${encodeURIComponent(session.user.email)}&formType=capex`
+        );
+        const data = await response.json();
+        if (response.ok && data.approvers) {
+          const resolved: Record<string, boolean> = {};
+          const newApprovers: Record<string, string> = {};
+          for (const [roleKey, approver] of Object.entries(data.approvers)) {
+            if (approver && (approver as any).userId) {
+              newApprovers[roleKey] = (approver as any).userId;
+              resolved[roleKey] = true;
+            }
+          }
+          if (Object.keys(newApprovers).length > 0) {
+            setSelectedApprovers(prev => ({ ...prev, ...newApprovers }));
+            setAutoResolvedRoles(resolved);
+          }
+        } else {
+          console.error('[capex] Approver resolution failed:', data.error || 'Unknown error');
+        }
+      } catch (err) {
+        console.error('[capex] Failed to auto-resolve approvers:', err);
+      } finally {
+        setLoadingApproverResolution(false);
+      }
+    };
+    if (status === 'authenticated') resolveApprovers();
+  }, [status, session?.user?.email, isEditMode]);
+
+  const [showPreview, setShowPreview] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  // Shared inline styles so the preview and the printed HTML look the same.
+  const tableStyle: React.CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 11 };
+  const cellStyle: React.CSSProperties = { border: '1px solid #333', padding: '6px 8px', verticalAlign: 'top' };
+  const headCellStyle: React.CSSProperties = { ...cellStyle, background: '#F3EADC', color: '#5E4426', fontWeight: 700, textAlign: 'left' };
+  const labelCellStyle: React.CSSProperties = { ...cellStyle, background: '#FAF7F0', fontWeight: 700, textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.04em', width: '22%' };
+
+  const capexDocumentHeader: DocumentHeader = {
+    logoUrl: '/images/RTG_LOGO.png',
+    docNo: 'DOC NO. FIN 101',
+    department: 'DEPARTMENT: FINANCE',
+    page: 'PAGE: 1 of 1',
+  };
+
+  const PAYBACK_PERIOD_LABELS: Record<string, string> = {
+    '<6m': 'Less than 6 months',
+    '6-12m': '6 to 12 months',
+    '1-2y': '1 to 2 years',
+    '2-3y': '2 to 3 years',
+    '>3y': 'More than 3 years',
+  };
+
+  const buildPreviewSections = (): PreviewSection[] => {
+    const requestTimestamp = new Date().toLocaleString('en-GB', {
+      day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+    const requestorName = formData.requester || user?.display_name || session?.user?.name || '—';
+    const departmentLabel = departments.find(d => d.id === formData.department)?.name || formData.department || departmentName || '—';
+    const unitLabel = businessUnits.find(u => u.id === formData.unit)?.name || formData.unit || businessUnitName || '—';
+    const paybackLabel = formData.paybackPeriod
+      ? (PAYBACK_PERIOD_LABELS[formData.paybackPeriod] || formData.paybackPeriod)
+      : '—';
+
+    const approvalColWidth = `${(100 / approvalRoles.length).toFixed(4)}%`;
+    const pageBreakStyle: React.CSSProperties = {
+      pageBreakBefore: 'always',
+      breakBefore: 'page',
+    };
+
+    const headerSection: PreviewSection = {
+      content: (
+        <table className="doc-grid" style={tableStyle}>
+          <tbody>
+            <tr>
+              <td style={labelCellStyle}>Name of Employee</td>
+              <td style={cellStyle}>{requestorName}</td>
+              <td style={labelCellStyle}>Department</td>
+              <td style={cellStyle}>{departmentLabel}</td>
+            </tr>
+            <tr>
+              <td style={labelCellStyle}>Date &amp; Time of Request</td>
+              <td style={cellStyle}>{requestTimestamp}</td>
+              <td style={labelCellStyle}>Business Unit</td>
+              <td style={cellStyle}>{unitLabel}</td>
+            </tr>
+            <tr>
+              <td style={labelCellStyle}>Project Name</td>
+              <td style={cellStyle} colSpan={3}>{formData.projectName || '—'}</td>
+            </tr>
+            {formData.description?.trim() && (
+              <tr>
+                <td style={labelCellStyle}>Detailed Description</td>
+                <td style={cellStyle} colSpan={3}>{formData.description}</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      ),
+    };
+
+    const financialsSection: PreviewSection = {
+      title: 'Financials',
+      content: (
+        <table className="doc-grid" style={tableStyle}>
+          <tbody>
+            <tr>
+              <td style={labelCellStyle}>Amount</td>
+              <td style={cellStyle}>{formData.amount ? `${formData.currency || 'USD'} ${formData.amount}` : '—'}</td>
+              <td style={labelCellStyle}>Budget Type</td>
+              <td style={cellStyle}>{formData.budgetType || '—'}</td>
+            </tr>
+            <tr>
+              <td style={labelCellStyle}>Payback Period</td>
+              <td style={cellStyle}>{paybackLabel}</td>
+              <td style={labelCellStyle}>Funding Source</td>
+              <td style={cellStyle}>{formData.fundingSource || '—'}</td>
+            </tr>
+            <tr>
+              <td style={labelCellStyle}>NPV</td>
+              <td style={cellStyle}>{formData.npv || '—'}</td>
+              <td style={labelCellStyle}>IRR</td>
+              <td style={cellStyle}>{formData.irr || '—'}</td>
+            </tr>
+          </tbody>
+        </table>
+      ),
+    };
+
+    const justificationSection: PreviewSection = {
+      title: 'Justification & Evaluation',
+      content: (
+        <table className="doc-grid" style={tableStyle}>
+          <tbody>
+            <tr>
+              <td style={labelCellStyle}>Business Justification</td>
+              <td style={cellStyle}>{formData.justification || '—'}</td>
+            </tr>
+            <tr>
+              <td style={labelCellStyle}>Evaluation</td>
+              <td style={cellStyle}>{formData.evaluation || '—'}</td>
+            </tr>
+          </tbody>
+        </table>
+      ),
+    };
+
+    const quotationSummarySection: PreviewSection = {
+      title: 'Quotations — Summary',
+      content: (
+        <table className="doc-grid" style={tableStyle}>
+          <thead>
+            <tr>
+              <th style={{ ...headCellStyle, width: '6%' }}>#</th>
+              <th style={headCellStyle}>Supplier</th>
+              <th style={headCellStyle}>Description</th>
+              <th style={{ ...headCellStyle, width: '12%' }}>Selected</th>
+              <th style={headCellStyle}>Selection Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(quotationDocuments.length === 0 && existingQuotations.length === 0) ? (
+              <tr>
+                <td style={cellStyle} colSpan={5}>No quotations uploaded.</td>
+              </tr>
+            ) : (
+              <>
+                {existingQuotations.map((q, i) => (
+                  <tr key={`ex-${i}`}>
+                    <td style={cellStyle}>{i + 1}</td>
+                    <td style={cellStyle}>{q.supplierName || '—'}</td>
+                    <td style={cellStyle}>{q.description || q.fileName || '—'}</td>
+                    <td style={cellStyle}>{q.isSelectedSupplier ? 'Yes' : 'No'}</td>
+                    <td style={cellStyle}>{q.selectionReason || '—'}</td>
+                  </tr>
+                ))}
+                {quotationDocuments.map((q, i) => (
+                  <tr key={`new-${i}`}>
+                    <td style={cellStyle}>{existingQuotations.length + i + 1}</td>
+                    <td style={cellStyle}>{q.supplierName || '—'}</td>
+                    <td style={cellStyle}>{q.description || q.file?.name || '—'}</td>
+                    <td style={cellStyle}>{q.isSelectedSupplier ? 'Yes' : 'No'}</td>
+                    <td style={cellStyle}>{q.selectionReason || '—'}</td>
+                  </tr>
+                ))}
+              </>
+            )}
+            {quotationJustification && (
+              <tr>
+                <td style={{ ...labelCellStyle, width: '22%' }} colSpan={1}>Justification (&lt; 3 quotations)</td>
+                <td style={cellStyle} colSpan={4}>{quotationJustification}</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      ),
+    };
+
+    // Quotation attachment pages — one per uploaded quotation, each on its own A4 page
+    const allQuotations: Array<{
+      supplierName?: string;
+      description?: string;
+      isSelectedSupplier?: boolean;
+      selectionReason?: string;
+      fileName?: string;
+      fileUrl?: string;
+    }> = [
+      ...existingQuotations.map((q: any) => ({
+        supplierName: q.supplierName,
+        description: q.description,
+        isSelectedSupplier: q.isSelectedSupplier,
+        selectionReason: q.selectionReason,
+        fileName: q.fileName || q.name,
+        fileUrl: q.fileUrl || q.url,
+      })),
+      ...quotationDocuments.map(q => ({
+        supplierName: q.supplierName,
+        description: q.description,
+        isSelectedSupplier: q.isSelectedSupplier,
+        selectionReason: q.selectionReason,
+        fileName: q.file?.name,
+        fileUrl: undefined,
+      })),
+    ];
+
+    const quotationPageSections: PreviewSection[] = allQuotations.map((q, idx) => ({
+      content: (
+        <div className="page-break" style={{ ...pageBreakStyle, paddingTop: 12 }}>
+          <h2
+            style={{
+              fontSize: 12,
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              color: '#5E4426',
+              borderBottom: '1px solid #C9B896',
+              paddingBottom: 4,
+              margin: '0 0 10px',
+            }}
+          >
+            Attached Quotation {idx + 1} of {allQuotations.length}
+          </h2>
+          <table className="doc-grid" style={tableStyle}>
+            <tbody>
+              <tr>
+                <td style={labelCellStyle}>Supplier</td>
+                <td style={cellStyle}>{q.supplierName || '—'}</td>
+                <td style={labelCellStyle}>Selected Supplier</td>
+                <td style={cellStyle}>{q.isSelectedSupplier ? 'Yes' : 'No'}</td>
+              </tr>
+              <tr>
+                <td style={labelCellStyle}>Quotation Description</td>
+                <td style={cellStyle} colSpan={3}>{q.description || '—'}</td>
+              </tr>
+              <tr>
+                <td style={labelCellStyle}>File</td>
+                <td style={cellStyle} colSpan={3}>
+                  {q.fileUrl ? (
+                    <a href={q.fileUrl} target="_blank" rel="noreferrer" style={{ color: '#5E4426', textDecoration: 'underline' }}>
+                      {q.fileName || 'View attachment'}
+                    </a>
+                  ) : (
+                    q.fileName || '—'
+                  )}
+                </td>
+              </tr>
+              {q.isSelectedSupplier && (
+                <tr>
+                  <td style={labelCellStyle}>Selection Reason</td>
+                  <td style={cellStyle} colSpan={3}>{q.selectionReason || '—'}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+          <p style={{ marginTop: 14, fontSize: 10, fontStyle: 'italic', color: '#666' }}>
+            The original quotation document is attached to this request.
+          </p>
+        </div>
+      ),
+    }));
+
+    // Approval section — horizontal row; column width adjusted for however many roles we have
+    const approvalSection: PreviewSection = {
+      title: 'Approval',
+      content: (
+        <div style={{ width: '100%', overflowX: 'auto' }}>
+          <table
+            className="doc-grid approval-row"
+            style={{ ...tableStyle, tableLayout: 'fixed', minWidth: approvalRoles.length * 110 }}
+          >
+            <thead>
+              <tr>
+                {approvalRoles.map(r => (
+                  <th
+                    key={r.key}
+                    style={{
+                      ...headCellStyle,
+                      textAlign: 'center',
+                      width: approvalColWidth,
+                      fontSize: 9,
+                      padding: '4px 4px',
+                      whiteSpace: 'normal',
+                      wordBreak: 'break-word',
+                    }}
+                  >
+                    {r.label}
+                    <div style={{ fontSize: 8, fontWeight: 500, color: '#7C5A33', textTransform: 'none' }}>
+                      {r.description}
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                {approvalRoles.map(r => {
+                  const u = users.find(u => u.id === selectedApprovers[r.key]);
+                  return (
+                    <td
+                      key={r.key}
+                      style={{
+                        ...cellStyle,
+                        width: approvalColWidth,
+                        padding: '6px 4px',
+                        fontSize: 9,
+                        wordBreak: 'break-word',
+                      }}
+                    >
+                      <div style={{ fontSize: 8, fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Name</div>
+                      <div style={{ fontSize: 10, marginBottom: 8 }}>{u?.display_name || '—'}</div>
+                      <div style={{ fontSize: 8, fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Signature</div>
+                      <div
+                        className="sig-line"
+                        style={{ borderBottom: '1px solid #666', height: 26, marginTop: 4, marginBottom: 8 }}
+                      />
+                      <div style={{ fontSize: 8, fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Date</div>
+                      <div
+                        className="sig-line"
+                        style={{ borderBottom: '1px solid #666', height: 18, marginTop: 4 }}
+                      />
+                    </td>
+                  );
+                })}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      ),
+    };
+
+    return [
+      headerSection,
+      financialsSection,
+      justificationSection,
+      quotationSummarySection,
+      approvalSection,
+      ...quotationPageSections,
+    ];
+  };
+
+  const handleSubmit = async (e: React.FormEvent, isDraft: boolean = false, skipConfirm: boolean = false) => {
     e.preventDefault();
+
+    // For a true submission (not draft/edit), open confirm modal instead
+    if (!isDraft && !isEditMode && !skipConfirm) {
+      setShowConfirm(true);
+      return;
+    }
 
     if (isDraft) {
       setSavingDraft(true);
@@ -460,12 +853,7 @@ export default function NewCapexRequestPage() {
         setLoading(false);
         return;
       }
-      if (!formData.paybackPeriod) {
-        setError('Payback Period is required.');
-        setLoading(false);
-        return;
-      }
-      
+
       // Validate all 8 approvers are selected (skip for approver editing)
       if (!isApproverEditing) {
         const selectedApproverCount = Object.values(selectedApprovers).filter(Boolean).length;
@@ -475,10 +863,15 @@ export default function NewCapexRequestPage() {
           return;
         }
       }
-      
-      // Validate quotations
+
+      // Validate quotations: require at least 1 uploaded; if fewer than 3, require justification
+      if (totalQuotations < 1) {
+        setError('Please upload at least 1 quotation.');
+        setLoading(false);
+        return;
+      }
       if (totalQuotations < 3 && !quotationJustification.trim()) {
-        setError('Please provide a justification for uploading less than 3 quotations.');
+        setError('Please provide a justification for uploading fewer than 3 quotations.');
         setLoading(false);
         return;
       }
@@ -562,11 +955,13 @@ export default function NewCapexRequestPage() {
             description: formData.description,
             metadata: {
               type: 'capex',
+              referenceCode: existingReferenceCode || referenceCode || undefined,
               requester: formData.requester,
               unit: formData.unit,
               department: formData.department,
               projectName: formData.projectName,
               budgetType: formData.budgetType,
+              isBudgeted: formData.isBudgeted !== false,
               amount: formData.amount,
               currency: formData.currency,
               justification: formData.justification,
@@ -736,6 +1131,7 @@ export default function NewCapexRequestPage() {
             department: formData.department,
             projectName: formData.projectName,
             budgetType: formData.budgetType,
+            isBudgeted: formData.isBudgeted !== false,
             amount: formData.amount,
             currency: formData.currency,
             justification: formData.justification,
@@ -922,6 +1318,7 @@ export default function NewCapexRequestPage() {
             department: formData.department,
             projectName: formData.projectName,
             budgetType: formData.budgetType,
+            isBudgeted: formData.isBudgeted !== false,
             amount: formData.amount,
             currency: formData.currency,
             justification: formData.justification,
@@ -1050,18 +1447,25 @@ export default function NewCapexRequestPage() {
 
   return (
     <AppLayout title={isEditMode ? "Edit CAPEX Request" : "CAPEX Request"} showBack onBack={() => router.back()} hideNav>
-      <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-6 max-w-5xl mx-auto pb-28">
+      <form onSubmit={handleSubmit} onChange={() => setIsDirty(true)} className="p-4 sm:p-6 space-y-6 max-w-5xl mx-auto pb-28">
         <div className="mb-2">
           <h1 className="text-2xl font-bold text-text-primary font-heading">
             {isEditMode ? 'Edit Capex Request' : 'New Capex Request'}
           </h1>
           <p className="text-text-secondary mt-1">
-            {isApproverEditing 
+            {isApproverEditing
               ? 'Edit this request as an approver. Your changes will be tracked and visible to others.'
-              : isEditMode 
+              : isEditMode
                 ? 'Update the details of this capital expenditure request'
                 : 'Submit a capital expenditure request for approval'}
           </p>
+          <div className="mt-4 max-w-lg">
+            <ReferenceCodeBanner
+              requestType="capex"
+              existingCode={existingReferenceCode}
+              onCodeAssigned={setReferenceCode}
+            />
+          </div>
           {isApproverEditing && (
             <div className="mt-3 p-3 bg-primary-50 border border-primary-200 rounded-xl flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
@@ -1178,6 +1582,15 @@ export default function NewCapexRequestPage() {
                 <option value="non-budget">Non-Budgeted</option>
                 <option value="emergency">Emergency</option>
               </select>
+              <label className="mt-2 flex items-start gap-2 text-sm text-gray-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  checked={!formData.isBudgeted}
+                  onChange={(e) => setFormData({ ...formData, isBudgeted: !e.target.checked })}
+                />
+                <span>This CAPEX is not part of the approved annual budget</span>
+              </label>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1233,7 +1646,6 @@ export default function NewCapexRequestPage() {
                 placeholder="Describe the project scope and details..."
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                required
               />
             </div>
             <div>
@@ -1291,13 +1703,12 @@ export default function NewCapexRequestPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Payback Period <span className="text-red-500">*</span>
+                Payback Period
               </label>
               <select
                 className="w-full px-4 py-2 min-h-[44px] rounded-xl border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
                 value={formData.paybackPeriod}
                 onChange={(e) => setFormData({ ...formData, paybackPeriod: e.target.value })}
-                required
               >
                 <option value="">Select period</option>
                 <option value="<6m">Less than 6 months</option>
@@ -1510,8 +1921,9 @@ export default function NewCapexRequestPage() {
             </div>
           )}
 
-          {/* Justification for less than 3 quotations */}
-          {(existingQuotations.length + quotationDocuments.length) < 3 && (
+          {/* Justification for less than 3 quotations — only available once at least 1 quotation is uploaded */}
+          {(existingQuotations.length + quotationDocuments.length) >= 1 &&
+            (existingQuotations.length + quotationDocuments.length) < 3 && (
             <div className="mt-4 p-4 bg-warning-50 border border-warning-200 rounded-xl">
               <div className="flex items-start gap-2 mb-2">
                 <svg className="w-5 h-5 text-warning-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1524,11 +1936,16 @@ export default function NewCapexRequestPage() {
               </div>
               <textarea
                 className="w-full px-4 py-3 min-h-[80px] rounded-xl border border-warning-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-warning-500 focus:border-transparent resize-none transition-all mt-2"
-                placeholder="Explain why you are submitting less than 3 quotations..."
+                placeholder="Explain why you are submitting fewer than 3 quotations..."
                 value={quotationJustification}
                 onChange={(e) => setQuotationJustification(e.target.value)}
                 required={(existingQuotations.length + quotationDocuments.length) < 3}
               />
+            </div>
+          )}
+          {(existingQuotations.length + quotationDocuments.length) === 0 && (
+            <div className="mt-4 p-4 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700">
+              Please upload at least 1 quotation. Once you upload a quotation, you may justify submitting fewer than 3.
             </div>
           )}
         </Card>
@@ -1987,9 +2404,9 @@ export default function NewCapexRequestPage() {
                 !formData.amount ||
                 !formData.budgetType ||
                 !formData.justification ||
-                !formData.paybackPeriod ||
                 !formData.priority ||
                 (!isApproverEditing && Object.values(selectedApprovers).filter(Boolean).length < 8) ||
+                ((existingQuotations.length + quotationDocuments.length) < 1) ||
                 ((existingQuotations.length + quotationDocuments.length) < 3 && !quotationJustification.trim()) ||
                 savingDraft
               }
@@ -2009,7 +2426,6 @@ export default function NewCapexRequestPage() {
                   !formData.amount ||
                   !formData.budgetType ||
                   !formData.justification ||
-                  !formData.paybackPeriod ||
                   !formData.priority ||
                   Object.values(selectedApprovers).filter(Boolean).length < 8 ||
                   loading ||
@@ -2088,6 +2504,38 @@ export default function NewCapexRequestPage() {
           </div>
         </div>
       )}
+
+      <RequestPreviewModal
+        isOpen={showPreview}
+        onClose={() => setShowPreview(false)}
+        mode="preview"
+        title="CAPEX Request"
+        sections={buildPreviewSections()}
+        documentHeader={capexDocumentHeader}
+      />
+      <RequestPreviewModal
+        isOpen={showConfirm}
+        onClose={() => setShowConfirm(false)}
+        mode="confirm"
+        title="CAPEX Request"
+        sections={buildPreviewSections()}
+        documentHeader={capexDocumentHeader}
+        confirming={loading}
+        onConfirm={async () => {
+          setShowConfirm(false);
+          await handleSubmit({ preventDefault: () => {} } as any, false, true);
+        }}
+      />
+      <UnsavedChangesModal
+        isOpen={unsavedPrompt.isOpen}
+        savingDraft={savingDraft}
+        canSaveDraft={!isApproverEditing && !isEditMode}
+        onSaveDraft={() => unsavedPrompt.saveDraftAndContinue(async () => {
+          await handleSubmit({ preventDefault: () => {} } as any, true, true);
+        })}
+        onDiscard={unsavedPrompt.discardAndContinue}
+        onCancel={unsavedPrompt.cancel}
+      />
     </AppLayout>
   );
 }

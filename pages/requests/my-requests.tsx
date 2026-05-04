@@ -164,10 +164,12 @@ export default function MyRequestsPage() {
       }
 
       // Search Filtering
+      const refCode = (req.metadata?.referenceCode || '') as string;
       const matchesSearch =
         req.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (req.description || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (req.category || '').toLowerCase().includes(searchQuery.toLowerCase());
+        (req.category || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        refCode.toLowerCase().includes(searchQuery.toLowerCase());
 
       return matchesTab && matchesSearch;
     });
@@ -384,10 +386,15 @@ export default function MyRequestsPage() {
 
                             {/* Title & Type */}
                             <div className="sm:col-span-2">
-                              <div className="flex items-center gap-2 mb-1">
+                              <div className="flex items-center gap-2 mb-1 flex-wrap">
                                 <span className={`text-xs font-semibold uppercase tracking-wider ${typeInfo.color}`}>
                                   {typeInfo.label}
                                 </span>
+                                {request.metadata?.referenceCode ? (
+                                  <span className="text-[10px] font-mono font-semibold text-gray-500 bg-gray-100 px-2 py-0.5 rounded border border-gray-200 tracking-wider">
+                                    {request.metadata.referenceCode}
+                                  </span>
+                                ) : null}
                                 {(request.current_step && request.total_steps) ? (
                                   <span className="text-xs text-gray-400">• Step {request.current_step} of {request.total_steps}</span>
                                 ) : null}

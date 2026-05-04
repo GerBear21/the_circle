@@ -2,6 +2,8 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { generateReferenceCode } from '@/lib/requestCode';
+import { createCapexTrackerRow } from '@/lib/capexTrackerHooks';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -162,10 +164,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const finalStatus = validStatuses.includes(requestStatus) ? requestStatus : 'draft';
 
       // Store priority and requestType in metadata
-      const finalMetadata = { 
-        ...metadata, 
+      // Preserve existing referenceCode if re-used (e.g. from a converted draft), otherwise generate one.
+      const finalMetadata = {
+        ...metadata,
         priority,
-        requestType: requestType || 'general'
+        requestType: requestType || 'general',
+        referenceCode: (metadata && typeof metadata.referenceCode === 'string' && metadata.referenceCode)
+          ? metadata.referenceCode
+          : generateReferenceCode(requestType),
       };
 
       const { data, error } = await supabaseAdmin
@@ -322,6 +328,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
           })
           .eq('id', data.id);
+      }
+
+      // CAPEX Tracker side-effect: create a tracker row on submission
+      // Fails silently — never blocks the request creation path
+      if (finalStatus === 'pending' && (finalMetadata.type === 'capex' || finalMetadata.requestType === 'capex')) {
+        try {
+          await createCapexTrackerRow(data.id, organizationId, userId);
+        } catch (trackerErr) {
+          console.error('Failed to create CAPEX tracker row:', trackerErr);
+        }
       }
 
       // Notify watchers if any (for both draft and pending status, but mainly useful for pending)
