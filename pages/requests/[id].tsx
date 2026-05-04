@@ -9,7 +9,9 @@ import dynamic from 'next/dynamic';
 import { AppLayout } from '../../components/layout';
 import { Card, Button, Input } from '../../components/ui';
 import DynamicFormDetails from '../../components/DynamicFormDetails';
-import PinVerificationModal from '../../components/PinVerificationModal';
+import ApprovalConfirmModal, { type ApprovalConfirmResult } from '../../components/approvals/ApprovalConfirmModal';
+import SignatureSelector, { type SignatureSelection } from '../../components/approvals/SignatureSelector';
+import { getApprovalRisk, type ApprovalRisk, type AuthenticationMethod } from '@/lib/approvalRisk';
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
 import criticalAnimation from '../../lotties/red critical.json';
@@ -1313,8 +1315,15 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     const [reviewProcessing, setReviewProcessing] = useState(false);
     const [reviewError, setReviewError] = useState<string | null>(null);
     const [userSignatureUrl, setUserSignatureUrl] = useState<string | null>(null);
-    const [showPinModal, setShowPinModal] = useState(false);
+    const [showApprovalConfirm, setShowApprovalConfirm] = useState(false);
     const [pendingApprovalAction, setPendingApprovalAction] = useState<'approve' | 'reject' | null>(null);
+    const [approvalRisk, setApprovalRisk] = useState<ApprovalRisk>('low');
+    const [approvalRiskReasons, setApprovalRiskReasons] = useState<string[]>([]);
+    const [hasBiometric, setHasBiometric] = useState(false);
+    const [signatureSelection, setSignatureSelection] = useState<SignatureSelection>({ type: 'saved' });
+    const [hrdCostAllocation, setHrdCostAllocation] = useState<Record<string, string>>({
+        corp: '', mrc: '', nah: '', rth: '', khcc: '', brh: '', vfrh: '', azam: '',
+    });
     const [isApproverEditing, setIsApproverEditing] = useState(false);
     const [approverEditedRequest, setApproverEditedRequest] = useState<RequestDetail | null>(null);
     const [savingApproverEdit, setSavingApproverEdit] = useState(false);
@@ -1365,6 +1374,23 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     const effectivePendingStep = pendingStep || waitingStepThatShouldBePending;
     const isCurrentApprover = !!effectivePendingStep;
 
+    const requestRequiresTravelCostAllocation = !!(
+        request?.metadata?.type === 'travel_authorization' ||
+        (request?.metadata?.type === 'hotel_booking' && request?.metadata?.processTravelDocument)
+    );
+    const isHrdApprovingTravelAuth = !!(
+        effectivePendingStep &&
+        requestRequiresTravelCostAllocation &&
+        request?.metadata?.approverRoles?.hrd &&
+        request.metadata.approverRoles.hrd === currentUserId
+    );
+    const travelAuthGrandTotal = parseFloat(request?.metadata?.grandTotal || '0') || 0;
+    const hrdAllocationSum = (['corp','mrc','nah','rth','khcc','brh','vfrh','azam'] as const)
+        .reduce((sum, k) => sum + (parseFloat(hrdCostAllocation[k] || '0') || 0), 0);
+    const hrdAllocationValid = isHrdApprovingTravelAuth
+        ? Math.abs(hrdAllocationSum - travelAuthGrandTotal) < 0.01 && travelAuthGrandTotal > 0
+        : true;
+
     // Check if current user is a watcher (watchers can only view, not edit)
     const watchersData = Array.isArray(request?.metadata?.watchers) ? request.metadata.watchers : [];
     const isWatcher = watchersData.some((w: any) => 
@@ -1393,14 +1419,32 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     };
     const actualStatus = computeActualStatus();
 
+    // Seed HRD cost allocation from existing metadata when opening modal
+    useEffect(() => {
+        if (showReviewModal && isHrdApprovingTravelAuth) {
+            const existing = (request?.metadata?.costAllocation || {}) as Record<string, string>;
+            setHrdCostAllocation({
+                corp: existing.corp || '',
+                mrc: existing.mrc || '',
+                nah: existing.nah || '',
+                rth: existing.rth || '',
+                khcc: existing.khcc || '',
+                brh: existing.brh || '',
+                vfrh: existing.vfrh || '',
+                azam: existing.azam || '',
+            });
+        }
+    }, [showReviewModal, isHrdApprovingTravelAuth, request?.metadata?.costAllocation]);
+
     // Fetch user's signature when modal opens
     useEffect(() => {
         if (showReviewModal && currentUserId) {
             fetch('/api/user/signature')
                 .then(res => res.json())
                 .then(data => {
-                    if (data.signature?.url) {
-                        setUserSignatureUrl(data.signature.url);
+                    const url = data.signature_url || data.signature?.url;
+                    if (url) {
+                        setUserSignatureUrl(url);
                     }
                 })
                 .catch(err => console.error('Error fetching signature:', err));
@@ -1415,32 +1459,109 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
             return;
         }
 
-        if (action === 'approve' && !userSignatureUrl) {
-            setReviewError('You need to set up your signature before approving. Go to Profile > Signature.');
+        if (action === 'approve' && isHrdApprovingTravelAuth) {
+            if (!hrdAllocationValid) {
+                setReviewError(
+                    `Cost allocation must total ${travelAuthGrandTotal.toFixed(2)} ` +
+                    `(currently ${hrdAllocationSum.toFixed(2)}). Please allocate the full amount before approving.`
+                );
+                return;
+            }
+        }
+
+        if (action === 'approve') {
+            // Validate signature selection
+            if (signatureSelection.type === 'saved' && !userSignatureUrl) {
+                setReviewError('You need to set up your signature before approving. Go to Profile > Signature.');
+                return;
+            }
+            if (signatureSelection.type === 'manual' && !signatureSelection.data) {
+                setReviewError('Please draw your signature before approving.');
+                return;
+            }
+            if (signatureSelection.type === 'typed' && !signatureSelection.data?.trim()) {
+                setReviewError('Please type your name as a signature.');
+                return;
+            }
+        }
+
+        // Evaluate risk client-side (server re-evaluates authoritatively)
+        const steps = request?.request_steps || [];
+        const currentStepIndex = effectivePendingStep.step_index ?? 0;
+        const riskEval = getApprovalRisk({
+            value: request?.metadata?.amount ?? request?.metadata?.total_amount ?? null,
+            workflowCategory: request?.metadata?.workflow_category || request?.metadata?.category || null,
+            requestType: request?.metadata?.type || request?.metadata?.requestType || null,
+            currentStepIndex,
+            totalSteps: steps.length,
+            formData: request?.metadata?.formData || request?.metadata?.form_data || null,
+        });
+
+        setApprovalRisk(riskEval.risk);
+        setApprovalRiskReasons(riskEval.reasons);
+
+        // Hand-drawn signatures are themselves an intentional verification
+        // act — skip step-up auth and submit directly.
+        if (action === 'approve' && signatureSelection.type === 'manual') {
+            setPendingApprovalAction(action);
+            await handleApprovalConfirmed({ stepUpToken: null, authMethod: 'session' });
             return;
         }
 
-        // Store the action and show PIN verification modal
+        // Check if user has biometric credentials (for high-risk UI)
+        if (riskEval.risk === 'high') {
+            try {
+                const credRes = await fetch('/api/webauthn/credentials');
+                if (credRes.ok) {
+                    const credData = await credRes.json();
+                    setHasBiometric((credData.credentials || []).some((c: any) => c.is_active));
+                }
+            } catch { /* proceed without biometric info */ }
+        }
+
         setPendingApprovalAction(action);
-        setShowPinModal(true);
+        setShowApprovalConfirm(true);
     };
 
-    const executeApprovalAction = async () => {
+    const handleApprovalConfirmed = async (result: ApprovalConfirmResult) => {
         if (!id || !effectivePendingStep || !pendingApprovalAction) return;
 
         setReviewProcessing(true);
         setReviewError(null);
 
         try {
+            const body: Record<string, any> = {
+                requestId: id,
+                stepId: effectivePendingStep.id,
+                action: pendingApprovalAction,
+                comment: reviewComment || undefined,
+                stepUpToken: result.stepUpToken,
+                authMethod: result.authMethod,
+                signatureType: signatureSelection.type,
+                deviceInfo: {
+                    userAgent: navigator.userAgent,
+                    platform: navigator.platform,
+                    language: navigator.language,
+                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                },
+            };
+
+            // For manual or typed signatures, include the data
+            if (signatureSelection.type === 'manual' && signatureSelection.data) {
+                body.signatureData = signatureSelection.data;
+            } else if (signatureSelection.type === 'typed' && signatureSelection.data) {
+                body.signatureData = signatureSelection.data;
+            }
+
+            // HRD cost allocation for travel_authorization approvals
+            if (isHrdApprovingTravelAuth && pendingApprovalAction === 'approve') {
+                body.costAllocation = hrdCostAllocation;
+            }
+
             const response = await fetch('/api/approvals/action', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    requestId: id,
-                    stepId: effectivePendingStep.id,
-                    action: pendingApprovalAction,
-                    comment: reviewComment || undefined,
-                }),
+                body: JSON.stringify(body),
             });
 
             if (!response.ok) {
@@ -1456,22 +1577,20 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
             }
 
             setShowReviewModal(false);
+            setShowApprovalConfirm(false);
             setReviewComment('');
             setPendingApprovalAction(null);
+            setSignatureSelection({ type: 'saved' });
         } catch (err: any) {
             setReviewError(err.message || `Failed to ${pendingApprovalAction} request`);
+            setShowApprovalConfirm(false);
         } finally {
             setReviewProcessing(false);
         }
     };
 
-    const handlePinVerified = () => {
-        setShowPinModal(false);
-        executeApprovalAction();
-    };
-
-    const handlePinCancel = () => {
-        setShowPinModal(false);
+    const handleApprovalConfirmCancel = () => {
+        setShowApprovalConfirm(false);
         setPendingApprovalAction(null);
     };
 
@@ -1997,13 +2116,18 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
         <AppLayout title={`Request #${request.id.substring(0, 8)}`}>
             <style dangerouslySetInnerHTML={{ __html: pulseKeyframes }} />
             
-            {/* PIN Verification Modal */}
-            <PinVerificationModal
-                isOpen={showPinModal}
-                onVerified={handlePinVerified}
-                onCancel={handlePinCancel}
-                title={pendingApprovalAction === 'approve' ? 'Confirm Approval' : 'Confirm Rejection'}
-                description="Enter your 4-digit PIN to sign this action"
+            {/* Risk-Based Approval Verification Modal */}
+            <ApprovalConfirmModal
+                isOpen={showApprovalConfirm}
+                risk={approvalRisk}
+                action={pendingApprovalAction || 'approve'}
+                requestId={id as string}
+                stepId={effectivePendingStep?.id || ''}
+                hasBiometric={hasBiometric}
+                riskReasons={approvalRiskReasons}
+                onConfirmed={handleApprovalConfirmed}
+                onCancel={handleApprovalConfirmCancel}
+                busy={reviewProcessing}
             />
             <div className="max-w-[1400px] mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
 
@@ -2090,6 +2214,11 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                 {statusInfo.label}
                             </span>
                             <span className="text-text-secondary text-sm">#{request.id.substring(0, 8)}</span>
+                            {request.metadata?.referenceCode ? (
+                                <span className="font-mono text-xs font-semibold text-gray-600 bg-gray-100 px-2.5 py-1 rounded border border-gray-200 tracking-wider">
+                                    {request.metadata.referenceCode}
+                                </span>
+                            ) : null}
                         </div>
 
                         <h1 className="text-3xl font-bold text-text-primary font-heading leading-tight mb-2">
@@ -3035,25 +3164,58 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                     </div>
                                 </div>
 
-                                {/* Signature Preview */}
+                                {/* HR Director: Cost Allocation */}
+                                {isHrdApprovingTravelAuth && (
+                                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <div className="text-xs text-amber-700 uppercase tracking-wide font-medium">
+                                                Cost Allocation (Required)
+                                            </div>
+                                            <div className="text-xs text-amber-700">
+                                                Grand Total: <span className="font-semibold">{travelAuthGrandTotal.toFixed(2)}</span>
+                                            </div>
+                                        </div>
+                                        <p className="text-xs text-amber-700 mb-3">
+                                            As HR Director, please allocate the travel cost across the units below. Totals must match the grand total before you can approve.
+                                        </p>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {(['corp','mrc','nah','rth','khcc','brh','vfrh','azam'] as const).map(unit => (
+                                                <label key={unit} className="flex items-center gap-2 bg-white rounded-lg border border-amber-200 px-2 py-1.5">
+                                                    <span className="text-xs font-medium text-gray-700 w-12 uppercase">{unit}</span>
+                                                    <input
+                                                        type="number"
+                                                        step="0.01"
+                                                        min="0"
+                                                        value={hrdCostAllocation[unit]}
+                                                        onChange={e => setHrdCostAllocation(prev => ({ ...prev, [unit]: e.target.value }))}
+                                                        disabled={reviewProcessing}
+                                                        className="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-200 rounded focus:ring-1 focus:ring-amber-500 focus:border-amber-500 outline-none"
+                                                        placeholder="0.00"
+                                                    />
+                                                </label>
+                                            ))}
+                                        </div>
+                                        <div className={`mt-3 text-xs font-medium flex items-center justify-between ${hrdAllocationValid ? 'text-green-700' : 'text-red-700'}`}>
+                                            <span>Allocated: {hrdAllocationSum.toFixed(2)}</span>
+                                            <span>
+                                                {hrdAllocationValid
+                                                    ? 'Allocation matches grand total'
+                                                    : `Remaining: ${(travelAuthGrandTotal - hrdAllocationSum).toFixed(2)}`}
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Signature Selection */}
                                 <div className="bg-primary-50 border border-primary-100 rounded-xl p-4">
                                     <div className="text-xs text-primary-600 uppercase tracking-wide font-medium mb-2">Your Signature</div>
-                                    {userSignatureUrl ? (
-                                        <div className="bg-white rounded-lg p-3 border border-primary-100">
-                                            <img
-                                                src={userSignatureUrl}
-                                                alt="Your signature"
-                                                className="h-16 mx-auto object-contain"
-                                            />
-                                        </div>
-                                    ) : (
-                                        <div className="bg-white rounded-lg p-4 border border-primary-100 text-center">
-                                            <p className="text-sm text-gray-500">No signature found.</p>
-                                            <a href="/profile" className="text-sm text-primary-600 hover:underline">
-                                                Set up your signature →
-                                            </a>
-                                        </div>
-                                    )}
+                                    <SignatureSelector
+                                        savedSignatureUrl={userSignatureUrl}
+                                        userDisplayName={(session?.user as any)?.name || request?.creator?.display_name}
+                                        value={signatureSelection}
+                                        onChange={setSignatureSelection}
+                                        disabled={reviewProcessing}
+                                    />
                                     <p className="text-xs text-primary-600 mt-2">
                                         Your signature will be attached to this approval.
                                     </p>
@@ -3106,7 +3268,7 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                 <Button
                                     variant="primary"
                                     onClick={() => handleApprovalAction('approve')}
-                                    disabled={reviewProcessing || !userSignatureUrl}
+                                    disabled={reviewProcessing || (isHrdApprovingTravelAuth && !hrdAllocationValid)}
                                     className="min-w-[6rem]"
                                 >
                                     {reviewProcessing ? 'Processing...' : 'Approve'}

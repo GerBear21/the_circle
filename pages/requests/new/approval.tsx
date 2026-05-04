@@ -2,7 +2,9 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
-import { Card, Button, Input } from '../../../components/ui';
+import { Card, Button, Input, RequestPreviewModal, UnsavedChangesModal } from '../../../components/ui';
+import type { PreviewSection } from '../../../components/ui';
+import { useUnsavedChangesPrompt } from '../../../hooks';
 
 export default function NewApprovalRequestPage() {
   const { data: session, status } = useSession();
@@ -17,15 +19,37 @@ export default function NewApprovalRequestPage() {
     category: '',
   });
 
+  // Unsaved-changes tracking — flipped true on first real user interaction via form onChange.
+  const [isDirty, setIsDirty] = useState(false);
+  const unsavedPrompt = useUnsavedChangesPrompt({ isDirty, disabled: loading });
+
   useEffect(() => {
     if (status === 'unauthenticated') {
       router.push('/');
     }
   }, [status, router]);
 
+  const [showPreview, setShowPreview] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  const buildPreviewSections = (): PreviewSection[] => [
+    {
+      title: 'Request Details',
+      fields: [
+        { label: 'Title', value: formData.title, fullWidth: true },
+        { label: 'Priority', value: formData.priority },
+        { label: 'Category', value: formData.category || '—' },
+        { label: 'Description', value: formData.description, fullWidth: true },
+      ],
+    },
+  ];
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setShowConfirm(true);
+  };
 
+  const performSubmit = async () => {
     setLoading(true);
     setError(null);
 
@@ -72,7 +96,7 @@ export default function NewApprovalRequestPage() {
 
   return (
     <AppLayout title="New Approval Request" showBack onBack={() => router.back()} hideNav>
-      <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 max-w-3xl mx-auto pb-28">
+      <form onSubmit={handleSubmit} onChange={() => setIsDirty(true)} className="p-4 sm:p-6 space-y-4 max-w-3xl mx-auto pb-28">
         <div className="mb-2">
           <h1 className="text-xl font-bold text-text-primary font-heading">Create Approval Request</h1>
           <p className="text-sm text-text-secondary mt-1">Fill in the details below to submit your request</p>
@@ -177,6 +201,33 @@ export default function NewApprovalRequestPage() {
           </div>
         </div>
       </form>
+
+      <RequestPreviewModal
+        isOpen={showPreview}
+        onClose={() => setShowPreview(false)}
+        mode="preview"
+        title="Approval Request"
+        sections={buildPreviewSections()}
+      />
+      <RequestPreviewModal
+        isOpen={showConfirm}
+        onClose={() => setShowConfirm(false)}
+        mode="confirm"
+        title="Approval Request"
+        sections={buildPreviewSections()}
+        confirming={loading}
+        onConfirm={async () => {
+          setShowConfirm(false);
+          await performSubmit();
+        }}
+      />
+      <UnsavedChangesModal
+        isOpen={unsavedPrompt.isOpen}
+        canSaveDraft={false}
+        onSaveDraft={() => {}}
+        onDiscard={unsavedPrompt.discardAndContinue}
+        onCancel={unsavedPrompt.cancel}
+      />
     </AppLayout>
   );
 }

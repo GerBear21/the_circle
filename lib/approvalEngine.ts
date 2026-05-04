@@ -16,6 +16,7 @@ import {
   resolveApprovalChainFromOrganogram,
   findEmployeeByPositionTitle,
 } from './hrimsClient';
+import { onCapexApproved, onCapexRejected } from './capexTrackerHooks';
 
 // ============================================================================
 // Types
@@ -513,7 +514,13 @@ export class ApprovalEngine {
   }
   
   /**
-   * Process an approval action (approve/reject)
+   * Process an approval action (approve/reject).
+   *
+   * The `audit` bag captures the forensic context of a risk-based approval:
+   * which signature the user applied, how they were authenticated, their
+   * network/device, etc. All fields are optional so legacy call sites
+   * continue to work; new callers should pass `audit` to populate the
+   * extended columns added by `extend_approvals_audit_trail.sql`.
    */
   static async processApprovalAction(
     requestId: string,
@@ -521,7 +528,16 @@ export class ApprovalEngine {
     userId: string,
     action: 'approve' | 'reject',
     comment?: string,
-    signatureUrl?: string
+    signatureUrl?: string,
+    audit?: {
+      signatureType?: 'saved' | 'manual' | 'typed';
+      signatureReference?: string | null;
+      authenticationMethod?: 'session' | 'microsoft_mfa' | 'biometric';
+      riskLevel?: 'low' | 'medium' | 'high';
+      authReference?: string | null;
+      ipAddress?: string | null;
+      deviceInfo?: Record<string, any> | null;
+    }
   ): Promise<{ success: boolean; message?: string; error?: string }> {
     
     if (!supabaseAdmin) {
@@ -610,7 +626,10 @@ export class ApprovalEngine {
     
     const decision = action === 'approve' ? 'approved' : 'rejected';
     
-    // 2. Record the approval decision
+    // 2. Record the approval decision.
+    //    Legacy columns (signature_url) are preserved for backward
+    //    compatibility with readers that predate the audit-trail extension;
+    //    the new columns capture the risk-based-auth context.
     const { error: approvalError } = await supabaseAdmin
       .from('approvals')
       .insert({
@@ -620,6 +639,15 @@ export class ApprovalEngine {
         decision,
         comment: comment || null,
         signature_url: signatureUrl || null,
+        // --- extended audit trail (all optional, safe to be null) ---
+        signature_type: audit?.signatureType || null,
+        signature_reference: audit?.signatureReference ?? signatureUrl ?? null,
+        authentication_method: audit?.authenticationMethod || null,
+        risk_level: audit?.riskLevel || null,
+        auth_reference: audit?.authReference || null,
+        ip_address: audit?.ipAddress || null,
+        device_info: audit?.deviceInfo || {},
+        signed_at: new Date().toISOString(),
       });
     
     if (approvalError) {
@@ -696,7 +724,7 @@ export class ApprovalEngine {
           .from('requests')
           .update({ status: 'approved' })
           .eq('id', requestId);
-        
+
         if (request) {
           await this.notifyRequester(
             requestId,
@@ -705,7 +733,7 @@ export class ApprovalEngine {
             `Your request "${request.title}" has been fully approved! All ${totalSteps} approvers have approved.`,
             requestType
           );
-          
+
           // Auto-generate and store PDF archive
           try {
             await generateAndStoreArchive(requestId, request.organization_id, approverId);
@@ -713,8 +741,11 @@ export class ApprovalEngine {
           } catch (archiveError) {
             console.error('Failed to generate archive:', archiveError);
           }
+
+          // CAPEX Tracker: flip status to awaiting funding. Safe for all types — hook guards internally.
+          await onCapexApproved(requestId, approverId);
         }
-        
+
         return { success: true, message: 'Request fully approved (parallel)' };
       }
       
@@ -802,7 +833,7 @@ export class ApprovalEngine {
         .from('requests')
         .update({ status: 'approved' })
         .eq('id', requestId);
-      
+
       // Notify the requester (request already fetched above)
       if (request) {
         const requestType = request.metadata?.type || request.metadata?.requestType;
@@ -813,7 +844,7 @@ export class ApprovalEngine {
           `Your request "${request.title}" has been fully approved by ${approverName}!`,
           requestType
         );
-        
+
         // Auto-generate and store PDF archive
         try {
           await generateAndStoreArchive(requestId, request.organization_id, approverId);
@@ -821,8 +852,11 @@ export class ApprovalEngine {
         } catch (archiveError) {
           console.error('Failed to generate archive:', archiveError);
         }
+
+        // CAPEX Tracker: flip status to awaiting funding. Safe for all types — hook guards internally.
+        await onCapexApproved(requestId, approverId);
       }
-      
+
       return { success: true, message: 'Request fully approved' };
     }
     
@@ -857,7 +891,7 @@ export class ApprovalEngine {
         .select('display_name')
         .eq('id', rejecterId)
         .single();
-      
+
       const requestType = request.metadata?.type || request.metadata?.requestType;
       await this.notifyRequester(
         requestId,
@@ -866,8 +900,11 @@ export class ApprovalEngine {
         `Your request "${request.title}" was rejected by ${rejecter?.display_name || 'an approver'}`,
         requestType
       );
+
+      // CAPEX Tracker: flip status to rejected. Safe for all types — hook guards internally.
+      await onCapexRejected(requestId, rejecterId);
     }
-    
+
     return { success: true, message: 'Request rejected' };
   }
   

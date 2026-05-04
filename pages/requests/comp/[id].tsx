@@ -8,7 +8,9 @@ import { fetchHrimsEmployeeByEmail } from '@/lib/hrimsClient';
 import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input } from '../../../components/ui';
-import PinVerificationModal from '../../../components/PinVerificationModal';
+import ApprovalConfirmModal, { type ApprovalConfirmResult } from '../../../components/approvals/ApprovalConfirmModal';
+import SignatureSelector, { type SignatureSelection } from '../../../components/approvals/SignatureSelector';
+import { getApprovalRisk, type ApprovalRisk, type AuthenticationMethod } from '@/lib/approvalRisk';
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
 import RedirectApprovalModal from '../../../components/RedirectApprovalModal';
@@ -776,8 +778,12 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
     const [reviewProcessing, setReviewProcessing] = useState(false);
     const [reviewError, setReviewError] = useState<string | null>(null);
     const [userSignatureUrl, setUserSignatureUrl] = useState<string | null>(null);
-    const [showPinModal, setShowPinModal] = useState(false);
+    const [showApprovalConfirm, setShowApprovalConfirm] = useState(false);
     const [pendingApprovalAction, setPendingApprovalAction] = useState<'approve' | 'reject' | null>(null);
+    const [approvalRisk, setApprovalRisk] = useState<ApprovalRisk>('low');
+    const [approvalRiskReasons, setApprovalRiskReasons] = useState<string[]>([]);
+    const [hasBiometric, setHasBiometric] = useState(false);
+    const [signatureSelection, setSignatureSelection] = useState<SignatureSelection>({ type: 'saved' });
     const [showRedirectModal, setShowRedirectModal] = useState(false);
     const [redirectStepInfo, setRedirectStepInfo] = useState<{ stepId: string; stepIndex: number; approverRole?: string; currentApproverName?: string } | null>(null);
     const [redirecting, setRedirecting] = useState(false);
@@ -850,32 +856,91 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
             return;
         }
 
-        if (action === 'approve' && !userSignatureUrl) {
-            setReviewError('You need to set up your signature before approving. Go to Profile > Signature.');
+        if (action === 'approve') {
+            if (signatureSelection.type === 'saved' && !userSignatureUrl) {
+                setReviewError('You need to set up your signature before approving. Go to Profile > Signature.');
+                return;
+            }
+            if (signatureSelection.type === 'manual' && !signatureSelection.data) {
+                setReviewError('Please draw your signature before approving.');
+                return;
+            }
+            if (signatureSelection.type === 'typed' && !signatureSelection.data?.trim()) {
+                setReviewError('Please type your name as a signature.');
+                return;
+            }
+        }
+
+        // Evaluate risk client-side (server re-evaluates authoritatively)
+        const steps = request?.request_steps || [];
+        const currentStepIndex = effectivePendingStep.step_index ?? 0;
+        const riskEval = getApprovalRisk({
+            value: request?.metadata?.amount ?? request?.metadata?.total_amount ?? null,
+            workflowCategory: request?.metadata?.workflow_category || request?.metadata?.category || null,
+            requestType: request?.metadata?.type || request?.metadata?.requestType || null,
+            currentStepIndex,
+            totalSteps: steps.length,
+            formData: request?.metadata?.formData || request?.metadata?.form_data || null,
+        });
+
+        setApprovalRisk(riskEval.risk);
+        setApprovalRiskReasons(riskEval.reasons);
+
+        // Hand-drawn signatures are themselves an intentional verification
+        // act — skip step-up auth and submit directly.
+        if (action === 'approve' && signatureSelection.type === 'manual') {
+            setPendingApprovalAction(action);
+            await handleApprovalConfirmed({ stepUpToken: null, authMethod: 'session' });
             return;
         }
 
-        // Store the action and show PIN verification modal
+        if (riskEval.risk === 'high') {
+            try {
+                const credRes = await fetch('/api/webauthn/credentials');
+                if (credRes.ok) {
+                    const credData = await credRes.json();
+                    setHasBiometric((credData.credentials || []).some((c: any) => c.is_active));
+                }
+            } catch { /* proceed without biometric info */ }
+        }
+
         setPendingApprovalAction(action);
-        setShowPinModal(true);
+        setShowApprovalConfirm(true);
     };
 
-    const executeApprovalAction = async () => {
+    const handleApprovalConfirmed = async (result: ApprovalConfirmResult) => {
         if (!id || !effectivePendingStep || !pendingApprovalAction) return;
 
         setReviewProcessing(true);
         setReviewError(null);
 
         try {
+            const body: Record<string, any> = {
+                requestId: id,
+                stepId: effectivePendingStep.id,
+                action: pendingApprovalAction,
+                comment: reviewComment || undefined,
+                stepUpToken: result.stepUpToken,
+                authMethod: result.authMethod,
+                signatureType: signatureSelection.type,
+                deviceInfo: {
+                    userAgent: navigator.userAgent,
+                    platform: navigator.platform,
+                    language: navigator.language,
+                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                },
+            };
+
+            if (signatureSelection.type === 'manual' && signatureSelection.data) {
+                body.signatureData = signatureSelection.data;
+            } else if (signatureSelection.type === 'typed' && signatureSelection.data) {
+                body.signatureData = signatureSelection.data;
+            }
+
             const response = await fetch('/api/approvals/action', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    requestId: id,
-                    stepId: effectivePendingStep.id,
-                    action: pendingApprovalAction,
-                    comment: reviewComment || undefined,
-                }),
+                body: JSON.stringify(body),
             });
 
             if (!response.ok) {
@@ -890,22 +955,20 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
             }
 
             setShowReviewModal(false);
+            setShowApprovalConfirm(false);
             setReviewComment('');
             setPendingApprovalAction(null);
+            setSignatureSelection({ type: 'saved' });
         } catch (err: any) {
             setReviewError(err.message || `Failed to ${pendingApprovalAction} request`);
+            setShowApprovalConfirm(false);
         } finally {
             setReviewProcessing(false);
         }
     };
 
-    const handlePinVerified = () => {
-        setShowPinModal(false);
-        executeApprovalAction();
-    };
-
-    const handlePinCancel = () => {
-        setShowPinModal(false);
+    const handleApprovalConfirmCancel = () => {
+        setShowApprovalConfirm(false);
         setPendingApprovalAction(null);
     };
 
@@ -1136,13 +1199,18 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
 
     return (
         <AppLayout title={`Request #${request.id.substring(0, 8)}`}>
-            {/* PIN Verification Modal */}
-            <PinVerificationModal
-                isOpen={showPinModal}
-                onVerified={handlePinVerified}
-                onCancel={handlePinCancel}
-                title={pendingApprovalAction === 'approve' ? 'Confirm Approval' : 'Confirm Rejection'}
-                description="Enter your 4-digit PIN to sign this action"
+            {/* Risk-Based Approval Verification Modal */}
+            <ApprovalConfirmModal
+                isOpen={showApprovalConfirm}
+                risk={approvalRisk}
+                action={pendingApprovalAction || 'approve'}
+                requestId={id as string}
+                stepId={effectivePendingStep?.id || ''}
+                hasBiometric={hasBiometric}
+                riskReasons={approvalRiskReasons}
+                onConfirmed={handleApprovalConfirmed}
+                onCancel={handleApprovalConfirmCancel}
+                busy={reviewProcessing}
             />
 
             {/* Redirect Approval Modal */}
@@ -1213,6 +1281,11 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                 {statusInfo.label}
                             </span>
                             <span className="text-text-secondary text-sm">#{request.id.substring(0, 8)}</span>
+                            {metadata?.referenceCode ? (
+                                <span className="font-mono text-xs font-semibold text-gray-600 bg-gray-100 px-2.5 py-1 rounded border border-gray-200 tracking-wider">
+                                    {metadata.referenceCode}
+                                </span>
+                            ) : null}
                         </div>
                         <h1 className="text-3xl font-bold text-text-primary font-heading leading-tight mb-2">
                             {request.title}
@@ -2165,16 +2238,16 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
 
                                 <div className="bg-primary-50 border border-primary-100 rounded-xl p-4">
                                     <div className="text-xs text-primary-600 uppercase tracking-wide font-medium mb-2">Your Signature</div>
-                                    {userSignatureUrl ? (
-                                        <div className="bg-white rounded-lg p-3 border border-primary-100">
-                                            <img src={userSignatureUrl} alt="Your signature" className="h-16 mx-auto object-contain" />
-                                        </div>
-                                    ) : (
-                                        <div className="bg-white rounded-lg p-4 border border-primary-100 text-center">
-                                            <p className="text-sm text-gray-500">No signature found.</p>
-                                            <a href="/profile" className="text-sm text-primary-600 hover:underline">Set up your signature →</a>
-                                        </div>
-                                    )}
+                                    <SignatureSelector
+                                        savedSignatureUrl={userSignatureUrl}
+                                        userDisplayName={(session?.user as any)?.name || request?.creator?.display_name}
+                                        value={signatureSelection}
+                                        onChange={setSignatureSelection}
+                                        disabled={reviewProcessing}
+                                    />
+                                    <p className="text-xs text-primary-600 mt-2">
+                                        Your signature will be attached to this approval.
+                                    </p>
                                 </div>
 
                                 {reviewError && (
@@ -2201,7 +2274,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                             <div className="p-6 bg-gray-50/50 border-t border-gray-100 flex justify-end gap-3 rounded-b-2xl">
                                 <Button variant="outline" onClick={() => { setShowReviewModal(false); setReviewComment(''); setReviewError(null); }} disabled={reviewProcessing} className="bg-white hover:bg-gray-50">Cancel</Button>
                                 <Button variant="danger" onClick={() => handleApprovalAction('reject')} disabled={reviewProcessing} className="min-w-[5rem]">{reviewProcessing ? '...' : 'Reject'}</Button>
-                                <Button variant="primary" onClick={() => handleApprovalAction('approve')} disabled={reviewProcessing || !userSignatureUrl} className="min-w-[6rem]">{reviewProcessing ? 'Processing...' : 'Approve'}</Button>
+                                <Button variant="primary" onClick={() => handleApprovalAction('approve')} disabled={reviewProcessing} className="min-w-[6rem]">{reviewProcessing ? 'Processing...' : 'Approve'}</Button>
                             </div>
                         </div>
                     </div>

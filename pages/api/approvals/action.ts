@@ -3,7 +3,25 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { ApprovalEngine } from '@/lib/approvalEngine';
+import { getApprovalRisk, authForRisk, satisfiesAuth, type AuthenticationMethod } from '@/lib/approvalRisk';
+import { verifyStepUpForApproval } from '@/lib/stepUpToken';
 
+/**
+ * POST /api/approvals/action
+ *
+ * Records an approval decision. Extends the legacy contract with a
+ * risk-based authentication enforcement step:
+ *
+ *   1. Evaluate the approval's risk server-side (authoritative).
+ *   2. Require an auth method that satisfies the risk bucket.
+ *      - low     -> valid session cookie is sufficient
+ *      - medium  -> caller must present a microsoft_mfa step-up token
+ *      - high    -> caller must present a biometric step-up token
+ *        (or microsoft_mfa as inclusivity fallback when the user has
+ *         no registered biometric credential — see risk.md)
+ *   3. Record the approval with full audit context (signature source,
+ *      auth method, IP, device).
+ */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -11,21 +29,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const session = await getServerSession(req, res, authOptions);
-    
     if (!session?.user?.id) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const userId = session.user.id;
-    const { requestId, stepId, action, comment } = req.body;
-
-    console.log('Approval action request:', { requestId, stepId, action, userId, types: { requestId: typeof requestId, stepId: typeof stepId } });
+    const userId = session.user.id as string;
+    const {
+      requestId,
+      stepId,
+      action,
+      comment,
+      // New fields (all optional for backward compatibility)
+      signatureType,         // 'saved' | 'manual' | 'typed'
+      signatureData,         // for 'manual': data URL of the freshly drawn signature
+                             // for 'typed':  the literal typed string
+      stepUpToken,           // short-lived proof of biometric / MS MFA step-up
+      authMethod,            // what the client believes it used — server verifies
+      deviceInfo,            // { userAgent, platform, screen } — opaque JSONB
+      costAllocation,        // HR Director travel_authorization cost allocation
+    } = req.body ?? {};
 
     if (!requestId || !stepId || !action) {
       return res.status(400).json({ error: 'requestId, stepId, and action are required' });
     }
 
-    // Validate UUIDs
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!uuidRegex.test(requestId)) {
       return res.status(400).json({ error: `Invalid requestId format: ${requestId}` });
@@ -33,33 +60,170 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!uuidRegex.test(stepId)) {
       return res.status(400).json({ error: `Invalid stepId format: ${stepId}` });
     }
-
     if (action !== 'approve' && action !== 'reject') {
       return res.status(400).json({ error: 'action must be "approve" or "reject"' });
     }
 
-    // Get the user's signature URL if approving
-    let signatureUrl: string | null = null;
-    if (action === 'approve') {
-      const { data } = supabaseAdmin.storage.from('signatures').getPublicUrl(`${userId}.png`);
-      try {
-        const checkRes = await fetch(data.publicUrl, { method: 'HEAD' });
-        if (checkRes.ok) {
-          signatureUrl = data.publicUrl;
-        }
-      } catch (err) {
-        console.warn('Could not verify signature exists:', err);
+    // -----------------------------------------------------------------
+    // Risk evaluation (server-authoritative) — drives auth enforcement.
+    // -----------------------------------------------------------------
+    const riskEval = await evaluateRiskForAction(requestId, stepId);
+    const requiredAuth = authForRisk(riskEval.risk);
+
+    // Hand-drawn (manual) signatures are themselves an intentional verification
+    // act — they bypass step-up auth regardless of risk level. For saved or
+    // typed signatures, enforce the risk-appropriate auth ceremony.
+    const manualSignatureBypass = signatureType === 'manual';
+
+    let effectiveAuth: AuthenticationMethod = 'session';
+    let authReference: string | null = null;
+
+    if (requiredAuth !== 'session' && !manualSignatureBypass) {
+      let payload = verifyStepUpForApproval(stepUpToken, {
+        userId,
+        requestId,
+        stepId,
+        requiredMethod: requiredAuth,
+      });
+
+      // Inclusivity fallback (per risk.md): for HIGH-risk approvals the UI
+      // exposes "Can't use biometrics? Verify with Microsoft instead" — accept
+      // a valid microsoft_mfa token as fallback proof. Biometric is still the
+      // preferred path, but MS MFA is an acceptable alternative for users who
+      // can't or won't use a platform authenticator.
+      if (!payload && requiredAuth === 'biometric') {
+        payload = verifyStepUpForApproval(stepUpToken, {
+          userId,
+          requestId,
+          stepId,
+          requiredMethod: 'microsoft_mfa',
+        });
+      }
+
+      if (!payload) {
+        return res.status(403).json({
+          error: 'Step-up authentication required',
+          code: 'STEP_UP_REQUIRED',
+          requiredAuth,
+          risk: riskEval.risk,
+          reasons: riskEval.reasons,
+        });
+      }
+
+      effectiveAuth = payload.method;
+      authReference = payload.credentialId || null;
+
+      // Defense-in-depth: also reject if the claimed authMethod disagrees
+      // with what the verified token proves.
+      if (authMethod && !satisfiesAuth(effectiveAuth, authMethod as AuthenticationMethod)) {
+        return res.status(403).json({
+          error: 'Claimed auth method does not match verified step-up',
+          code: 'AUTH_MISMATCH',
+        });
       }
     }
 
-    // Use the ApprovalEngine to process the action
+    // -----------------------------------------------------------------
+    // Resolve the signature to apply.
+    // -----------------------------------------------------------------
+    let signatureUrl: string | null = null;
+    let signatureReference: string | null = null;
+    let resolvedSignatureType: 'saved' | 'manual' | 'typed' | undefined = signatureType;
+
+    if (action === 'approve') {
+      if (signatureType === 'typed' && typeof signatureData === 'string' && signatureData.trim()) {
+        // Typed signatures don't have an image — the PDF renderer renders
+        // the literal string in a signature font. Store the string as the
+        // reference; signatureUrl remains null.
+        signatureReference = signatureData.trim().slice(0, 200);
+      } else if (signatureType === 'manual' && typeof signatureData === 'string' && signatureData.startsWith('data:image')) {
+        // Freshly drawn at approval time. Upload to storage so the PDF
+        // generator can reference it like any saved signature.
+        const uploaded = await uploadManualSignature(userId, requestId, stepId, signatureData);
+        if (uploaded) {
+          signatureUrl = uploaded;
+          signatureReference = uploaded;
+        }
+      } else {
+        // Default: use the user's saved signature from the signatures bucket.
+        const { data } = supabaseAdmin.storage.from('signatures').getPublicUrl(`${userId}.png`);
+        try {
+          const checkRes = await fetch(data.publicUrl, { method: 'HEAD' });
+          if (checkRes.ok) {
+            signatureUrl = data.publicUrl;
+            signatureReference = data.publicUrl;
+            resolvedSignatureType = resolvedSignatureType || 'saved';
+          }
+        } catch (err) {
+          console.warn('Could not verify saved signature exists:', err);
+        }
+      }
+    }
+
+    // -----------------------------------------------------------------
+    // HR Director cost allocation (travel_authorization): server-side
+    // enforcement + persist the authoritative allocation into metadata.
+    // -----------------------------------------------------------------
+    if (action === 'approve' && costAllocation && typeof costAllocation === 'object') {
+      const { data: reqRow } = await supabaseAdmin
+        .from('requests')
+        .select('metadata')
+        .eq('id', requestId)
+        .single();
+
+      const meta = (reqRow?.metadata as any) || {};
+      const requiresAllocation =
+        meta.type === 'travel_authorization' ||
+        (meta.type === 'hotel_booking' && meta.processTravelDocument);
+      const hrdUserId = meta.approverRoles?.hrd;
+
+      if (requiresAllocation && hrdUserId && hrdUserId === userId) {
+        const units = ['corp', 'mrc', 'nah', 'rth', 'khcc', 'brh', 'vfrh', 'azam'];
+        const cleaned: Record<string, string> = {};
+        let sum = 0;
+        for (const u of units) {
+          const raw = (costAllocation as any)[u];
+          const num = parseFloat(raw ?? '0') || 0;
+          cleaned[u] = num > 0 ? num.toFixed(2) : '';
+          sum += num;
+        }
+        const grandTotal = parseFloat(meta.grandTotal || '0') || 0;
+        if (grandTotal > 0 && Math.abs(sum - grandTotal) > 0.01) {
+          return res.status(400).json({
+            error: `Cost allocation (${sum.toFixed(2)}) must equal grand total (${grandTotal.toFixed(2)})`,
+            code: 'COST_ALLOCATION_MISMATCH',
+          });
+        }
+
+        await supabaseAdmin
+          .from('requests')
+          .update({
+            metadata: { ...meta, costAllocation: cleaned },
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', requestId);
+      }
+    }
+
+    // -----------------------------------------------------------------
+    // Apply the decision via the engine, with full audit context.
+    // -----------------------------------------------------------------
     const result = await ApprovalEngine.processApprovalAction(
       requestId,
       stepId,
       userId,
       action,
       comment,
-      signatureUrl || undefined
+      signatureUrl || undefined,
+      {
+        signatureType: resolvedSignatureType,
+        signatureReference,
+        authenticationMethod: effectiveAuth,
+        riskLevel: riskEval.risk,
+        authReference,
+        ipAddress: getClientIp(req),
+        deviceInfo: sanitizeDeviceInfo(deviceInfo, req),
+      }
     );
 
     if (!result.success) {
@@ -70,9 +234,127 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       success: true,
       message: result.message || `Request ${action === 'approve' ? 'approved' : 'rejected'}`,
       decision: action === 'approve' ? 'approved' : 'rejected',
+      risk: riskEval.risk,
+      authenticationMethod: effectiveAuth,
     });
   } catch (error: any) {
     console.error('Approval action error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Load just enough context about the request/step to evaluate risk.
+ * Intentionally lean — we don't need the full payload, only the signals.
+ */
+async function evaluateRiskForAction(requestId: string, stepId: string) {
+  const { data: request } = await supabaseAdmin
+    .from('requests')
+    .select(`
+      id, metadata, creator_id,
+      creator:app_users!requests_creator_id_fkey (department_id),
+      request_steps ( id, step_index )
+    `)
+    .eq('id', requestId)
+    .single();
+
+  if (!request) {
+    return getApprovalRisk({}); // No signals; defaults to 'low'.
+  }
+
+  // Resolve creator department name so the risk engine can pattern-match.
+  let creatorDepartment: string | null = null;
+  const creatorDeptId = (request.creator as any)?.department_id;
+  if (creatorDeptId) {
+    const { data: dept } = await supabaseAdmin
+      .from('departments')
+      .select('name')
+      .eq('id', creatorDeptId)
+      .maybeSingle();
+    creatorDepartment = dept?.name || null;
+  }
+
+  const steps = (request.request_steps as any[]) || [];
+  const totalSteps = steps.length;
+  const currentStep = steps.find((s: any) => s.id === stepId);
+  const currentStepIndex = currentStep?.step_index ?? null;
+
+  const metadata = (request.metadata as any) || {};
+
+  return getApprovalRisk({
+    value: metadata.total_amount ?? metadata.amount ?? metadata.total ?? null,
+    creatorDepartment,
+    stepDepartment: null, // TODO: resolve if step carries its own dept
+    workflowCategory: metadata.workflow_category || metadata.category || null,
+    requestType: metadata.type || metadata.requestType || null,
+    currentStepIndex,
+    totalSteps,
+    formData: metadata.formData || metadata.form_data || null,
+    explicitRisk: metadata.explicit_risk || null,
+  });
+}
+
+/** Upload a manually drawn signature (data URL -> storage) and return the public URL. */
+async function uploadManualSignature(
+  userId: string,
+  requestId: string,
+  stepId: string,
+  dataUrl: string
+): Promise<string | null> {
+  try {
+    const match = dataUrl.match(/^data:image\/(png|jpeg|jpg);base64,(.+)$/);
+    if (!match) return null;
+    const ext = match[1] === 'jpg' ? 'jpeg' : match[1];
+    const buffer = Buffer.from(match[2], 'base64');
+    const path = `manual/${userId}/${requestId}/${stepId}.${ext === 'jpeg' ? 'jpg' : ext}`;
+    const { error } = await supabaseAdmin.storage
+      .from('signatures')
+      .upload(path, buffer, {
+        contentType: `image/${ext}`,
+        upsert: true,
+      });
+    if (error) {
+      console.error('Failed to upload manual signature:', error);
+      return null;
+    }
+    const { data } = supabaseAdmin.storage.from('signatures').getPublicUrl(path);
+    return data.publicUrl;
+  } catch (err) {
+    console.error('uploadManualSignature error:', err);
+    return null;
+  }
+}
+
+function getClientIp(req: NextApiRequest): string | null {
+  const xff = req.headers['x-forwarded-for'];
+  if (typeof xff === 'string' && xff.length > 0) return xff.split(',')[0].trim();
+  if (Array.isArray(xff) && xff[0]) return xff[0];
+  return (req.socket?.remoteAddress as string) || null;
+}
+
+/**
+ * Strip anything potentially sensitive from the client-provided device info
+ * before storing. We only want a small, well-known set of fingerprint-free
+ * fields; anything else is dropped.
+ */
+function sanitizeDeviceInfo(
+  raw: any,
+  req: NextApiRequest
+): Record<string, any> {
+  const out: Record<string, any> = {};
+  if (raw && typeof raw === 'object') {
+    if (typeof raw.userAgent === 'string') out.userAgent = raw.userAgent.slice(0, 300);
+    if (typeof raw.platform === 'string') out.platform = raw.platform.slice(0, 80);
+    if (typeof raw.timezone === 'string') out.timezone = raw.timezone.slice(0, 80);
+    if (typeof raw.language === 'string') out.language = raw.language.slice(0, 40);
+  }
+  // Fall back to the server-side user-agent header if the client didn't send one.
+  if (!out.userAgent && req.headers['user-agent']) {
+    out.userAgent = String(req.headers['user-agent']).slice(0, 300);
+  }
+  return out;
 }

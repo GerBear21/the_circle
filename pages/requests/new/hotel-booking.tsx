@@ -2,8 +2,10 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
-import { Card, Button, Input } from '../../../components/ui';
+import { Card, Button, Input, RequestPreviewModal, UnsavedChangesModal, ReferenceCodeBanner } from '../../../components/ui';
+import type { PreviewSection, DocumentHeader } from '../../../components/ui';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
+import { useUnsavedChangesPrompt } from '../../../hooks';
 import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
 import { calculateTollgatesForItinerary, getTollgateRouteInfo, TollgateRouteType } from '../../../lib/formConfig';
 
@@ -102,6 +104,8 @@ export default function HotelBookingPage() {
     const [originalBusinessUnits, setOriginalBusinessUnits] = useState<SelectedBusinessUnit[]>([]);
     const [originalApprovers, setOriginalApprovers] = useState<Record<string, string> | null>(null);
     const [requestStatus, setRequestStatus] = useState<string>('draft');
+    const [referenceCode, setReferenceCode] = useState<string | null>(null);
+    const [existingReferenceCode, setExistingReferenceCode] = useState<string | null>(null);
 
     // Initial date for display
     const today = new Date().toLocaleDateString('en-GB', {
@@ -122,11 +126,14 @@ export default function HotelBookingPage() {
         processTravelDocument: false,
     });
 
+    // Unsaved-changes tracking — flipped true on first real user interaction via form onChange.
+    const [isDirty, setIsDirty] = useState(false);
+
     // Approver selection state - 4 fixed roles
     const approvalRoles = [
         { key: 'line_manager', label: 'Line Manager', description: 'Recommendation' },
         { key: 'functional_head', label: 'Functional Head', description: 'Functional Approval' },
-        { key: 'hrd', label: 'HRD', description: 'HRD Approval' },
+        { key: 'hrd', label: 'HR Director', description: 'HR Director Approval' },
         { key: 'ceo', label: 'CEO', description: 'Authorisation' },
     ];
     const [users, setUsers] = useState<Array<{ id: string; display_name: string; email: string; job_title?: string }>>([]);
@@ -424,11 +431,12 @@ export default function HotelBookingPage() {
                 const metadata = request.metadata || {};
 
                 setRequestStatus(request.status || 'draft');
+                if (metadata.referenceCode) setExistingReferenceCode(metadata.referenceCode);
 
                 // Store original data for comparison
                 setOriginalFormData({
                     guestNames: metadata.guestNames || '',
-                    isExternalGuest: metadata.isExternalGuest || false,
+                    isExternalGuest: false,
                     allocationType: metadata.allocationType || 'marketing_domestic',
                     percentageDiscount: metadata.percentageDiscount || '',
                     reason: metadata.reason || request.description || '',
@@ -438,7 +446,7 @@ export default function HotelBookingPage() {
                 // Pre-fill form with existing data
                 setFormData({
                     guestNames: metadata.guestNames || '',
-                    isExternalGuest: metadata.isExternalGuest || false,
+                    isExternalGuest: false,
                     allocationType: metadata.allocationType || 'marketing_domestic',
                     percentageDiscount: metadata.percentageDiscount || '',
                     reason: metadata.reason || request.description || '',
@@ -615,6 +623,11 @@ export default function HotelBookingPage() {
         );
     };
 
+    const unsavedPrompt = useUnsavedChangesPrompt({
+        isDirty,
+        disabled: loading || savingDraft,
+    });
+
     // Helper to get approver display name
     const getApproverName = (approverId: string) => {
         const user = users.find(u => u.id === approverId);
@@ -689,6 +702,7 @@ export default function HotelBookingPage() {
                     description: formData.reason,
                     metadata: {
                         type: 'hotel_booking',
+                        referenceCode: existingReferenceCode || referenceCode || undefined,
                         guestNames: formData.guestNames,
                         isExternalGuest: formData.isExternalGuest,
                         selectedBusinessUnits: selectedBusinessUnits,
@@ -696,7 +710,10 @@ export default function HotelBookingPage() {
                         percentageDiscount: formData.percentageDiscount,
                         reason: formData.reason,
                         processTravelDocument: formData.processTravelDocument,
-                        ...(formData.processTravelDocument && { travelDocument: travelData }),
+                        ...(formData.processTravelDocument && {
+                            travelDocument: travelData,
+                            grandTotal: calculateGrandTotal(),
+                        }),
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
                         useParallelApprovals: false,
@@ -742,6 +759,7 @@ export default function HotelBookingPage() {
                     description: formData.reason || 'Draft request',
                     metadata: {
                         type: 'hotel_booking',
+                        referenceCode: existingReferenceCode || referenceCode || undefined,
                         guestNames: formData.guestNames,
                         isExternalGuest: formData.isExternalGuest,
                         selectedBusinessUnits: selectedBusinessUnits,
@@ -749,7 +767,10 @@ export default function HotelBookingPage() {
                         percentageDiscount: formData.percentageDiscount,
                         reason: formData.reason,
                         processTravelDocument: formData.processTravelDocument,
-                        ...(formData.processTravelDocument && { travelDocument: travelData }),
+                        ...(formData.processTravelDocument && {
+                            travelDocument: travelData,
+                            grandTotal: calculateGrandTotal(),
+                        }),
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
                         useParallelApprovals: false,
@@ -770,6 +791,389 @@ export default function HotelBookingPage() {
         }
     };
 
+    const [showPreview, setShowPreview] = useState(false);
+    const [showConfirm, setShowConfirm] = useState(false);
+
+    // Shared inline styles so the preview and the printed HTML look the same.
+    const tableStyle: React.CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 11 };
+    const cellStyle: React.CSSProperties = { border: '1px solid #333', padding: '6px 8px', verticalAlign: 'top' };
+    const headCellStyle: React.CSSProperties = { ...cellStyle, background: '#F3EADC', color: '#5E4426', fontWeight: 700, textAlign: 'left' };
+    const labelCellStyle: React.CSSProperties = { ...cellStyle, background: '#FAF7F0', fontWeight: 700, textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.04em', width: '22%' };
+
+    const ACCOMMODATION_LABELS_HB: Record<string, string> = {
+        accommodation_only: 'Accommodation Only (Bed only)',
+        accommodation_and_breakfast: 'Accommodation + Breakfast',
+        accommodation_and_meals: 'Accommodation + Meals',
+        accommodation_meals_drink: 'Accommodation + Meals + 1 Soft Drink/Meal',
+    };
+    const ALLOCATION_LABELS_HB: Record<string, string> = {
+        marketing_domestic: 'Marketing – Domestic',
+        marketing_international: 'Marketing – International',
+        administration: 'Administration',
+        promotions: 'Promotions',
+        personnel: 'Personnel',
+    };
+
+    const hotelBookingDocumentHeader: DocumentHeader = {
+        logoUrl: '/images/RTG_LOGO.png',
+        docNo: 'DOC NO. FIN 101',
+        department: 'DEPARTMENT: FINANCE',
+        page: 'PAGE: 1 of 1',
+    };
+
+    const travelModeLabel = (code: string) => {
+        switch (code) {
+            case 'personal_motor_vehicle': return 'Personal Motor Vehicle';
+            case 'air_transport': return 'Air Transport';
+            case 'bus_public_transport': return 'Bus / Public Transport';
+            default: return '—';
+        }
+    };
+
+    const travelModeText = () => {
+        const base = travelModeLabel(travelData.travelMode);
+        if (travelData.travelMode === 'personal_motor_vehicle' && travelData.vehicleRegistration) {
+            return `${base} — Reg: ${travelData.vehicleRegistration}`;
+        }
+        return base;
+    };
+
+    const locationLabel = (code: string, custom?: string) => {
+        if (!code) return '—';
+        if (code === 'OTHER') return custom || 'Other';
+        const loc = TRAVEL_LOCATIONS.find(l => l.code === code);
+        return loc ? loc.name : code;
+    };
+
+    const buildPreviewSections = (): PreviewSection[] => {
+        const requestTimestamp = new Date().toLocaleString('en-GB', {
+            day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+        });
+        const requestorName = user?.display_name || session?.user?.name || '—';
+        const allocation = calculateCostAllocation();
+        const totalKm = travelData.itinerary.reduce((sum, r) => sum + (parseFloat(r.km) || 0), 0);
+
+        const baseSections: PreviewSection[] = [
+            // Main form header section — table layout
+            {
+                content: (
+                    <table className="doc-grid" style={tableStyle}>
+                        <tbody>
+                            <tr>
+                                <td style={labelCellStyle}>Name of Employee</td>
+                                <td style={cellStyle}>{requestorName}</td>
+                                <td style={labelCellStyle}>Department</td>
+                                <td style={cellStyle}>{departmentName || '—'}</td>
+                            </tr>
+                            <tr>
+                                <td style={labelCellStyle}>Date &amp; Time of Request</td>
+                                <td style={cellStyle}>{requestTimestamp}</td>
+                                <td style={labelCellStyle}>Business Unit</td>
+                                <td style={cellStyle}>{businessUnitName || '—'}</td>
+                            </tr>
+                            <tr>
+                                <td style={labelCellStyle}>Guest Details</td>
+                                <td style={cellStyle} colSpan={3}>{formData.guestNames || '—'}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                ),
+            },
+            // Business units and booking details grid table
+            {
+                title: 'Business Units and Booking Details',
+                content: (
+                    <table className="doc-grid" style={tableStyle}>
+                        <thead>
+                            <tr>
+                                <th style={headCellStyle}>Business Unit</th>
+                                <th style={headCellStyle}>Arrival Date</th>
+                                <th style={headCellStyle}>Departure Date</th>
+                                <th style={{ ...headCellStyle, textAlign: 'right', width: '8%' }}>Nights</th>
+                                <th style={{ ...headCellStyle, textAlign: 'right', width: '8%' }}>Rooms</th>
+                                <th style={headCellStyle}>Accommodation Type</th>
+                                <th style={headCellStyle}>Special Arrangements</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {selectedBusinessUnits.length === 0 ? (
+                                <tr>
+                                    <td style={cellStyle} colSpan={7}>No business units selected.</td>
+                                </tr>
+                            ) : (
+                                selectedBusinessUnits.map((u, i) => (
+                                    <tr key={u.instanceId || i}>
+                                        <td style={cellStyle}>{u.name}</td>
+                                        <td style={cellStyle}>{u.arrivalDate || '—'}</td>
+                                        <td style={cellStyle}>{u.departureDate || '—'}</td>
+                                        <td style={{ ...cellStyle, textAlign: 'right' }}>{u.numberOfNights || '—'}</td>
+                                        <td style={{ ...cellStyle, textAlign: 'right' }}>{u.numberOfRooms || '—'}</td>
+                                        <td style={cellStyle}>{ACCOMMODATION_LABELS_HB[u.accommodationType] || u.accommodationType || '—'}</td>
+                                        <td style={cellStyle}>{u.specialArrangements || '—'}</td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                ),
+            },
+            // Cost allocation, percentage discount, reason for complimentary
+            {
+                title: 'Cost Allocation, Discount & Reason',
+                content: (
+                    <table className="doc-grid" style={tableStyle}>
+                        <tbody>
+                            <tr>
+                                <td style={labelCellStyle}>Cost Allocation</td>
+                                <td style={cellStyle}>{ALLOCATION_LABELS_HB[formData.allocationType] || formData.allocationType || '—'}</td>
+                                <td style={labelCellStyle}>Percentage Discount</td>
+                                <td style={{ ...cellStyle, width: '18%' }}>
+                                    {formData.percentageDiscount ? `${formData.percentageDiscount}%` : '—'}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style={labelCellStyle}>Reason for Complimentary</td>
+                                <td style={cellStyle} colSpan={3}>{formData.reason || '—'}</td>
+                            </tr>
+                            <tr>
+                                <td style={labelCellStyle}>Process Travel Document</td>
+                                <td style={cellStyle} colSpan={3}>{formData.processTravelDocument ? 'Yes' : 'No'}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                ),
+            },
+        ];
+
+        const travelSections: PreviewSection[] = formData.processTravelDocument ? [
+            {
+                title: 'Travel Authorisation — Details',
+                content: (
+                    <table className="doc-grid" style={tableStyle}>
+                        <tbody>
+                            <tr>
+                                <td style={labelCellStyle}>Date of Intended Travel</td>
+                                <td style={cellStyle}>{travelData.dateOfIntendedTravel || '—'}</td>
+                                <td style={labelCellStyle}>Travel Mode</td>
+                                <td style={cellStyle}>{travelModeText()}</td>
+                            </tr>
+                            <tr>
+                                <td style={labelCellStyle}>Purpose of Travel</td>
+                                <td style={cellStyle} colSpan={3}>{travelData.purposeOfTravel || '—'}</td>
+                            </tr>
+                            <tr>
+                                <td style={labelCellStyle}>Accompanying Associates</td>
+                                <td style={cellStyle} colSpan={3}>{travelData.accompanyingAssociates || '—'}</td>
+                            </tr>
+                            {isEmergencyRequest && (
+                                <tr>
+                                    <td style={labelCellStyle}>Emergency Reason</td>
+                                    <td style={cellStyle} colSpan={3}>{emergencyReason || '—'}</td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                ),
+            },
+            {
+                title: 'Travel Conditions',
+                content: (
+                    <div
+                        className="conditions"
+                        style={{
+                            fontSize: 10.5,
+                            lineHeight: 1.5,
+                            color: '#222',
+                            background: '#FAF7F0',
+                            border: '1px solid #E5DFD2',
+                            padding: '10px 12px',
+                        }}
+                    >
+                        <p style={{ margin: 0 }}>
+                            The employee is to travel for the stated business purpose only. All travel
+                            must comply with the Rainbow Tourism Group travel policy. Where personal
+                            motor vehicles are used, the driver warrants that the vehicle is licensed,
+                            insured and roadworthy. Receipts must be retained for all reimbursable
+                            expenditure and submitted with the retirement of the travel advance.
+                        </p>
+                        <p style={{ margin: '8px 0 0', fontStyle: 'italic' }}>
+                            Conditions accepted: {travelData.acceptConditions ? 'Yes' : 'No'}
+                        </p>
+                    </div>
+                ),
+            },
+            {
+                title: 'Travel Itinerary',
+                content: (
+                    <table className="doc-grid" style={tableStyle}>
+                        <thead>
+                            <tr>
+                                <th style={headCellStyle}>Date / Time</th>
+                                <th style={headCellStyle}>From</th>
+                                <th style={headCellStyle}>To</th>
+                                <th style={{ ...headCellStyle, textAlign: 'right', width: '12%' }}>Distance (km)</th>
+                                <th style={headCellStyle}>Justification</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {travelData.itinerary.length === 0 ? (
+                                <tr>
+                                    <td style={cellStyle} colSpan={5}>No itinerary entries.</td>
+                                </tr>
+                            ) : (
+                                travelData.itinerary.map((it, i) => (
+                                    <tr key={i}>
+                                        <td style={cellStyle}>{it.date || '—'}</td>
+                                        <td style={cellStyle}>{locationLabel(it.from, it.fromCustom)}</td>
+                                        <td style={cellStyle}>{locationLabel(it.to, it.toCustom)}</td>
+                                        <td style={{ ...cellStyle, textAlign: 'right' }}>{it.km || '—'}</td>
+                                        <td style={cellStyle}>{it.justification || '—'}</td>
+                                    </tr>
+                                ))
+                            )}
+                            <tr>
+                                <td style={{ ...cellStyle, fontWeight: 700 }} colSpan={3}>Total Distance</td>
+                                <td style={{ ...cellStyle, textAlign: 'right', fontWeight: 700 }}>{totalKm.toFixed(1)}</td>
+                                <td style={cellStyle}></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                ),
+            },
+            {
+                title: 'Travel Budget',
+                content: (
+                    <table className="doc-grid" style={tableStyle}>
+                        <thead>
+                            <tr>
+                                <th style={headCellStyle}>Item</th>
+                                <th style={{ ...headCellStyle, textAlign: 'right', width: '12%' }}>Quantity</th>
+                                <th style={{ ...headCellStyle, textAlign: 'right', width: '16%' }}>Unit Cost (USD)</th>
+                                <th style={{ ...headCellStyle, textAlign: 'right', width: '18%' }}>Total (USD)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td style={cellStyle}>AA Rates (Personal Vehicle)</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.aaRates.quantity || '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.aaRates.unitCost || '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.aaRates.totalCost || '0.00'}</td>
+                            </tr>
+                            <tr>
+                                <td style={cellStyle}>Air / Bus Tickets</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.airBusTickets.quantity || '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.airBusTickets.unitCost || '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.airBusTickets.totalCost || '0.00'}</td>
+                            </tr>
+                            <tr>
+                                <td style={cellStyle}>Conferencing Cost</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.conferencingCost.quantity || '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.conferencingCost.unitCost || '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.conferencingCost.totalCost || '0.00'}</td>
+                            </tr>
+                            {(Array.isArray(travelData.budget.tollgates) ? travelData.budget.tollgates : []).map((t, i) => (
+                                <tr key={`toll-${i}`}>
+                                    <td style={cellStyle}>Tollgate{t.road ? ` — ${t.road}` : ''}</td>
+                                    <td style={{ ...cellStyle, textAlign: 'right' }}>{t.quantity || '—'}</td>
+                                    <td style={{ ...cellStyle, textAlign: 'right' }}>{t.unitCost || '—'}</td>
+                                    <td style={{ ...cellStyle, textAlign: 'right' }}>{t.totalCost || '0.00'}</td>
+                                </tr>
+                            ))}
+                            <tr>
+                                <td style={cellStyle}>
+                                    Other{travelData.budget.other.description ? ` — ${travelData.budget.other.description}` : ''}
+                                </td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.other.quantity || '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.other.unitCost || '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.other.totalCost || '0.00'}</td>
+                            </tr>
+                            <tr>
+                                <td style={{ ...cellStyle, fontWeight: 700, background: '#F3EADC' }} colSpan={3}>Grand Total</td>
+                                <td style={{ ...cellStyle, textAlign: 'right', fontWeight: 700, background: '#F3EADC' }}>
+                                    {calculateGrandTotal()}
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                ),
+            },
+            {
+                title: 'Travel Cost Allocation',
+                content: (
+                    <table className="doc-grid" style={tableStyle}>
+                        <thead>
+                            <tr>
+                                <th style={headCellStyle}>Business Unit</th>
+                                <th style={{ ...headCellStyle, textAlign: 'right' }}>Allocated Amount (USD)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {([
+                                ['MRC', allocation.mrc],
+                                ['NAH', allocation.nah],
+                                ['RTH', allocation.rth],
+                                ['KHCC', allocation.khcc],
+                                ['BRH', allocation.brh],
+                                ['VFRH', allocation.vfrh],
+                                ['AZAM', allocation.azam],
+                            ] as const).map(([unit, amt]) => (
+                                <tr key={unit}>
+                                    <td style={cellStyle}>{unit}</td>
+                                    <td style={{ ...cellStyle, textAlign: 'right' }}>{amt || '0.00'}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                ),
+            },
+        ] : [];
+
+        const approvalSection: PreviewSection = {
+            title: 'Approval',
+            content: (
+                <table className="doc-grid approval-row" style={tableStyle}>
+                    <thead>
+                        <tr>
+                            {approvalRoles.map(r => (
+                                <th key={r.key} style={{ ...headCellStyle, textAlign: 'center', width: '25%' }}>
+                                    {r.label}
+                                    <div style={{ fontSize: 9, fontWeight: 500, color: '#7C5A33', textTransform: 'none' }}>
+                                        {r.description}
+                                    </div>
+                                </th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            {approvalRoles.map(r => {
+                                const u = users.find(u => u.id === selectedApprovers[r.key]);
+                                return (
+                                    <td key={r.key} style={{ ...cellStyle, width: '25%' }}>
+                                        <div style={{ fontSize: 9, fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Name</div>
+                                        <div style={{ fontSize: 11, marginBottom: 8 }}>{u?.display_name || '—'}</div>
+                                        <div style={{ fontSize: 9, fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Signature</div>
+                                        <div
+                                            className="sig-line"
+                                            style={{ borderBottom: '1px solid #666', height: 28, marginTop: 4, marginBottom: 8 }}
+                                        />
+                                        <div style={{ fontSize: 9, fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Date</div>
+                                        <div
+                                            className="sig-line"
+                                            style={{ borderBottom: '1px solid #666', height: 18, marginTop: 4 }}
+                                        />
+                                    </td>
+                                );
+                            })}
+                        </tr>
+                    </tbody>
+                </table>
+            ),
+        };
+
+        return [...baseSections, ...travelSections, approvalSection];
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
@@ -785,6 +1189,11 @@ export default function HotelBookingPage() {
             return;
         }
 
+        // Open confirmation modal with preview before real submit
+        setShowConfirm(true);
+    };
+
+    const performSubmit = async () => {
         setLoading(true);
         setError(null);
 
@@ -828,7 +1237,7 @@ export default function HotelBookingPage() {
             errors.push('Please select an approver for Functional Head');
         }
         if (!selectedApprovers.hrd) {
-            errors.push('Please select an approver for HRD');
+            errors.push('Please select an approver for HR Director');
         }
         if (!selectedApprovers.ceo) {
             errors.push('Please select an approver for CEO');
@@ -933,6 +1342,7 @@ export default function HotelBookingPage() {
                     requestType: 'hotel_booking',
                     status: 'pending', // Submit for approval immediately
                     metadata: {
+                        referenceCode: existingReferenceCode || referenceCode || undefined,
                         guestNames: formData.guestNames,
                         isExternalGuest: formData.isExternalGuest,
                         selectedBusinessUnits: selectedBusinessUnits,
@@ -940,9 +1350,9 @@ export default function HotelBookingPage() {
                         percentageDiscount: formData.percentageDiscount,
                         reason: formData.reason,
                         processTravelDocument: formData.processTravelDocument,
-                        ...(formData.processTravelDocument && { 
+                        ...(formData.processTravelDocument && {
                             travelDocument: travelData,
-                            costAllocation: calculateCostAllocation(),
+                            grandTotal: calculateGrandTotal(),
                             isEmergencyRequest: isTravelWithin7Days() ? isEmergencyRequest : false,
                             emergencyReason: isTravelWithin7Days() && isEmergencyRequest ? emergencyReason : '',
                         }),
@@ -993,6 +1403,7 @@ export default function HotelBookingPage() {
                     requestType: 'hotel_booking',
                     status: 'draft',
                     metadata: {
+                        referenceCode: existingReferenceCode || referenceCode || undefined,
                         guestNames: formData.guestNames,
                         isExternalGuest: formData.isExternalGuest,
                         selectedBusinessUnits: selectedBusinessUnits,
@@ -1000,9 +1411,9 @@ export default function HotelBookingPage() {
                         percentageDiscount: formData.percentageDiscount,
                         reason: formData.reason,
                         processTravelDocument: formData.processTravelDocument,
-                        ...(formData.processTravelDocument && { 
+                        ...(formData.processTravelDocument && {
                             travelDocument: travelData,
-                            costAllocation: calculateCostAllocation(),
+                            grandTotal: calculateGrandTotal(),
                             isEmergencyRequest: isTravelWithin7Days() ? isEmergencyRequest : false,
                             emergencyReason: isTravelWithin7Days() && isEmergencyRequest ? emergencyReason : '',
                         }),
@@ -1043,11 +1454,18 @@ export default function HotelBookingPage() {
 
     return (
         <AppLayout title={pageTitle} showBack onBack={() => router.back()} hideNav>
-            <form onSubmit={handleSubmit} className="p-4 sm:p-6 max-w-5xl mx-auto pb-32">
+            <form onSubmit={handleSubmit} onChange={() => setIsDirty(true)} className="p-4 sm:p-6 max-w-5xl mx-auto pb-32">
                 <div className="mb-6 text-center">
                     <h1 className="text-2xl font-bold text-text-primary font-heading uppercase tracking-wide">
-                        {isApproverEditing ? 'Edit Hotel Booking' : 'Complimentary Hotel Guest Booking Form'}
+                        {isApproverEditing ? 'Edit Hotel Booking' : 'Complimentary Hotel Staff Booking Form'}
                     </h1>
+                    <div className="mt-4 max-w-lg mx-auto">
+                        <ReferenceCodeBanner
+                            requestType="hotel_booking"
+                            existingCode={existingReferenceCode}
+                            onCodeAssigned={setReferenceCode}
+                        />
+                    </div>
                     {isApproverEditing && (
                         <div className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-primary-50 border border-primary-200 rounded-xl">
                             <svg className="w-4 h-4 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1108,18 +1526,6 @@ export default function HotelBookingPage() {
                                     onChange={(e) => setFormData({ ...formData, guestNames: e.target.value })}
                                     required
                                 />
-                            </div>
-                            <div className="flex items-center gap-3">
-                                <input
-                                    type="checkbox"
-                                    id="isExternalGuest"
-                                    checked={formData.isExternalGuest}
-                                    onChange={(e) => setFormData({ ...formData, isExternalGuest: e.target.checked })}
-                                    className="w-5 h-5 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
-                                />
-                                <label htmlFor="isExternalGuest" className="text-sm font-medium text-gray-700 cursor-pointer">
-                                    External Guest (not part of staff)
-                                </label>
                             </div>
                         </div>
                     </Card>
@@ -1326,17 +1732,6 @@ export default function HotelBookingPage() {
 
                     {/* Details */}
                     <Card className="p-6 space-y-6">
-                        <div>
-                            <Input
-                                label="Percentage Discount (On accommodation only)"
-                                placeholder="%"
-                                type="number"
-                                min="0"
-                                max="100"
-                                value={formData.percentageDiscount}
-                                onChange={(e) => setFormData({ ...formData, percentageDiscount: e.target.value })}
-                            />
-                        </div>
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Reason for complimentary <span className="text-danger-500">*</span></label>
                             <textarea
@@ -1980,38 +2375,12 @@ export default function HotelBookingPage() {
                                         </table>
                                     </div>
 
-                                    {/* Cost Allocation Table - Auto-filled based on itinerary */}
+                                    {/* Cost Allocation — filled in by HR Director at approval time */}
                                     <div className="mt-6 pt-6 border-t border-gray-200">
-                                        <h4 className="font-semibold text-gray-700 uppercase text-sm mb-3">Allocation Cost to Unit <span className="text-gray-500 text-xs font-normal">(Auto-calculated based on itinerary destinations)</span></h4>
-                                        <div className="overflow-x-auto">
-                                            <table className="w-full text-sm border border-gray-200">
-                                                <thead>
-                                                    <tr className="bg-gray-100">
-                                                        <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">Corp</th>
-                                                        <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">MRC</th>
-                                                        <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">NAH</th>
-                                                        <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">RTH</th>
-                                                        <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">KHCC</th>
-                                                        <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">BRH</th>
-                                                        <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">VFRH</th>
-                                                        <th className="px-2 py-2 text-center font-semibold text-gray-700">AZAM</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    <tr>
-                                                        {(() => {
-                                                            const allocation = calculateCostAllocation();
-                                                            return (['corp', 'mrc', 'nah', 'rth', 'khcc', 'brh', 'vfrh', 'azam'] as const).map((unit, idx) => (
-                                                                <td key={unit} className={`px-1 py-2 text-center ${idx < 7 ? 'border-r border-gray-200' : ''} ${allocation[unit] ? 'bg-green-50 text-green-800 font-medium' : 'text-gray-400'}`}>
-                                                                    {allocation[unit] ? `$${allocation[unit]}` : '-'}
-                                                                </td>
-                                                            ));
-                                                        })()}
-                                                    </tr>
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                        <p className="text-xs text-gray-500 mt-2">* Costs are automatically distributed based on the proportion of visits to each business unit in your itinerary.</p>
+                                        <h4 className="font-semibold text-gray-700 uppercase text-sm mb-2">Allocation Cost to Unit</h4>
+                                        <p className="text-xs text-gray-500">
+                                            The HR Director will allocate the cost across business units when approving this request.
+                                        </p>
                                     </div>
                                 </div>
                             </div>
@@ -2186,6 +2555,38 @@ export default function HotelBookingPage() {
                     </div>
                 </div>
             </form>
+
+            <RequestPreviewModal
+                isOpen={showPreview}
+                onClose={() => setShowPreview(false)}
+                mode="preview"
+                title="Complimentary Hotel Staff Booking Form"
+                subtitle={`Requestor: ${user?.display_name || session?.user?.name || ''} · ${today}`}
+                sections={buildPreviewSections()}
+                documentHeader={hotelBookingDocumentHeader}
+            />
+            <RequestPreviewModal
+                isOpen={showConfirm}
+                onClose={() => setShowConfirm(false)}
+                mode="confirm"
+                title="Complimentary Hotel Staff Booking Form"
+                subtitle={`Requestor: ${user?.display_name || session?.user?.name || ''} · ${today}`}
+                sections={buildPreviewSections()}
+                documentHeader={hotelBookingDocumentHeader}
+                confirming={loading}
+                onConfirm={async () => {
+                    setShowConfirm(false);
+                    await performSubmit();
+                }}
+            />
+            <UnsavedChangesModal
+                isOpen={unsavedPrompt.isOpen}
+                savingDraft={savingDraft}
+                canSaveDraft={!isApproverEditing}
+                onSaveDraft={() => unsavedPrompt.saveDraftAndContinue(handleSaveDraft)}
+                onDiscard={unsavedPrompt.discardAndContinue}
+                onCancel={unsavedPrompt.cancel}
+            />
         </AppLayout>
     );
 }

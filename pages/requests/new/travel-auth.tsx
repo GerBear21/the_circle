@@ -2,8 +2,10 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
-import { Card, Button, Input } from '../../../components/ui';
+import { Card, Button, Input, RequestPreviewModal, UnsavedChangesModal, ReferenceCodeBanner } from '../../../components/ui';
+import type { PreviewSection, DocumentHeader } from '../../../components/ui';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
+import { useUnsavedChangesPrompt } from '../../../hooks';
 import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
 import { calculateTollgatesForItinerary, getTollgateRouteInfo, TollgateRouteType } from '../../../lib/formConfig';
 
@@ -107,6 +109,11 @@ export default function TravelAuthPage() {
     const router = useRouter();
     const { user } = useCurrentUser();
     const { departmentName, businessUnitName } = useUserHrimsProfile();
+    // International travel shares this page but swaps the itinerary to manual free-text entry
+    // with no business-unit dropdown and no auto-km calculation or unit-based cost allocation.
+    const isInternational = typeof router.pathname === 'string' && router.pathname.includes('international');
+    const formKindLabel = isInternational ? 'International Travel Authorization' : 'Local Travel Authorization';
+    const travelRequestType = isInternational ? 'international_travel_authorization' : 'travel_authorization';
     const [loading, setLoading] = useState(false);
     const [savingDraft, setSavingDraft] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -176,10 +183,17 @@ export default function TravelAuthPage() {
         },
     });
 
+    // Reference code (unique identifier shown in the form header)
+    const [referenceCode, setReferenceCode] = useState<string | null>(null);
+    const [existingReferenceCode, setExistingReferenceCode] = useState<string | null>(null);
+
+    // Unsaved-changes tracking — flipped true on first real user interaction via form onChange.
+    const [isDirty, setIsDirty] = useState(false);
+
     const approvalRoles = [
         { key: 'line_manager', label: 'Line Manager', description: 'Recommendation' },
         { key: 'functional_head', label: 'Functional Head', description: 'Functional Approval' },
-        { key: 'hrd', label: 'HRD', description: 'HRD Approval' },
+        { key: 'hrd', label: 'HR Director', description: 'HR Director Approval' },
         { key: 'ceo', label: 'CEO', description: 'Authorisation' },
     ];
 
@@ -227,8 +241,9 @@ export default function TravelAuthPage() {
             const updatedItinerary = prev.itinerary.map((row, i) => {
                 if (i !== index) return row;
                 const updatedRow = { ...row, [field]: value };
-                // Auto-calculate KM when From or To changes (only if neither is 'OTHER')
-                if (field === 'from' || field === 'to') {
+                // Local travel only: auto-calculate KM when From or To changes between known business units.
+                // International travel leaves km as manual entry.
+                if (!isInternational && (field === 'from' || field === 'to')) {
                     const fromCode = field === 'from' ? value : row.from;
                     const toCode = field === 'to' ? value : row.to;
                     if (fromCode && toCode && fromCode !== 'OTHER' && toCode !== 'OTHER') {
@@ -397,6 +412,7 @@ export default function TravelAuthPage() {
                 const metadata = request.metadata || {};
 
                 setRequestStatus(request.status || 'draft');
+                if (metadata.referenceCode) setExistingReferenceCode(metadata.referenceCode);
 
                 // Default budget structure
                 const defaultBudget = {
@@ -558,7 +574,7 @@ export default function TravelAuthPage() {
 
         if (!selectedApprovers.line_manager) errors.push('Please select an approver for Line Manager');
         if (!selectedApprovers.functional_head) errors.push('Please select an approver for Functional Head');
-        if (!selectedApprovers.hrd) errors.push('Please select an approver for HRD');
+        if (!selectedApprovers.hrd) errors.push('Please select an approver for HR Director');
         if (!selectedApprovers.ceo) errors.push('Please select an approver for CEO');
 
         return errors;
@@ -643,7 +659,6 @@ export default function TravelAuthPage() {
                         acceptConditions: travelData.acceptConditions,
                         itinerary: travelData.itinerary,
                         budget: travelData.budget,
-                        costAllocation: calculateCostAllocation(),
                         grandTotal: calculateGrandTotal(),
                         isEmergencyRequest: isTravelWithin7Days() ? isEmergencyRequest : false,
                         emergencyReason: isTravelWithin7Days() && isEmergencyRequest ? emergencyReason : '',
@@ -719,6 +734,332 @@ export default function TravelAuthPage() {
         }
     };
 
+    const [showPreview, setShowPreview] = useState(false);
+    const [showConfirm, setShowConfirm] = useState(false);
+
+    const travelModeLabel = (code: string) => {
+        switch (code) {
+            case 'personal_motor_vehicle': return 'Personal Motor Vehicle';
+            case 'air_transport': return 'Air Transport';
+            case 'bus_public_transport': return 'Bus / Public Transport';
+            default: return '—';
+        }
+    };
+
+    const locationLabel = (code: string, custom?: string) => {
+        // For international travel (no code, only custom city), fall back to the typed-in value.
+        if (!code) return custom || '—';
+        if (code === 'OTHER') return custom || 'Other';
+        const loc = TRAVEL_LOCATIONS.find(l => l.code === code);
+        return loc ? loc.name : code;
+    };
+
+    const travelModeText = () => {
+        const base = travelModeLabel(travelData.travelMode);
+        if (travelData.travelMode === 'personal_motor_vehicle' && travelData.vehicleRegistration) {
+            return `${base} — Reg: ${travelData.vehicleRegistration}`;
+        }
+        return base;
+    };
+
+    // Shared inline styles so the preview and the printed HTML look the same.
+    const tableStyle: React.CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 11 };
+    const cellStyle: React.CSSProperties = { border: '1px solid #333', padding: '6px 8px', verticalAlign: 'top' };
+    const headCellStyle: React.CSSProperties = { ...cellStyle, background: '#F3EADC', color: '#5E4426', fontWeight: 700, textAlign: 'left' };
+    const labelCellStyle: React.CSSProperties = { ...cellStyle, background: '#FAF7F0', fontWeight: 700, textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.04em', width: '28%' };
+
+    const buildPreviewSections = (): PreviewSection[] => {
+        const allocation = calculateCostAllocation();
+        const requestTimestamp = new Date().toLocaleString('en-GB', {
+            day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+        });
+        const totalKm = travelData.itinerary.reduce((sum, r) => sum + (parseFloat(r.km) || 0), 0);
+
+        return [
+            // 3. Main form header section — table layout
+            {
+                content: (
+                    <table className="doc-grid" style={tableStyle}>
+                        <tbody>
+                            <tr>
+                                <td style={labelCellStyle}>Name of Employee</td>
+                                <td style={cellStyle}>{user?.display_name || session?.user?.name || '—'}</td>
+                                <td style={labelCellStyle}>Department</td>
+                                <td style={cellStyle}>{departmentName || '—'}</td>
+                            </tr>
+                            <tr>
+                                <td style={labelCellStyle}>Business Unit</td>
+                                <td style={cellStyle}>{businessUnitName || '—'}</td>
+                                <td style={labelCellStyle}>Date &amp; Time of Request</td>
+                                <td style={cellStyle}>{requestTimestamp}</td>
+                            </tr>
+                            <tr>
+                                <td style={labelCellStyle}>Date of Intended Travel</td>
+                                <td style={cellStyle} colSpan={3}>{travelData.dateOfIntendedTravel || '—'}</td>
+                            </tr>
+                            <tr>
+                                <td style={labelCellStyle}>Purpose of Travel</td>
+                                <td style={cellStyle} colSpan={3}>{travelData.purposeOfTravel || '—'}</td>
+                            </tr>
+                            <tr>
+                                <td style={labelCellStyle}>Accompanying Associates</td>
+                                <td style={cellStyle} colSpan={3}>{travelData.accompanyingAssociates || '—'}</td>
+                            </tr>
+                            <tr>
+                                <td style={labelCellStyle}>Travel Mode (Vehicle Registration if driving)</td>
+                                <td style={cellStyle} colSpan={3}>{travelModeText()}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                ),
+            },
+            // 4. Conditions section
+            {
+                title: 'Conditions',
+                content: (
+                    <div
+                        className="conditions"
+                        style={{
+                            fontSize: 10.5,
+                            lineHeight: 1.5,
+                            color: '#222',
+                            background: '#FAF7F0',
+                            border: '1px solid #E5DFD2',
+                            padding: '10px 12px',
+                        }}
+                    >
+                        <p style={{ margin: 0 }}>
+                            The employee is to travel for the stated business purpose only. All travel
+                            must comply with the Rainbow Tourism Group travel policy. Where personal
+                            motor vehicles are used, the driver warrants that the vehicle is licensed,
+                            insured and roadworthy. Receipts must be retained for all reimbursable
+                            expenditure and submitted with the retirement of the travel advance.
+                        </p>
+                        {isEmergencyRequest && (
+                            <p style={{ margin: '8px 0 0', fontWeight: 600, color: '#8A3B1A' }}>
+                                Emergency travel reason: {emergencyReason || '—'}
+                            </p>
+                        )}
+                    </div>
+                ),
+            },
+            // 5. Travel itinerary table
+            {
+                title: 'Travel Itinerary',
+                content: (
+                    <table className="doc-grid" style={tableStyle}>
+                        <thead>
+                            <tr>
+                                <th style={headCellStyle}>Date / Time</th>
+                                <th style={headCellStyle}>From</th>
+                                <th style={headCellStyle}>To</th>
+                                <th style={{ ...headCellStyle, textAlign: 'right', width: '12%' }}>Distance (km)</th>
+                                <th style={headCellStyle}>Justification</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {travelData.itinerary.length === 0 ? (
+                                <tr>
+                                    <td style={cellStyle} colSpan={5}>No itinerary entries.</td>
+                                </tr>
+                            ) : (
+                                travelData.itinerary.map((it, i) => (
+                                    <tr key={i}>
+                                        <td style={cellStyle}>{it.date || '—'}</td>
+                                        <td style={cellStyle}>{locationLabel(it.from, it.fromCustom)}</td>
+                                        <td style={cellStyle}>{locationLabel(it.to, it.toCustom)}</td>
+                                        <td style={{ ...cellStyle, textAlign: 'right' }}>{it.km || '—'}</td>
+                                        <td style={cellStyle}>{it.justification || '—'}</td>
+                                    </tr>
+                                ))
+                            )}
+                            <tr>
+                                <td style={{ ...cellStyle, fontWeight: 700 }} colSpan={3}>Total Distance</td>
+                                <td style={{ ...cellStyle, textAlign: 'right', fontWeight: 700 }}>{totalKm.toFixed(1)}</td>
+                                <td style={cellStyle}></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                ),
+            },
+            // 6. Hotel reservation
+            {
+                title: 'Hotel Reservation',
+                content: (
+                    <table className="doc-grid" style={tableStyle}>
+                        <tbody>
+                            <tr>
+                                <td style={labelCellStyle}>Hotel Reservation Details</td>
+                                <td style={cellStyle}>
+                                    <span style={{ color: '#666', fontStyle: 'italic' }}>
+                                        Submit a separate Hotel Booking request if accommodation is required.
+                                    </span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                ),
+            },
+            // 7. Travel budget
+            {
+                title: 'Travel Budget',
+                content: (
+                    <table className="doc-grid" style={tableStyle}>
+                        <thead>
+                            <tr>
+                                <th style={headCellStyle}>Item</th>
+                                <th style={{ ...headCellStyle, textAlign: 'right', width: '12%' }}>Quantity</th>
+                                <th style={{ ...headCellStyle, textAlign: 'right', width: '16%' }}>Unit Cost (USD)</th>
+                                <th style={{ ...headCellStyle, textAlign: 'right', width: '18%' }}>Total (USD)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td style={cellStyle}>AA Rates (Personal Vehicle)</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.aaRates.quantity || '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.aaRates.unitCost || '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.aaRates.totalCost || '0.00'}</td>
+                            </tr>
+                            <tr>
+                                <td style={cellStyle}>Air / Bus Tickets</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.airBusTickets.quantity || '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.airBusTickets.unitCost || '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.airBusTickets.totalCost || '0.00'}</td>
+                            </tr>
+                            <tr>
+                                <td style={cellStyle}>Conferencing Cost</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.conferencingCost.quantity || '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.conferencingCost.unitCost || '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.conferencingCost.totalCost || '0.00'}</td>
+                            </tr>
+                            {(Array.isArray(travelData.budget.tollgates) ? travelData.budget.tollgates : []).map((t, i) => (
+                                <tr key={`toll-${i}`}>
+                                    <td style={cellStyle}>Tollgate{t.road ? ` — ${t.road}` : ''}</td>
+                                    <td style={{ ...cellStyle, textAlign: 'right' }}>{t.quantity || '—'}</td>
+                                    <td style={{ ...cellStyle, textAlign: 'right' }}>{t.unitCost || '—'}</td>
+                                    <td style={{ ...cellStyle, textAlign: 'right' }}>{t.totalCost || '0.00'}</td>
+                                </tr>
+                            ))}
+                            <tr>
+                                <td style={cellStyle}>
+                                    Other{travelData.budget.other.description ? ` — ${travelData.budget.other.description}` : ''}
+                                </td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.other.quantity || '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.other.unitCost || '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.other.totalCost || '0.00'}</td>
+                            </tr>
+                            <tr>
+                                <td style={{ ...cellStyle, fontWeight: 700, background: '#F3EADC' }} colSpan={3}>Grand Total</td>
+                                <td style={{ ...cellStyle, textAlign: 'right', fontWeight: 700, background: '#F3EADC' }}>
+                                    {calculateGrandTotal()}
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                ),
+            },
+            // 8. Cost allocation (local travel only — business-unit allocation does not apply to international trips)
+            ...(isInternational ? [] : [{
+                title: 'Cost Allocation',
+                content: (
+                    <table className="doc-grid" style={tableStyle}>
+                        <thead>
+                            <tr>
+                                <th style={headCellStyle}>Business Unit</th>
+                                <th style={{ ...headCellStyle, textAlign: 'right' }}>Allocated Amount (USD)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {([
+                                ['MRC', allocation.mrc],
+                                ['NAH', allocation.nah],
+                                ['RTH', allocation.rth],
+                                ['KHCC', allocation.khcc],
+                                ['BRH', allocation.brh],
+                                ['VFRH', allocation.vfrh],
+                                ['AZAM', allocation.azam],
+                            ] as const).map(([unit, amt]) => (
+                                <tr key={unit}>
+                                    <td style={cellStyle}>{unit}</td>
+                                    <td style={{ ...cellStyle, textAlign: 'right' }}>{amt || '0.00'}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                ),
+            }]),
+            // 9. Approval section — multi-column
+            {
+                title: 'Approval',
+                content: (
+                    <table className="doc-grid approval-row" style={tableStyle}>
+                        <thead>
+                            <tr>
+                                {approvalRoles.map(r => (
+                                    <th key={r.key} style={{ ...headCellStyle, textAlign: 'center', width: '25%' }}>
+                                        {r.label}
+                                        <div style={{ fontSize: 9, fontWeight: 500, color: '#7C5A33', textTransform: 'none' }}>
+                                            {r.description}
+                                        </div>
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                {approvalRoles.map(r => {
+                                    const u = users.find(u => u.id === selectedApprovers[r.key]);
+                                    return (
+                                        <td key={r.key} style={{ ...cellStyle, width: '25%' }}>
+                                            <div style={{ fontSize: 9, fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Name</div>
+                                            <div style={{ fontSize: 11, marginBottom: 8 }}>{u?.display_name || '—'}</div>
+                                            <div style={{ fontSize: 9, fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Signature</div>
+                                            <div
+                                                className="sig-line"
+                                                style={{ borderBottom: '1px solid #666', height: 28, marginTop: 4, marginBottom: 8 }}
+                                            />
+                                            <div style={{ fontSize: 9, fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Date</div>
+                                            <div
+                                                className="sig-line"
+                                                style={{ borderBottom: '1px solid #666', height: 18, marginTop: 4 }}
+                                            />
+                                        </td>
+                                    );
+                                })}
+                            </tr>
+                        </tbody>
+                    </table>
+                ),
+            },
+            // 10. Additional comments
+            {
+                title: 'Additional Comments',
+                content: (
+                    <div
+                        style={{
+                            border: '1px solid #333',
+                            minHeight: 60,
+                            padding: '8px 10px',
+                            fontSize: 11,
+                            color: '#222',
+                            whiteSpace: 'pre-wrap',
+                        }}
+                    >
+                        {/* No dedicated comments field in the form — reserved for approver annotations. */}
+                        &nbsp;
+                    </div>
+                ),
+            },
+        ];
+    };
+
+    const travelDocumentHeader: DocumentHeader = {
+        logoUrl: '/images/RTG_LOGO.png',
+        docNo: isInternational ? 'DOC NO: HR APX – 27 INTERNATIONAL TRAVEL AUTHORISATION' : 'DOC NO: HR APX – 27 LOCAL TRAVEL AUTHORISATION',
+        department: 'DEPARTMENT: HUMAN RESOURCES',
+        page: 'PAGE: 1 of 1',
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
@@ -734,6 +1075,10 @@ export default function TravelAuthPage() {
             return;
         }
 
+        setShowConfirm(true);
+    };
+
+    const performSubmit = async () => {
         setLoading(true);
         setError(null);
 
@@ -750,14 +1095,16 @@ export default function TravelAuthPage() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    title: `Travel Auth: ${travelData.purposeOfTravel.substring(0, 50)}`,
+                    title: `${isInternational ? 'Intl Travel' : 'Travel'} Auth: ${travelData.purposeOfTravel.substring(0, 50)}`,
                     description: travelData.purposeOfTravel,
                     priority: 'normal',
                     category: 'travel',
-                    requestType: 'travel_authorization',
+                    requestType: travelRequestType,
                     status: 'pending',
                     metadata: {
-                        type: 'travel_authorization',
+                        type: travelRequestType,
+                        referenceCode: existingReferenceCode || referenceCode || undefined,
+                        isInternational,
                         dateOfIntendedTravel: travelData.dateOfIntendedTravel,
                         purposeOfTravel: travelData.purposeOfTravel,
                         accompanyingAssociates: travelData.accompanyingAssociates,
@@ -765,7 +1112,6 @@ export default function TravelAuthPage() {
                         acceptConditions: travelData.acceptConditions,
                         itinerary: travelData.itinerary,
                         budget: travelData.budget,
-                        costAllocation: calculateCostAllocation(),
                         grandTotal: calculateGrandTotal(),
                         isEmergencyRequest: isTravelWithin7Days() ? isEmergencyRequest : false,
                         emergencyReason: isTravelWithin7Days() && isEmergencyRequest ? emergencyReason : '',
@@ -794,14 +1140,16 @@ export default function TravelAuthPage() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    title: `Travel Auth: ${travelData.purposeOfTravel?.substring(0, 50) || 'Draft'}`,
+                    title: `${isInternational ? 'Intl Travel' : 'Travel'} Auth: ${travelData.purposeOfTravel?.substring(0, 50) || 'Draft'}`,
                     description: travelData.purposeOfTravel || 'Draft request',
                     priority: 'normal',
                     category: 'travel',
-                    requestType: 'travel_authorization',
+                    requestType: travelRequestType,
                     status: 'draft',
                     metadata: {
-                        type: 'travel_authorization',
+                        type: travelRequestType,
+                        referenceCode: existingReferenceCode || referenceCode || undefined,
+                        isInternational,
                         dateOfIntendedTravel: travelData.dateOfIntendedTravel,
                         purposeOfTravel: travelData.purposeOfTravel,
                         accompanyingAssociates: travelData.accompanyingAssociates,
@@ -811,7 +1159,6 @@ export default function TravelAuthPage() {
                         acceptConditions: travelData.acceptConditions,
                         itinerary: travelData.itinerary,
                         budget: travelData.budget,
-                        costAllocation: calculateCostAllocation(),
                         grandTotal: calculateGrandTotal(),
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
@@ -841,16 +1188,28 @@ export default function TravelAuthPage() {
 
     if (!session) return null;
 
-    const pageTitle = isApproverEditing ? 'Edit Travel Authorization (Approver)' : isEditMode ? 'Edit Travel Authorization' : 'Travel Authorization';
+    const unsavedPrompt = useUnsavedChangesPrompt({
+        isDirty,
+        disabled: loading || savingDraft,
+    });
+
+    const pageTitle = isApproverEditing ? `Edit ${formKindLabel} (Approver)` : isEditMode ? `Edit ${formKindLabel}` : formKindLabel;
 
     return (
         <AppLayout title={pageTitle} showBack onBack={() => router.back()} hideNav>
-            <form onSubmit={handleSubmit} className="p-4 sm:p-6 max-w-5xl mx-auto pb-32">
+            <form onSubmit={handleSubmit} onChange={() => setIsDirty(true)} className="p-4 sm:p-6 max-w-5xl mx-auto pb-32">
                 <div className="mb-6 text-center">
                     <h1 className="text-2xl font-bold text-text-primary font-heading uppercase tracking-wide">
-                        {isApproverEditing ? 'Edit Travel Authorization' : 'Local Travel Authorization'}
+                        {isApproverEditing ? `Edit ${formKindLabel}` : formKindLabel}
                     </h1>
-                    <p className="text-xs text-gray-500 mt-1">DOC NO: HR APX – 27 LOCAL TRAVEL AUTHORISATION</p>
+                    <p className="text-xs text-gray-500 mt-1">{isInternational ? 'DOC NO: HR APX – 27 INTERNATIONAL TRAVEL AUTHORISATION' : 'DOC NO: HR APX – 27 LOCAL TRAVEL AUTHORISATION'}</p>
+                    <div className="mt-4 max-w-lg mx-auto">
+                        <ReferenceCodeBanner
+                            requestType={travelRequestType}
+                            existingCode={existingReferenceCode}
+                            onCodeAssigned={setReferenceCode}
+                        />
+                    </div>
                     {isApproverEditing && (
                         <div className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-primary-50 border border-primary-200 rounded-xl">
                             <svg className="w-4 h-4 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -990,7 +1349,9 @@ export default function TravelAuthPage() {
                                         <th className="px-3 py-2 text-left font-semibold text-gray-700">Date/Time</th>
                                         <th className="px-3 py-2 text-left font-semibold text-gray-700">From</th>
                                         <th className="px-3 py-2 text-left font-semibold text-gray-700">To</th>
-                                        <th className="px-3 py-2 text-left font-semibold text-gray-700 w-20">KM</th>
+                                        {!isInternational && (
+                                            <th className="px-3 py-2 text-left font-semibold text-gray-700 w-20">KM</th>
+                                        )}
                                         <th className="px-3 py-2 text-left font-semibold text-gray-700">Justification</th>
                                         <th className="px-3 py-2 w-10"></th>
                                     </tr>
@@ -999,7 +1360,8 @@ export default function TravelAuthPage() {
                                     {travelData.itinerary.map((row, index) => {
                                         const isFromOther = row.from === 'OTHER';
                                         const isToOther = row.to === 'OTHER';
-                                        const isManualEntry = isFromOther || isToOther;
+                                        // In international mode the user always enters origin/destination and km manually.
+                                        const isManualEntry = isInternational || isFromOther || isToOther;
                                         return (
                                             <tr key={index} className="border-b border-gray-100">
                                                 <td className="px-2 py-2">
@@ -1007,33 +1369,47 @@ export default function TravelAuthPage() {
                                                 </td>
                                                 <td className="px-2 py-2">
                                                     <div className="space-y-1">
-                                                        <select value={row.from} onChange={(e) => updateItineraryRow(index, 'from', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm">
-                                                            <option value="">Select Origin</option>
-                                                            {TRAVEL_LOCATIONS.map(loc => (
-                                                                <option key={loc.code} value={loc.code}>{loc.name}</option>
-                                                            ))}
-                                                        </select>
-                                                        {isFromOther && (
-                                                            <input type="text" value={row.fromCustom || ''} onChange={(e) => updateItineraryRow(index, 'fromCustom', e.target.value)} className="w-full px-2 py-1 rounded border border-orange-300 focus:ring-1 focus:ring-orange-500 outline-none text-sm bg-orange-50" placeholder="Enter custom origin" />
+                                                        {isInternational ? (
+                                                            <input type="text" value={row.fromCustom || ''} onChange={(e) => updateItineraryRow(index, 'fromCustom', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="Origin city / country" />
+                                                        ) : (
+                                                            <>
+                                                                <select value={row.from} onChange={(e) => updateItineraryRow(index, 'from', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm">
+                                                                    <option value="">Select Origin</option>
+                                                                    {TRAVEL_LOCATIONS.map(loc => (
+                                                                        <option key={loc.code} value={loc.code}>{loc.name}</option>
+                                                                    ))}
+                                                                </select>
+                                                                {isFromOther && (
+                                                                    <input type="text" value={row.fromCustom || ''} onChange={(e) => updateItineraryRow(index, 'fromCustom', e.target.value)} className="w-full px-2 py-1 rounded border border-orange-300 focus:ring-1 focus:ring-orange-500 outline-none text-sm bg-orange-50" placeholder="Enter custom origin" />
+                                                                )}
+                                                            </>
                                                         )}
                                                     </div>
                                                 </td>
                                                 <td className="px-2 py-2">
                                                     <div className="space-y-1">
-                                                        <select value={row.to} onChange={(e) => updateItineraryRow(index, 'to', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm">
-                                                            <option value="">Select Destination</option>
-                                                            {TRAVEL_LOCATIONS.map(loc => (
-                                                                <option key={loc.code} value={loc.code}>{loc.name}</option>
-                                                            ))}
-                                                        </select>
-                                                        {isToOther && (
-                                                            <input type="text" value={row.toCustom || ''} onChange={(e) => updateItineraryRow(index, 'toCustom', e.target.value)} className="w-full px-2 py-1 rounded border border-orange-300 focus:ring-1 focus:ring-orange-500 outline-none text-sm bg-orange-50" placeholder="Enter custom destination" />
+                                                        {isInternational ? (
+                                                            <input type="text" value={row.toCustom || ''} onChange={(e) => updateItineraryRow(index, 'toCustom', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="Destination city / country" />
+                                                        ) : (
+                                                            <>
+                                                                <select value={row.to} onChange={(e) => updateItineraryRow(index, 'to', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm">
+                                                                    <option value="">Select Destination</option>
+                                                                    {TRAVEL_LOCATIONS.map(loc => (
+                                                                        <option key={loc.code} value={loc.code}>{loc.name}</option>
+                                                                    ))}
+                                                                </select>
+                                                                {isToOther && (
+                                                                    <input type="text" value={row.toCustom || ''} onChange={(e) => updateItineraryRow(index, 'toCustom', e.target.value)} className="w-full px-2 py-1 rounded border border-orange-300 focus:ring-1 focus:ring-orange-500 outline-none text-sm bg-orange-50" placeholder="Enter custom destination" />
+                                                                )}
+                                                            </>
                                                         )}
                                                     </div>
                                                 </td>
-                                                <td className="px-2 py-2">
-                                                    <input type="number" value={row.km} readOnly={!isManualEntry} onChange={(e) => isManualEntry && updateItineraryRow(index, 'km', e.target.value)} className={`w-full px-2 py-1 rounded border outline-none text-sm text-center font-medium ${isManualEntry ? 'border-orange-300 bg-orange-50 focus:ring-1 focus:ring-orange-500' : 'border-gray-200 bg-gray-50'}`} placeholder="0" />
-                                                </td>
+                                                {!isInternational && (
+                                                    <td className="px-2 py-2">
+                                                        <input type="number" value={row.km} readOnly={!isManualEntry} onChange={(e) => isManualEntry && updateItineraryRow(index, 'km', e.target.value)} className={`w-full px-2 py-1 rounded border outline-none text-sm text-center font-medium ${isManualEntry ? 'border-orange-300 bg-orange-50 focus:ring-1 focus:ring-orange-500' : 'border-gray-200 bg-gray-50'}`} placeholder="0" />
+                                                    </td>
+                                                )}
                                                 <td className="px-2 py-2">
                                                     <input type="text" value={row.justification} onChange={(e) => updateItineraryRow(index, 'justification', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="Reason" />
                                                 </td>
@@ -1047,11 +1423,13 @@ export default function TravelAuthPage() {
                                             </tr>
                                         );
                                     })}
-                                    <tr className="bg-primary-50 font-semibold">
-                                        <td colSpan={3} className="px-3 py-2 text-right text-primary-700">Total Distance:</td>
-                                        <td className="px-2 py-2 text-center text-primary-900">{travelData.itinerary.reduce((sum, row) => sum + (parseFloat(row.km) || 0), 0)} km</td>
-                                        <td colSpan={2}></td>
-                                    </tr>
+                                    {!isInternational && (
+                                        <tr className="bg-primary-50 font-semibold">
+                                            <td colSpan={3} className="px-3 py-2 text-right text-primary-700">Total Distance:</td>
+                                            <td className="px-2 py-2 text-center text-primary-900">{travelData.itinerary.reduce((sum, row) => sum + (parseFloat(row.km) || 0), 0)} km</td>
+                                            <td colSpan={2}></td>
+                                        </tr>
+                                    )}
                                 </tbody>
                             </table>
                         </div>
@@ -1271,38 +1649,12 @@ export default function TravelAuthPage() {
                             </table>
                         </div>
 
-                        {/* Cost Allocation Table - Auto-filled based on itinerary */}
+                        {/* Cost Allocation — filled in by HR Director at approval time */}
                         <div className="mt-6 pt-6 border-t border-gray-200">
-                            <h4 className="font-semibold text-gray-700 uppercase text-sm mb-3">Allocation Cost to Unit <span className="text-gray-500 text-xs font-normal">(Auto-calculated based on itinerary destinations)</span></h4>
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-sm border border-gray-200">
-                                    <thead>
-                                        <tr className="bg-gray-100">
-                                            <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">Corp</th>
-                                            <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">MRC</th>
-                                            <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">NAH</th>
-                                            <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">RTH</th>
-                                            <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">KHCC</th>
-                                            <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">BRH</th>
-                                            <th className="px-2 py-2 text-center font-semibold text-gray-700 border-r border-gray-200">VFRH</th>
-                                            <th className="px-2 py-2 text-center font-semibold text-gray-700">AZAM</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr>
-                                            {(() => {
-                                                const allocation = calculateCostAllocation();
-                                                return (['corp', 'mrc', 'nah', 'rth', 'khcc', 'brh', 'vfrh', 'azam'] as const).map((unit, idx) => (
-                                                    <td key={unit} className={`px-1 py-2 text-center ${idx < 7 ? 'border-r border-gray-200' : ''} ${allocation[unit] ? 'bg-green-50 text-green-800 font-medium' : 'text-gray-400'}`}>
-                                                        {allocation[unit] ? `$${allocation[unit]}` : '-'}
-                                                    </td>
-                                                ));
-                                            })()}
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                            <p className="text-xs text-gray-500 mt-2">* Costs are automatically distributed based on the proportion of visits to each business unit in your itinerary.</p>
+                            <h4 className="font-semibold text-gray-700 uppercase text-sm mb-2">Allocation Cost to Unit</h4>
+                            <p className="text-xs text-gray-500">
+                                The HR Director will allocate the cost across business units when approving this request.
+                            </p>
                         </div>
                     </Card>
 
@@ -1399,6 +1751,36 @@ export default function TravelAuthPage() {
                     </div>
                 </div>
             </form>
+
+            <RequestPreviewModal
+                isOpen={showPreview}
+                onClose={() => setShowPreview(false)}
+                mode="preview"
+                title={formKindLabel}
+                sections={buildPreviewSections()}
+                documentHeader={travelDocumentHeader}
+            />
+            <RequestPreviewModal
+                isOpen={showConfirm}
+                onClose={() => setShowConfirm(false)}
+                mode="confirm"
+                title={formKindLabel}
+                sections={buildPreviewSections()}
+                documentHeader={travelDocumentHeader}
+                confirming={loading}
+                onConfirm={async () => {
+                    setShowConfirm(false);
+                    await performSubmit();
+                }}
+            />
+            <UnsavedChangesModal
+                isOpen={unsavedPrompt.isOpen}
+                savingDraft={savingDraft}
+                canSaveDraft={!isApproverEditing}
+                onSaveDraft={() => unsavedPrompt.saveDraftAndContinue(handleSaveDraft)}
+                onDiscard={unsavedPrompt.discardAndContinue}
+                onCancel={unsavedPrompt.cancel}
+            />
         </AppLayout>
     );
 }
