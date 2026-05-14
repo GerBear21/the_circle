@@ -5,6 +5,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { ApprovalEngine } from '@/lib/approvalEngine';
 import { getApprovalRisk, authForRisk, satisfiesAuth, type AuthenticationMethod } from '@/lib/approvalRisk';
 import { verifyStepUpForApproval } from '@/lib/stepUpToken';
+import { verifyElevationCookie, clearElevationCookie } from '@/lib/elevatedSession';
 
 /**
  * POST /api/approvals/action
@@ -40,14 +41,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       action,
       comment,
       // New fields (all optional for backward compatibility)
-      signatureType,         // 'saved' | 'manual' | 'typed'
+      signatureType,         // 'saved' | 'manual'  (typed is no longer accepted)
       signatureData,         // for 'manual': data URL of the freshly drawn signature
-                             // for 'typed':  the literal typed string
       stepUpToken,           // short-lived proof of biometric / MS MFA step-up
       authMethod,            // what the client believes it used — server verifies
       deviceInfo,            // { userAgent, platform, screen } — opaque JSONB
       costAllocation,        // HR Director travel_authorization cost allocation
+      allocationType,        // HR Director comp-booking category (hotel bookings only)
     } = req.body ?? {};
+
+    // Typed signatures are disallowed organisation-wide. Reject them at the
+    // boundary so old clients that still send `typed` get a clear error
+    // rather than silently being downgraded.
+    if (signatureType === 'typed') {
+      return res.status(400).json({
+        error: 'Typed signatures are no longer accepted. Please use your saved signature or draw one.',
+        code: 'TYPED_SIGNATURE_DISALLOWED',
+      });
+    }
 
     if (!requestId || !stepId || !action) {
       return res.status(400).json({ error: 'requestId, stepId, and action are required' });
@@ -70,15 +81,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const riskEval = await evaluateRiskForAction(requestId, stepId);
     const requiredAuth = authForRisk(riskEval.risk);
 
-    // Hand-drawn (manual) signatures are themselves an intentional verification
-    // act — they bypass step-up auth regardless of risk level. For saved or
-    // typed signatures, enforce the risk-appropriate auth ceremony.
-    const manualSignatureBypass = signatureType === 'manual';
-
+    // Step-up authentication is enforced strictly by risk level. Drawing a
+    // signature is NOT a substitute for MFA / biometric verification —
+    // the auth ceremony must succeed regardless of which signature type
+    // the user picks.
     let effectiveAuth: AuthenticationMethod = 'session';
     let authReference: string | null = null;
 
-    if (requiredAuth !== 'session' && !manualSignatureBypass) {
+    if (requiredAuth !== 'session') {
       let payload = verifyStepUpForApproval(stepUpToken, {
         userId,
         requestId,
@@ -98,6 +108,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           stepId,
           requiredMethod: 'microsoft_mfa',
         });
+      }
+
+      // Elevated session fallback: if no fresh step-up token was provided
+      // (or the one provided didn't match), accept a valid elevation cookie
+      // that satisfies the required auth rank. This is what lets users
+      // approve repeatedly within the 15-minute window without re-prompting.
+      if (!payload) {
+        const elevation = verifyElevationCookie(req, userId);
+        if (elevation) {
+          const rank = (m: AuthenticationMethod) =>
+            m === 'biometric' ? 2 : m === 'microsoft_mfa' ? 1 : 0;
+          if (rank(elevation.method) >= rank(requiredAuth)) {
+            payload = elevation;
+          } else if (requiredAuth === 'biometric' && rank(elevation.method) >= rank('microsoft_mfa')) {
+            // Inclusivity fallback also applies to elevation cookies.
+            payload = elevation;
+          }
+        }
+        // If the cookie is present but invalid/expired, clear it so the
+        // browser stops sending stale state.
+        if (!payload && req.headers.cookie?.includes('elevation_session=')) {
+          clearElevationCookie(res);
+        }
       }
 
       if (!payload) {
@@ -128,15 +161,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // -----------------------------------------------------------------
     let signatureUrl: string | null = null;
     let signatureReference: string | null = null;
-    let resolvedSignatureType: 'saved' | 'manual' | 'typed' | undefined = signatureType;
+    let resolvedSignatureType: 'saved' | 'manual' | undefined = signatureType;
 
     if (action === 'approve') {
-      if (signatureType === 'typed' && typeof signatureData === 'string' && signatureData.trim()) {
-        // Typed signatures don't have an image — the PDF renderer renders
-        // the literal string in a signature font. Store the string as the
-        // reference; signatureUrl remains null.
-        signatureReference = signatureData.trim().slice(0, 200);
-      } else if (signatureType === 'manual' && typeof signatureData === 'string' && signatureData.startsWith('data:image')) {
+      if (signatureType === 'manual' && typeof signatureData === 'string' && signatureData.startsWith('data:image')) {
         // Freshly drawn at approval time. Upload to storage so the PDF
         // generator can reference it like any saved signature.
         const uploaded = await uploadManualSignature(userId, requestId, stepId, signatureData);
@@ -172,9 +200,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .single();
 
       const meta = (reqRow?.metadata as any) || {};
+      // HR Director cost allocation is required for:
+      //   - travel authorisations (local + international)
+      //   - all hotel bookings (the HRD always signs off on which units
+      //     carry the cost / comp value, even when no travel doc is bundled)
       const requiresAllocation =
         meta.type === 'travel_authorization' ||
-        (meta.type === 'hotel_booking' && meta.processTravelDocument);
+        meta.type === 'international_travel_authorization' ||
+        meta.type === 'hotel_booking' ||
+        meta.type === 'external_hotel_booking';
       const hrdUserId = meta.approverRoles?.hrd;
 
       if (requiresAllocation && hrdUserId && hrdUserId === userId) {
@@ -188,17 +222,54 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           sum += num;
         }
         const grandTotal = parseFloat(meta.grandTotal || '0') || 0;
+        // When a grand total is present, allocations must sum to it.
+        // For pure comp bookings (no grand total), accept any non-zero
+        // allocation — the HRD's signed-off split is what we record.
         if (grandTotal > 0 && Math.abs(sum - grandTotal) > 0.01) {
           return res.status(400).json({
             error: `Cost allocation (${sum.toFixed(2)}) must equal grand total (${grandTotal.toFixed(2)})`,
             code: 'COST_ALLOCATION_MISMATCH',
           });
         }
+        if (grandTotal <= 0 && sum <= 0) {
+          return res.status(400).json({
+            error: 'At least one cost allocation must be greater than zero',
+            code: 'COST_ALLOCATION_EMPTY',
+          });
+        }
+
+        // Persist the HRD-picked category alongside the per-unit split
+        // for hotel bookings. We only accept the known category codes; an
+        // unknown value is silently dropped so the requester's pre-existing
+        // (or empty) allocationType isn't overwritten with junk.
+        const allowedCategories = new Set([
+          'marketing_domestic',
+          'marketing_international',
+          'administration',
+          'promotions',
+          'personnel',
+        ]);
+        const isHotelBookingType =
+          meta.type === 'hotel_booking' || meta.type === 'external_hotel_booking';
+        const cleanedAllocationType =
+          isHotelBookingType && typeof allocationType === 'string' && allowedCategories.has(allocationType)
+            ? allocationType
+            : undefined;
+        if (isHotelBookingType && !cleanedAllocationType) {
+          return res.status(400).json({
+            error: 'Allocation category is required for complimentary bookings',
+            code: 'ALLOCATION_CATEGORY_REQUIRED',
+          });
+        }
 
         await supabaseAdmin
           .from('requests')
           .update({
-            metadata: { ...meta, costAllocation: cleaned },
+            metadata: {
+              ...meta,
+              costAllocation: cleaned,
+              ...(cleanedAllocationType ? { allocationType: cleanedAllocationType } : {}),
+            },
             updated_at: new Date().toISOString(),
           })
           .eq('id', requestId);

@@ -10,7 +10,11 @@ import { AppLayout } from '../../components/layout';
 import { Card, Button, Input } from '../../components/ui';
 import DynamicFormDetails from '../../components/DynamicFormDetails';
 import ApprovalConfirmModal, { type ApprovalConfirmResult } from '../../components/approvals/ApprovalConfirmModal';
+import ElevationIndicator from '../../components/approvals/ElevationIndicator';
+import { useToast } from '../../components/ui/ToastProvider';
+import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import SignatureSelector, { type SignatureSelection } from '../../components/approvals/SignatureSelector';
+import ApprovedRequestPreview, { ApprovedRequestPreviewInline } from '../../components/requests/ApprovedRequestPreview';
 import { getApprovalRisk, type ApprovalRisk, type AuthenticationMethod } from '@/lib/approvalRisk';
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -78,10 +82,13 @@ interface RequestDetail {
         status: 'pending' | 'approved' | 'rejected' | 'skipped' | 'waiting';
         due_at?: string;
         created_at: string;
+        first_viewed_at?: string | null;
+        last_viewed_at?: string | null;
         approver?: {
             id: string;
             display_name: string;
             email: string;
+            job_title?: string | null;
         } | null;
         approvals?: {
             id: string;
@@ -293,9 +300,12 @@ interface ApproverInfo {
     display_name: string;
     email: string;
     profile_picture_url?: string;
+    job_title?: string | null;
     status: 'pending' | 'approved' | 'rejected';
     signed_at?: string;
     comment?: string;
+    first_viewed_at?: string | null;
+    last_viewed_at?: string | null;
 }
 
 // Helper to get approver IDs from metadata (handles nested structures)
@@ -459,10 +469,13 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
                             display_name: user?.display_name || `Approver ${index + 1}`,
                             email: user?.email || '',
                             profile_picture_url: user?.profile_picture_url,
+                            job_title: user?.job_title || step?.approver?.job_title || null,
                             status: step?.status === 'approved' ? 'approved' :
                                 step?.status === 'rejected' ? 'rejected' : 'pending',
                             signed_at: approval?.signed_at,
                             comment: approval?.comment,
+                            first_viewed_at: step?.first_viewed_at || null,
+                            last_viewed_at: step?.last_viewed_at || null,
                         };
                     });
 
@@ -477,10 +490,13 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
                             id,
                             display_name: step?.approver?.display_name || `Approver ${index + 1}`,
                             email: step?.approver?.email || '',
+                            job_title: step?.approver?.job_title || null,
                             status: step?.status === 'approved' ? 'approved' :
                                 step?.status === 'rejected' ? 'rejected' : 'pending',
                             signed_at: approval?.signed_at,
                             comment: approval?.comment,
+                            first_viewed_at: step?.first_viewed_at || null,
+                            last_viewed_at: step?.last_viewed_at || null,
                         };
                     });
                     setApprovers(approverInfos);
@@ -732,7 +748,31 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
                                             <h4 className={`font-bold text-lg ${isActive && !isEditing ? 'text-primary-700' : 'text-gray-900'}`}>
                                                 {approver.display_name}
                                             </h4>
+                                            {approver.job_title && (
+                                                <p className="text-xs font-medium text-primary-700 mt-0.5">{approver.job_title}</p>
+                                            )}
                                             <p className="text-sm text-gray-500">{approver.email}</p>
+                                            <div className="mt-1 flex items-center gap-2 flex-wrap">
+                                                {approver.first_viewed_at ? (
+                                                    <span
+                                                        className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-full px-2 py-0.5"
+                                                        title={`First opened ${new Date(approver.first_viewed_at).toLocaleString()}\nLast viewed ${approver.last_viewed_at ? new Date(approver.last_viewed_at).toLocaleString() : '—'}`}
+                                                    >
+                                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                        </svg>
+                                                        Opened {new Date(approver.first_viewed_at).toLocaleDateString()}
+                                                    </span>
+                                                ) : isActive ? (
+                                                    <span className="inline-flex items-center gap-1 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5">
+                                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                                                        </svg>
+                                                        Not opened yet
+                                                    </span>
+                                                ) : null}
+                                            </div>
                                         </div>
                                     </div>
 
@@ -830,22 +870,7 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
                                                             }
                                                             return null;
                                                         })()}
-                                                        {/* Requestor can request delegation for the current approver - only if no delegation exists */}
-                                                        {isRequestor && approver.id !== currentUserId && !approverDelegations.find(d => d.approverId === approver.id) && (
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => {
-                                                                    setDelegationTargetApprover({ id: approver.id, name: approver.display_name });
-                                                                    setShowDelegationModal(true);
-                                                                }}
-                                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors"
-                                                            >
-                                                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                                </svg>
-                                                                Request Delegation
-                                                            </button>
-                                                        )}
+                                                        
                                                     </div>
                                                 ) : (
                                                     <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-gray-50 text-gray-500 border border-gray-100">
@@ -882,117 +907,7 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
                 })}
             </div>
 
-            {/* Delegation Request Modal */}
-            {showDelegationModal && delegationTargetApprover && (
-                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl">
-                        <div className="border-b border-gray-100 bg-gray-50/50 px-6 py-4 rounded-t-2xl flex items-center justify-between">
-                            <div>
-                                <h2 className="text-lg font-bold text-gray-900">Request Delegation</h2>
-                                <p className="text-xs text-gray-500 mt-0.5">
-                                    Request someone to act on behalf of <span className="font-medium text-gray-700">{delegationTargetApprover.name}</span>
-                                </p>
-                            </div>
-                            <button
-                                onClick={() => {
-                                    setShowDelegationModal(false);
-                                    setDelegationTargetApprover(null);
-                                    setDelegationForm({ delegate_id: '', reason: '', starts_at: '', ends_at: '' });
-                                    setDelegationFeedback(null);
-                                }}
-                                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
-                            >
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        </div>
-
-                        <form onSubmit={handleDelegationSubmit} className="p-6 space-y-4">
-                            {delegationFeedback && (
-                                <div className={`px-4 py-3 rounded-xl text-sm font-medium ${
-                                    delegationFeedback.type === 'success' 
-                                        ? 'bg-green-50 text-green-700 border border-green-200' 
-                                        : 'bg-red-50 text-red-700 border border-red-200'
-                                }`}>
-                                    {delegationFeedback.text}
-                                </div>
-                            )}
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Delegate To</label>
-                                <select
-                                    value={delegationForm.delegate_id}
-                                    onChange={(e) => setDelegationForm(f => ({ ...f, delegate_id: e.target.value }))}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
-                                    required
-                                >
-                                    <option value="">Select a colleague...</option>
-                                    {delegationUsers.map((u) => (
-                                        <option key={u.id} value={u.id}>{u.display_name} ({u.email})</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
-                                <textarea
-                                    value={delegationForm.reason}
-                                    onChange={(e) => setDelegationForm(f => ({ ...f, reason: e.target.value }))}
-                                    placeholder="e.g. Annual leave, business travel..."
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 resize-none"
-                                    rows={2}
-                                />
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-                                    <input
-                                        type="date"
-                                        value={delegationForm.starts_at}
-                                        onChange={(e) => setDelegationForm(f => ({ ...f, starts_at: e.target.value }))}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
-                                    <input
-                                        type="date"
-                                        value={delegationForm.ends_at}
-                                        onChange={(e) => setDelegationForm(f => ({ ...f, ends_at: e.target.value }))}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                                <p className="text-xs text-amber-700">
-                                    <strong>Note:</strong> Your delegation request will be reviewed by an admin before taking effect. You will be notified once it's approved.
-                                </p>
-                            </div>
-
-                            <div className="flex gap-2 justify-end pt-2">
-                                <Button
-                                    variant="outline"
-                                    type="button"
-                                    onClick={() => {
-                                        setShowDelegationModal(false);
-                                        setDelegationTargetApprover(null);
-                                        setDelegationForm({ delegate_id: '', reason: '', starts_at: '', ends_at: '' });
-                                        setDelegationFeedback(null);
-                                    }}
-                                >
-                                    Cancel
-                                </Button>
-                                <Button variant="primary" type="submit" disabled={delegationSubmitting || !delegationForm.delegate_id}>
-                                    {delegationSubmitting ? 'Submitting...' : 'Submit Request'}
-                                </Button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
+           
         </div>
     );
 }
@@ -1165,11 +1080,14 @@ export const getServerSideProps: GetServerSideProps<RequestDetailsPageProps> = a
           status,
           due_at,
           created_at,
+          first_viewed_at,
+          last_viewed_at,
           approver:app_users!request_steps_approver_user_id_fkey (
             id,
             display_name,
             email,
-            profile_picture_url
+            profile_picture_url,
+            job_title
           ),
           approvals (
             id,
@@ -1296,10 +1214,11 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     const router = useRouter();
     const { id } = router.query;
     const { data: session, status } = useSession();
+    const { addToast } = useToast();
     const [request, setRequest] = useState<RequestDetail | null>(initialRequest);
     const [loading, setLoading] = useState(!initialRequest);
     const [error, setError] = useState<string | null>(initialError);
-    const [activeTab, setActiveTab] = useState<'details' | 'timeline' | 'documents'>('details');
+    const [activeTab, setActiveTab] = useState<'preview' | 'details' | 'timeline' | 'documents'>('preview');
     const [publishing, setPublishing] = useState(false);
     const [savingDraft, setSavingDraft] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
@@ -1311,6 +1230,8 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     const [documents, setDocuments] = useState<any[]>([]);
     const [loadingDocuments, setLoadingDocuments] = useState(false);
     const [showReviewModal, setShowReviewModal] = useState(false);
+    const [showApprovedPreview, setShowApprovedPreview] = useState(false);
+    const [downloadingArchive, setDownloadingArchive] = useState(false);
     const [reviewComment, setReviewComment] = useState('');
     const [reviewProcessing, setReviewProcessing] = useState(false);
     const [reviewError, setReviewError] = useState<string | null>(null);
@@ -1321,9 +1242,18 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     const [approvalRiskReasons, setApprovalRiskReasons] = useState<string[]>([]);
     const [hasBiometric, setHasBiometric] = useState(false);
     const [signatureSelection, setSignatureSelection] = useState<SignatureSelection>({ type: 'saved' });
+    /** Tracks whether the user has cleared the auth gate for this approval. Null means
+     *  not yet evaluated; 'session' means low-risk (no extra auth needed); otherwise
+     *  the rank of the elevation that satisfies the current request's risk. */
+    const [authClearedFor, setAuthClearedFor] = useState<'none' | 'session' | 'microsoft_mfa' | 'biometric'>('none');
+    const [showRejectConfirm, setShowRejectConfirm] = useState(false);
     const [hrdCostAllocation, setHrdCostAllocation] = useState<Record<string, string>>({
         corp: '', mrc: '', nah: '', rth: '', khcc: '', brh: '', vfrh: '', azam: '',
     });
+    // HRD-set category for hotel bookings (Marketing / Admin / Promotions / etc.).
+    // The requester no longer picks one on the form — the HRD records the
+    // appropriate category alongside the per-unit cost split at approval time.
+    const [hrdAllocationCategory, setHrdAllocationCategory] = useState<string>('');
     const [isApproverEditing, setIsApproverEditing] = useState(false);
     const [approverEditedRequest, setApproverEditedRequest] = useState<RequestDetail | null>(null);
     const [savingApproverEdit, setSavingApproverEdit] = useState(false);
@@ -1374,9 +1304,29 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     const effectivePendingStep = pendingStep || waitingStepThatShouldBePending;
     const isCurrentApprover = !!effectivePendingStep;
 
+    // Record an "approver opened the request" event so the timeline can show
+    // whether the assigned approver has actually viewed it yet. Server-side
+    // the endpoint silently no-ops for non-approvers.
+    useEffect(() => {
+        if (!id || typeof id !== 'string' || !currentUserId) return;
+        const isApprover = request?.request_steps?.some(s => s.approver?.id === currentUserId);
+        if (!isApprover) return;
+        fetch(`/api/requests/${id}/view`, { method: 'POST' }).catch(() => { /* silent */ });
+    }, [id, currentUserId, request?.id]);
+
+    // Travel authorisations and hotel bookings both require HRD cost allocation.
+    // Travel auths always carry a grand total to allocate against; hotel
+    // bookings with a bundled travel document do too. Pure complimentary
+    // hotel bookings (no travel doc) still show the HRD allocation UI so
+    // the HRD signs off on which units carry the room comp — but without
+    // a grand-total to balance against, the validation is relaxed to "any
+    // non-zero allocation is acceptable".
+    const requestType = request?.metadata?.type;
+    const isHotelBooking = requestType === 'hotel_booking' || requestType === 'external_hotel_booking';
     const requestRequiresTravelCostAllocation = !!(
-        request?.metadata?.type === 'travel_authorization' ||
-        (request?.metadata?.type === 'hotel_booking' && request?.metadata?.processTravelDocument)
+        requestType === 'travel_authorization' ||
+        requestType === 'international_travel_authorization' ||
+        isHotelBooking
     );
     const isHrdApprovingTravelAuth = !!(
         effectivePendingStep &&
@@ -1385,10 +1335,43 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
         request.metadata.approverRoles.hrd === currentUserId
     );
     const travelAuthGrandTotal = parseFloat(request?.metadata?.grandTotal || '0') || 0;
+    const hotelHasTravelDoc = isHotelBooking && !!request?.metadata?.processTravelDocument;
+    /** Whether we can balance the allocation against a precomputed total.
+     *  Travel auths always have one; hotel bookings only have one when a
+     *  travel doc is bundled with the comp request. */
+    const hasGrandTotalToBalance = travelAuthGrandTotal > 0 && (
+        requestType === 'travel_authorization' ||
+        requestType === 'international_travel_authorization' ||
+        hotelHasTravelDoc
+    );
+    /** Business unit codes that actually appeared in the itinerary (from / to).
+     *  When the HRD allocates costs, we only show inputs for these units —
+     *  irrelevant units stay zero and would otherwise clutter the form.
+     *  'corp' is always included as a catch-all bucket for non-unit costs.
+     *  For pure hotel bookings (no itinerary), we derive the relevant set
+     *  from `selectedBusinessUnits` (the units being booked) instead. */
+    const relevantTravelUnits: ReadonlyArray<'corp'|'mrc'|'nah'|'rth'|'khcc'|'brh'|'vfrh'|'azam'> = (() => {
+        const itinerary = (request?.metadata?.itinerary || []) as Array<{ from?: string; to?: string }>;
+        const bookedUnits = (request?.metadata?.selectedBusinessUnits || []) as Array<{ code?: string; name?: string }>;
+        const codes = new Set<string>();
+        for (const row of itinerary) {
+            if (typeof row.from === 'string') codes.add(row.from.toLowerCase());
+            if (typeof row.to === 'string') codes.add(row.to.toLowerCase());
+        }
+        for (const bu of bookedUnits) {
+            const code = (bu?.code || bu?.name || '').toLowerCase();
+            if (code) codes.add(code);
+        }
+        const allUnits = ['corp','mrc','nah','rth','khcc','brh','vfrh','azam'] as const;
+        const filtered = allUnits.filter(u => u === 'corp' || codes.has(u));
+        return filtered.length > 1 ? filtered : allUnits;
+    })();
     const hrdAllocationSum = (['corp','mrc','nah','rth','khcc','brh','vfrh','azam'] as const)
         .reduce((sum, k) => sum + (parseFloat(hrdCostAllocation[k] || '0') || 0), 0);
     const hrdAllocationValid = isHrdApprovingTravelAuth
-        ? Math.abs(hrdAllocationSum - travelAuthGrandTotal) < 0.01 && travelAuthGrandTotal > 0
+        ? (hasGrandTotalToBalance
+            ? Math.abs(hrdAllocationSum - travelAuthGrandTotal) < 0.01 && travelAuthGrandTotal > 0
+            : hrdAllocationSum > 0)
         : true;
 
     // Check if current user is a watcher (watchers can only view, not edit)
@@ -1433,8 +1416,10 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                 vfrh: existing.vfrh || '',
                 azam: existing.azam || '',
             });
+            // Also seed the comp-booking category (hotel bookings only).
+            setHrdAllocationCategory(request?.metadata?.allocationType || '');
         }
-    }, [showReviewModal, isHrdApprovingTravelAuth, request?.metadata?.costAllocation]);
+    }, [showReviewModal, isHrdApprovingTravelAuth, request?.metadata?.costAllocation, request?.metadata?.allocationType]);
 
     // Fetch user's signature when modal opens
     useEffect(() => {
@@ -1451,6 +1436,71 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
         }
     }, [showReviewModal, currentUserId]);
 
+    // Evaluate risk + check elevation status when the review modal opens.
+    // Drives whether the signature picker is gated behind a verification step.
+    useEffect(() => {
+        if (!showReviewModal || !request) {
+            setAuthClearedFor('none');
+            return;
+        }
+        const steps = request.request_steps || [];
+        const stepIdx = effectivePendingStep?.step_index ?? 0;
+        const evalResult = getApprovalRisk({
+            value: request.metadata?.amount ?? request.metadata?.total_amount ?? null,
+            workflowCategory: request.metadata?.workflow_category || request.metadata?.category || null,
+            requestType: request.metadata?.type || request.metadata?.requestType || null,
+            currentStepIndex: stepIdx,
+            totalSteps: steps.length,
+            formData: request.metadata?.formData || request.metadata?.form_data || null,
+        });
+        setApprovalRisk(evalResult.risk);
+        setApprovalRiskReasons(evalResult.reasons);
+
+        if (evalResult.risk === 'low') {
+            setAuthClearedFor('session');
+            return;
+        }
+        // Probe the elevation cookie. If it satisfies the required auth rank
+        // we let the user proceed straight to signature selection; otherwise
+        // the modal will gate signing behind a verification ceremony.
+        let cancelled = false;
+        const requiredRank = evalResult.risk === 'high' ? 2 : 1;
+        const rankMethod = (m: string | null | undefined) =>
+            m === 'biometric' ? 2 : m === 'microsoft_mfa' ? 1 : 0;
+        const refresh = () => {
+            fetch('/api/auth/elevation')
+                .then(r => r.ok ? r.json() : null)
+                .then((data) => {
+                    if (cancelled) return;
+                    // Mirror the server's inclusivity rule: for HIGH-risk approvals
+                    // a microsoft_mfa elevation is an acceptable fallback when the
+                    // user can't / won't use biometrics (see action.ts).
+                    const provides = rankMethod(data?.method);
+                    const satisfies = data?.elevated && (
+                        provides >= requiredRank ||
+                        (requiredRank === 2 && provides >= 1)
+                    );
+                    if (satisfies) {
+                        setAuthClearedFor(data.method);
+                    } else {
+                        setAuthClearedFor('none');
+                    }
+                })
+                .catch(() => { if (!cancelled) setAuthClearedFor('none'); });
+        };
+        refresh();
+        const onUpdate = () => refresh();
+        window.addEventListener('elevation-updated', onUpdate);
+        return () => {
+            cancelled = true;
+            window.removeEventListener('elevation-updated', onUpdate);
+        };
+    }, [showReviewModal, request, effectivePendingStep]);
+
+    /** True when the current user must complete a step-up ceremony before
+     *  they can pick a signature and submit an approval. */
+    const needsAuthFirst = showReviewModal && approvalRisk !== 'low' && authClearedFor === 'none';
+
     const handleApprovalAction = async (action: 'approve' | 'reject') => {
         if (!id || !effectivePendingStep) return;
 
@@ -1459,12 +1509,28 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
             return;
         }
 
+        // Block both approve AND reject until the user passes the required
+        // authentication ceremony. Rejection commits a decision attributable
+        // to the user and must be tied to a verified identity.
+        if (needsAuthFirst) {
+            setPendingApprovalAction(action);
+            setShowApprovalConfirm(true);
+            setReviewError(null);
+            return;
+        }
+
         if (action === 'approve' && isHrdApprovingTravelAuth) {
             if (!hrdAllocationValid) {
                 setReviewError(
-                    `Cost allocation must total ${travelAuthGrandTotal.toFixed(2)} ` +
-                    `(currently ${hrdAllocationSum.toFixed(2)}). Please allocate the full amount before approving.`
+                    hasGrandTotalToBalance
+                        ? `Cost allocation must total ${travelAuthGrandTotal.toFixed(2)} ` +
+                          `(currently ${hrdAllocationSum.toFixed(2)}). Please allocate the full amount before approving.`
+                        : 'Please record a cost allocation (at least one unit must be greater than zero) before approving.'
                 );
+                return;
+            }
+            if (isHotelBooking && !hrdAllocationCategory) {
+                setReviewError('Please select an allocation category (Marketing, Administration, etc.) before approving.');
                 return;
             }
         }
@@ -1477,10 +1543,6 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
             }
             if (signatureSelection.type === 'manual' && !signatureSelection.data) {
                 setReviewError('Please draw your signature before approving.');
-                return;
-            }
-            if (signatureSelection.type === 'typed' && !signatureSelection.data?.trim()) {
-                setReviewError('Please type your name as a signature.');
                 return;
             }
         }
@@ -1500,14 +1562,6 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
         setApprovalRisk(riskEval.risk);
         setApprovalRiskReasons(riskEval.reasons);
 
-        // Hand-drawn signatures are themselves an intentional verification
-        // act — skip step-up auth and submit directly.
-        if (action === 'approve' && signatureSelection.type === 'manual') {
-            setPendingApprovalAction(action);
-            await handleApprovalConfirmed({ stepUpToken: null, authMethod: 'session' });
-            return;
-        }
-
         // Check if user has biometric credentials (for high-risk UI)
         if (riskEval.risk === 'high') {
             try {
@@ -1525,6 +1579,29 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
 
     const handleApprovalConfirmed = async (result: ApprovalConfirmResult) => {
         if (!id || !effectivePendingStep || !pendingApprovalAction) return;
+
+        // Surface a toast as soon as the ceremony succeeds (before submission)
+        // so the user gets immediate feedback that their elevation is active.
+        if (result.elevation && !result.elevation.reused) {
+            const minutes = Math.max(1, Math.round((result.elevation.expiresAt - Date.now()) / 60000));
+            addToast({
+                type: 'success',
+                title: 'You are verified for 15 minutes',
+                message: `You can approve without re-authentication.`,
+                duration: 8000,
+            });
+            // Notify the floating indicator to refresh immediately.
+            try { window.dispatchEvent(new Event('elevation-updated')); } catch { /* SSR */ }
+        }
+
+        // If the ceremony was triggered to clear the auth gate (signature not
+        // yet chosen/validated, or reject not yet confirmed), close the auth
+        // modal and let the user finish in the review modal — DO NOT submit yet.
+        if (needsAuthFirst) {
+            setShowApprovalConfirm(false);
+            setAuthClearedFor(result.authMethod);
+            return;
+        }
 
         setReviewProcessing(true);
         setReviewError(null);
@@ -1546,16 +1623,20 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                 },
             };
 
-            // For manual or typed signatures, include the data
+            // For manual signatures, include the data URL
             if (signatureSelection.type === 'manual' && signatureSelection.data) {
-                body.signatureData = signatureSelection.data;
-            } else if (signatureSelection.type === 'typed' && signatureSelection.data) {
                 body.signatureData = signatureSelection.data;
             }
 
             // HRD cost allocation for travel_authorization approvals
             if (isHrdApprovingTravelAuth && pendingApprovalAction === 'approve') {
                 body.costAllocation = hrdCostAllocation;
+                // For hotel bookings the HRD also picks the category that
+                // used to be on the form. Pass it through so the action
+                // endpoint can persist it into metadata.
+                if (isHotelBooking) {
+                    body.allocationType = hrdAllocationCategory;
+                }
             }
 
             const response = await fetch('/api/approvals/action', {
@@ -2015,6 +2096,36 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
         window.open(`/api/requests/${id}/pdf`, '_blank');
     };
 
+    /**
+     * Download the archived (auto-generated) PDF of a fully-approved request.
+     * The endpoint will mint the archive on demand if it doesn't exist yet
+     * (e.g. for requests approved before auto-archiving was wired up).
+     */
+    const handleDownloadApprovedArchive = async () => {
+        if (!id) return;
+        setDownloadingArchive(true);
+        try {
+            const res = await fetch(`/api/requests/${id}/archive`);
+            const data = await res.json();
+            if (!res.ok || !data?.archive?.download_url) {
+                throw new Error(data?.error || 'Could not generate download link');
+            }
+            // Force a download (vs. inline view) where the browser supports it.
+            const link = document.createElement('a');
+            link.href = data.archive.download_url;
+            link.download = data.archive.filename || `request-${id}.pdf`;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } catch (err: any) {
+            addToast({ type: 'error', title: 'Download failed', message: err?.message || 'Could not download the approved PDF.' });
+        } finally {
+            setDownloadingArchive(false);
+        }
+    };
+
     const handleDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file || !id) return;
@@ -2129,6 +2240,18 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                 onCancel={handleApprovalConfirmCancel}
                 busy={reviewProcessing}
             />
+            <ElevationIndicator />
+            {/* Form-style preview — available at any status so the requester and
+                approvers can see the formatted document, with approval signatures
+                appended (the signature section just renders the approvals that
+                exist so far, which is exactly what we want for in-progress review). */}
+            {request && (
+                <ApprovedRequestPreview
+                    isOpen={showApprovedPreview}
+                    onClose={() => setShowApprovedPreview(false)}
+                    request={request}
+                />
+            )}
             <div className="max-w-[1400px] mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
 
                 {/* Priority Alert Banner */}
@@ -2205,6 +2328,59 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                     <span className="text-text-primary font-medium truncate max-w-xs">{request.title}</span>
                 </nav>
 
+                {/* Petty Cash Follow-up CTA — fully-approved travel auth, requester only, no existing link */}
+                {(() => {
+                    const requestType = request.metadata?.type || request.metadata?.requestType;
+                    const isTravelAuth = requestType === 'travel_authorization' || requestType === 'international_travel_authorization';
+                    const fullyApproved = (actualStatus || request.status) === 'approved';
+                    const linkedPettyCashId = request.metadata?.linkedPettyCashId as string | undefined;
+                    if (!isCreator || !isTravelAuth || !fullyApproved) return null;
+
+                    if (linkedPettyCashId) {
+                        return (
+                            <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-4 flex items-center gap-3">
+                                <svg className="w-5 h-5 text-emerald-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-semibold text-emerald-900">Petty cash voucher already submitted for this trip.</p>
+                                </div>
+                                <Link
+                                    href={`/requests/${linkedPettyCashId}`}
+                                    className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors flex-shrink-0"
+                                >
+                                    View Petty Cash
+                                </Link>
+                            </div>
+                        );
+                    }
+
+                    return (
+                        <div className="rounded-2xl border-2 border-[#C9B896] bg-gradient-to-r from-[#F3EADC] to-[#F7F0E2] p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                            <div className="w-12 h-12 rounded-xl bg-white border border-[#C9B896] flex items-center justify-center flex-shrink-0">
+                                <svg className="w-6 h-6 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <h3 className="text-base font-bold text-[#3F2D19]">Travel authorization fully approved</h3>
+                                <p className="text-sm text-[#5E4426] mt-1">
+                                    Would you like to process the petty cash voucher for this trip? You can come back to this any time.
+                                </p>
+                            </div>
+                            <Link
+                                href={`/requests/new/petty-cash?linkedTo=${request.id}`}
+                                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#9A7545] text-white text-sm font-semibold hover:bg-[#7C5A33] transition-colors flex-shrink-0"
+                            >
+                                Process Petty Cash
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                                </svg>
+                            </Link>
+                        </div>
+                    );
+                })()}
+
                 {/* Header Section */}
                 <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
                     <div className="flex-1 min-w-0">
@@ -2272,12 +2448,38 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                 Delete
                             </Button>
                         )}
-                        <Button variant="outline" className="gap-2 bg-white" onClick={handleDownloadPdf}>
+                        {/* Preview — always available so the requester (and watchers/approvers)
+                            can see the form-style document at any status. Uses the same
+                            RequestPreviewModal layout as the form submission preview. */}
+                        <Button
+                            variant="outline"
+                            className="gap-2 bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+                            onClick={() => setShowApprovedPreview(true)}
+                        >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                             </svg>
-                            PDF
+                            Preview
                         </Button>
+                        {/* Download — only visible once fully approved. Uses primary variant
+                            with explicit emerald colours so the white-on-emerald text stays
+                            readable on hover (the previous outline variant ate the bg). */}
+                        {request.status === 'approved' && (
+                            <Button
+                                variant="primary"
+                                style={{ backgroundColor: '#059669', borderColor: '#059669', color: '#ffffff' }}
+                                className="gap-2 hover:!bg-emerald-700 disabled:opacity-60"
+                                onClick={handleDownloadApprovedArchive}
+                                disabled={downloadingArchive}
+                                isLoading={downloadingArchive}
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                                </svg>
+                                <span style={{ color: '#ffffff' }}>{downloadingArchive ? 'Preparing…' : 'Download'}</span>
+                            </Button>
+                        )}
                         {/* Edit Draft button - navigates to the form page */}
                         {canPublish && (
                             <Button
@@ -2316,29 +2518,6 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                 {publishing ? 'Publishing...' : 'Publish Request'}
                             </Button>
                         )}
-                        {/* Edit button for current approver (not watchers) - navigates to form */}
-                        {canApproverEdit && (
-                            <Button
-                                variant="outline"
-                                className="gap-2 bg-white text-text-secondary border-gray-200 hover:bg-gray-50 hover:text-text-primary"
-                                onClick={() => {
-                                    // Map request type to route (underscores to hyphens)
-                                    const requestType = request.metadata?.type || 'capex';
-                                    const routeMap: Record<string, string> = {
-                                        'hotel_booking': 'hotel-booking',
-                                        'travel_authorization': 'travel-auth',
-                                        'external_hotel_booking': 'external-hotel-booking',
-                                    };
-                                    const route = routeMap[requestType] || requestType;
-                                    router.push(`/requests/new/${route}?edit=${id}&approver=true`);
-                                }}
-                            >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                                </svg>
-                                Edit Request
-                            </Button>
-                        )}
                         {/* Review button for current approver */}
                         {isCurrentApprover && (
                             <Button
@@ -2364,7 +2543,7 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                         {/* Tabs */}
                         <div className="border-b border-gray-200">
                             <div className="flex gap-8">
-                                {(['details', 'timeline', 'documents'] as const).map((tab) => (
+                                {(['preview', 'details', 'timeline', 'documents'] as const).map((tab) => (
                                     <button
                                         key={tab}
                                         onClick={() => setActiveTab(tab)}
@@ -2382,6 +2561,9 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                         </div>
 
                         <div className="min-h-[400px]">
+                            {activeTab === 'preview' && (
+                                <ApprovedRequestPreviewInline request={request} />
+                            )}
                             {activeTab === 'details' && (
                                 <div className="space-y-6">
                                     {/* Approver Editing Notice */}
@@ -3063,6 +3245,27 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                     </div>
                 </div>
 
+                {/* Reject Confirmation */}
+                <ConfirmDialog
+                    isOpen={showRejectConfirm}
+                    title="Reject this request?"
+                    message={
+                        <span>
+                            Are you sure you want to reject "<span className="font-medium text-gray-900">{request?.title}</span>"?
+                            The requester will be notified and the workflow will not advance.
+                        </span>
+                    }
+                    confirmLabel="Reject"
+                    cancelLabel="Go back"
+                    busy={reviewProcessing}
+                    variant="danger"
+                    onCancel={() => setShowRejectConfirm(false)}
+                    onConfirm={async () => {
+                        setShowRejectConfirm(false);
+                        await handleApprovalAction('reject');
+                    }}
+                />
+
                 {/* Delete Confirmation Modal */}
                 {showDeleteConfirm && (
                     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -3164,22 +3367,53 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                     </div>
                                 </div>
 
-                                {/* HR Director: Cost Allocation */}
+                                {/* HR Director: Cost Allocation. Required for travel auths and
+                                    hotel bookings. When a grand total exists, allocations must
+                                    sum to it; for pure complimentary bookings without a precomputed
+                                    total, the HRD allocates the comp value across units (any
+                                    non-zero allocation passes validation). */}
                                 {isHrdApprovingTravelAuth && (
                                     <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
                                         <div className="flex items-center justify-between mb-2">
                                             <div className="text-xs text-amber-700 uppercase tracking-wide font-medium">
                                                 Cost Allocation (Required)
                                             </div>
-                                            <div className="text-xs text-amber-700">
-                                                Grand Total: <span className="font-semibold">{travelAuthGrandTotal.toFixed(2)}</span>
-                                            </div>
+                                            {hasGrandTotalToBalance && (
+                                                <div className="text-xs text-amber-700">
+                                                    Grand Total: <span className="font-semibold">{travelAuthGrandTotal.toFixed(2)}</span>
+                                                </div>
+                                            )}
                                         </div>
                                         <p className="text-xs text-amber-700 mb-3">
-                                            As HR Director, please allocate the travel cost across the units below. Totals must match the grand total before you can approve.
+                                            {hasGrandTotalToBalance
+                                                ? 'As HR Director, please allocate the cost across the units below. Totals must match the grand total before you can approve.'
+                                                : 'As HR Director, please allocate the complimentary value across the units below before you can approve.'}
                                         </p>
+
+                                        {/* Hotel bookings: HRD also picks the category (Marketing,
+                                            Administration, etc.). This used to be set by the
+                                            requester on the form — now it's the HRD's call. */}
+                                        {isHotelBooking && (
+                                            <div className="mb-3 bg-white rounded-lg border border-amber-200 p-2.5">
+                                                <label className="block text-xs font-medium text-gray-700 mb-1 uppercase">Allocation Category</label>
+                                                <select
+                                                    value={hrdAllocationCategory}
+                                                    onChange={e => setHrdAllocationCategory(e.target.value)}
+                                                    disabled={reviewProcessing}
+                                                    className="w-full text-sm px-2 py-1.5 border border-gray-200 rounded focus:ring-1 focus:ring-amber-500 focus:border-amber-500 outline-none bg-white"
+                                                >
+                                                    <option value="">Select category…</option>
+                                                    <option value="marketing_domestic">Marketing – Domestic</option>
+                                                    <option value="marketing_international">Marketing – International</option>
+                                                    <option value="administration">Administration</option>
+                                                    <option value="promotions">Promotions</option>
+                                                    <option value="personnel">Personnel</option>
+                                                </select>
+                                            </div>
+                                        )}
+
                                         <div className="grid grid-cols-2 gap-2">
-                                            {(['corp','mrc','nah','rth','khcc','brh','vfrh','azam'] as const).map(unit => (
+                                            {relevantTravelUnits.map(unit => (
                                                 <label key={unit} className="flex items-center gap-2 bg-white rounded-lg border border-amber-200 px-2 py-1.5">
                                                     <span className="text-xs font-medium text-gray-700 w-12 uppercase">{unit}</span>
                                                     <input
@@ -3195,31 +3429,60 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                                 </label>
                                             ))}
                                         </div>
+                                        <p className="text-xs text-amber-700 mt-2">
+                                            Only the business units involved in the itinerary / booking are shown. CORP is always available for shared / overhead costs.
+                                        </p>
                                         <div className={`mt-3 text-xs font-medium flex items-center justify-between ${hrdAllocationValid ? 'text-green-700' : 'text-red-700'}`}>
                                             <span>Allocated: {hrdAllocationSum.toFixed(2)}</span>
                                             <span>
                                                 {hrdAllocationValid
-                                                    ? 'Allocation matches grand total'
-                                                    : `Remaining: ${(travelAuthGrandTotal - hrdAllocationSum).toFixed(2)}`}
+                                                    ? (hasGrandTotalToBalance ? 'Allocation matches grand total' : 'Allocation recorded')
+                                                    : (hasGrandTotalToBalance
+                                                        ? `Remaining: ${(travelAuthGrandTotal - hrdAllocationSum).toFixed(2)}`
+                                                        : 'At least one allocation must be greater than zero')}
                                             </span>
                                         </div>
                                     </div>
                                 )}
 
-                                {/* Signature Selection */}
-                                <div className="bg-primary-50 border border-primary-100 rounded-xl p-4">
-                                    <div className="text-xs text-primary-600 uppercase tracking-wide font-medium mb-2">Your Signature</div>
-                                    <SignatureSelector
-                                        savedSignatureUrl={userSignatureUrl}
-                                        userDisplayName={(session?.user as any)?.name || request?.creator?.display_name}
-                                        value={signatureSelection}
-                                        onChange={setSignatureSelection}
-                                        disabled={reviewProcessing}
-                                    />
-                                    <p className="text-xs text-primary-600 mt-2">
-                                        Your signature will be attached to this approval.
-                                    </p>
-                                </div>
+                                {/* Auth gate: signature selection is hidden until the user
+                                    completes the required step-up ceremony (medium/high risk). */}
+                                {needsAuthFirst ? (
+                                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                                        <div className="flex items-start gap-3">
+                                            <svg className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                            </svg>
+                                            <div>
+                                                <h4 className="text-sm font-semibold text-amber-900">
+                                                    Identity verification required
+                                                </h4>
+                                                <p className="text-xs text-amber-800 mt-1">
+                                                    {approvalRisk === 'high'
+                                                        ? 'This is a high-risk approval (CAPEX or sensitive). Verify with biometrics or Microsoft MFA before signing.'
+                                                        : 'Verify with Microsoft MFA before signing this approval.'}
+                                                </p>
+                                                <p className="text-xs text-amber-700 mt-2">
+                                                    Your signature options will appear after verification.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="bg-primary-50 border border-primary-100 rounded-xl p-4">
+                                        <div className="text-xs text-primary-600 uppercase tracking-wide font-medium mb-2">Your Signature</div>
+                                        <SignatureSelector
+                                            savedSignatureUrl={userSignatureUrl}
+                                            userDisplayName={(session?.user as any)?.name || request?.creator?.display_name}
+                                            value={signatureSelection}
+                                            onChange={setSignatureSelection}
+                                            disabled={reviewProcessing}
+                                        />
+                                        <p className="text-xs text-primary-600 mt-2">
+                                            Your signature will be attached to this approval.
+                                        </p>
+                                    </div>
+                                )}
 
                                 {reviewError && (
                                     <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
@@ -3257,21 +3520,39 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                 >
                                     Cancel
                                 </Button>
-                                <Button
-                                    variant="danger"
-                                    onClick={() => handleApprovalAction('reject')}
-                                    disabled={reviewProcessing}
-                                    className="min-w-[5rem]"
-                                >
-                                    {reviewProcessing ? '...' : 'Reject'}
-                                </Button>
+                                {/* Reject is intentionally hidden until the approver has cleared
+                                    the identity-verification gate. A rejection is just as
+                                    accountability-sensitive as an approval — it must be tied to a
+                                    verified identity. Once verified, both Approve and Reject
+                                    become available. */}
+                                {!needsAuthFirst && (
+                                    <Button
+                                        variant="danger"
+                                        onClick={() => {
+                                            if (!reviewComment.trim()) {
+                                                setReviewError('Please provide a reason for rejection');
+                                                return;
+                                            }
+                                            setReviewError(null);
+                                            setShowRejectConfirm(true);
+                                        }}
+                                        disabled={reviewProcessing}
+                                        className="min-w-[5rem]"
+                                    >
+                                        {reviewProcessing ? '...' : 'Reject'}
+                                    </Button>
+                                )}
                                 <Button
                                     variant="primary"
                                     onClick={() => handleApprovalAction('approve')}
-                                    disabled={reviewProcessing || (isHrdApprovingTravelAuth && !hrdAllocationValid)}
+                                    disabled={reviewProcessing || (!needsAuthFirst && isHrdApprovingTravelAuth && !hrdAllocationValid)}
                                     className="min-w-[6rem]"
                                 >
-                                    {reviewProcessing ? 'Processing...' : 'Approve'}
+                                    {reviewProcessing
+                                        ? 'Processing...'
+                                        : needsAuthFirst
+                                            ? 'Verify Identity'
+                                            : 'Approve'}
                                 </Button>
                             </div>
                         </div>

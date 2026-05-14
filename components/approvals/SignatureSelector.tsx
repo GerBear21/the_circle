@@ -4,33 +4,36 @@ import type ReactSignatureCanvas from 'react-signature-canvas';
 /**
  * SignatureSelector
  * -----------------
- * Compact tabbed control for choosing how to sign an approval. Three options:
+ * Compact tabbed control for choosing how to sign an approval. Two options:
  *
  *   - saved  -> use the user's pre-registered signature (default when available)
  *   - manual -> draw one right now on a canvas (accessibility: mouse / touch / stylus)
- *   - typed  -> type the user's name, rendered in a signature font (final fallback)
+ *
+ * Typed signatures are intentionally not offered — every signing event must
+ * be backed by an actual signature artifact (a saved image or one drawn at
+ * the moment of approval), not a font rendering of the user's typed name.
  *
  * The parent controls selection and supplies any ephemeral value (data URL for
- * manual, string for typed). This component doesn't submit anything — the
- * caller decides when to apply the chosen signature.
+ * manual). This component doesn't submit anything — the caller decides when
+ * to apply the chosen signature.
  */
 
 // react-signature-canvas is client-only. We import it lazily inside useEffect
 // so it never runs during SSR. Next.js dynamic() doesn't forward refs to class
 // components, which breaks .isEmpty() / .clear() / .getTrimmedCanvas().
 
-export type SignatureChoice = 'saved' | 'manual' | 'typed';
+export type SignatureChoice = 'saved' | 'manual';
 
 export interface SignatureSelection {
   type: SignatureChoice;
-  /** Data URL for 'manual', literal string for 'typed', undefined for 'saved'. */
+  /** Data URL for 'manual', undefined for 'saved'. */
   data?: string;
 }
 
 interface Props {
   /** URL of the user's saved signature, if any. When absent, 'saved' is disabled. */
   savedSignatureUrl?: string | null;
-  /** User's display name — pre-fills the typed fallback. */
+  /** User's display name — kept for API compatibility (no longer used since 'typed' was removed). */
   userDisplayName?: string | null;
   value: SignatureSelection;
   onChange: (selection: SignatureSelection) => void;
@@ -39,13 +42,11 @@ interface Props {
 
 export default function SignatureSelector({
   savedSignatureUrl,
-  userDisplayName,
   value,
   onChange,
   disabled,
 }: Props) {
   const canvasRef = useRef<ReactSignatureCanvas | null>(null);
-  const [typed, setTyped] = useState<string>(value.type === 'typed' ? (value.data || '') : (userDisplayName || ''));
   const [SigCanvas, setSigCanvas] = useState<typeof ReactSignatureCanvas | null>(null);
 
   // Lazy-load react-signature-canvas on the client only.
@@ -67,7 +68,6 @@ export default function SignatureSelector({
     if (disabled) return;
     if (choice === 'saved') onChange({ type: 'saved' });
     if (choice === 'manual') onChange({ type: 'manual', data: value.type === 'manual' ? value.data : undefined });
-    if (choice === 'typed') onChange({ type: 'typed', data: typed });
   };
 
   const handleCanvasEnd = () => {
@@ -87,11 +87,6 @@ export default function SignatureSelector({
   const clearCanvas = () => {
     canvasRef.current?.clear();
     onChange({ type: 'manual' });
-  };
-
-  const handleTypedChange = (next: string) => {
-    setTyped(next);
-    onChange({ type: 'typed', data: next });
   };
 
   const TabButton = ({ choice, label, hint }: { choice: SignatureChoice; label: string; hint?: string }) => {
@@ -125,7 +120,6 @@ export default function SignatureSelector({
           hint={savedSignatureUrl ? 'Use your registered signature' : 'No saved signature on file'}
         />
         <TabButton choice="manual" label="Draw" hint="Draw a new signature" />
-        <TabButton choice="typed" label="Type" hint="Type your name as a signature" />
       </div>
 
       <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 min-h-[140px]">
@@ -169,29 +163,6 @@ export default function SignatureSelector({
               >
                 Clear
               </button>
-            </div>
-          </div>
-        )}
-
-        {value.type === 'typed' && (
-          <div className="space-y-2">
-            <input
-              type="text"
-              value={typed}
-              onChange={(e) => handleTypedChange(e.target.value)}
-              placeholder="Type your full name"
-              maxLength={80}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            />
-            <div
-              className="h-[70px] flex items-center justify-center bg-white border border-gray-200 rounded"
-              style={{
-                fontFamily: '"Dancing Script", "Segoe Script", "Brush Script MT", cursive',
-                fontSize: '34px',
-                color: '#111827',
-              }}
-            >
-              {typed.trim() || <span className="text-gray-300 text-base font-sans">Your signature preview</span>}
             </div>
           </div>
         )}

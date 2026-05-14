@@ -23,10 +23,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Fetch business units from HRIMS database
       const businessUnits = await fetchHrimsBusinessUnits();
 
-      // Filter out excluded business units and map to expected format
+      // Filter out excluded business units. We pass `code` through too so
+      // the client can match a HRIMS unit to the corresponding travel-auth
+      // location dropdown entry directly (codes are stable, names aren't).
       const filteredData = businessUnits
         .filter((unit) => !excludedUnits.includes(unit.name))
-        .map((unit) => ({ id: unit.id, name: unit.name }));
+        .map((unit) => ({ id: unit.id, name: unit.name, code: unit.code }));
 
       return res.status(200).json({ businessUnits: filteredData });
     }

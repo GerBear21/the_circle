@@ -13,6 +13,10 @@ interface SelectedBusinessUnit {
     instanceId: string; // Unique ID for each booking instance (allows same hotel multiple times)
     id: string;
     name: string;
+    /** HRIMS unit code (e.g. "MRC", "RTH"). Carried alongside the name so the
+     *  travel-doc autofill can match this booking to the TRAVEL_LOCATIONS
+     *  dropdown directly, no fuzzy string match needed. */
+    code?: string;
     bookingMade: boolean;
     arrivalDate: string;
     departureDate: string;
@@ -87,7 +91,7 @@ export default function HotelBookingPage() {
     const router = useRouter();
     const { user } = useCurrentUser();
     const { departmentName, businessUnitName } = useUserHrimsProfile();
-    const [businessUnits, setBusinessUnits] = useState<Array<{ id: string; name: string }>>([]);
+    const [businessUnits, setBusinessUnits] = useState<Array<{ id: string; name: string; code?: string }>>([]);
     const [businessUnitsLoading, setBusinessUnitsLoading] = useState(true);
     const [loading, setLoading] = useState(false);
     const [savingDraft, setSavingDraft] = useState(false);
@@ -120,7 +124,11 @@ export default function HotelBookingPage() {
     const [formData, setFormData] = useState({
         guestNames: '',
         isExternalGuest: false,
-        allocationType: 'marketing_domestic',
+        // allocationType is now set by the HR Director at approval time.
+        // We keep it on the form's metadata payload (empty by default) so
+        // the field still exists in the persisted document and the HRD's
+        // selection has a place to land.
+        allocationType: '',
         percentageDiscount: '',
         reason: '',
         processTravelDocument: false,
@@ -586,10 +594,14 @@ export default function HotelBookingPage() {
     // Add a new booking instance for a business unit (allows same hotel multiple times)
     const handleAddBusinessUnit = (unitId: string, unitName: string) => {
         const instanceId = `${unitId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        // Look up the HRIMS code for this unit so it's carried along with the
+        // booking — needed later for the travel-doc itinerary autofill.
+        const unit = businessUnits.find(u => u.id === unitId);
         setSelectedBusinessUnits(prev => [...prev, {
             instanceId,
             id: unitId,
             name: unitName,
+            code: unit?.code,
             bookingMade: false,
             arrivalDate: '',
             departureDate: '',
@@ -1518,10 +1530,10 @@ export default function HotelBookingPage() {
                     <Card className="p-6">
                         <div className="space-y-6">
                             <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Guest Name(s)</label>
+                                <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Accompanying Associate(s)</label>
                                 <textarea
                                     className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all resize-none min-h-[80px]"
-                                    placeholder="Enter full names of all guests"
+                                    placeholder="Enter full names of all accompanying associates"
                                     value={formData.guestNames}
                                     onChange={(e) => setFormData({ ...formData, guestNames: e.target.value })}
                                     required
@@ -1714,20 +1726,25 @@ export default function HotelBookingPage() {
                         )}
                     </Card>
 
-                    {/* Allocation */}
-                    <Card className="p-6">
-                        <label className="block text-sm font-semibold text-gray-700 mb-3 uppercase">Allocation of Comp Booking</label>
-                        <select
-                            className="w-full px-4 py-3 rounded-xl border border-gray-300 bg-white focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all appearance-none"
-                            value={formData.allocationType}
-                            onChange={(e) => setFormData({ ...formData, allocationType: e.target.value })}
-                        >
-                            <option value="marketing_domestic">Marketing – Domestic</option>
-                            <option value="marketing_international">Marketing – International</option>
-                            <option value="administration">Administration</option>
-                            <option value="promotions">Promotions</option>
-                            <option value="personnel">Personnel</option>
-                        </select>
+                    {/* Allocation is now decided by the HR Director at approval time
+                        — both the category (Marketing, Admin, etc.) and the
+                        business-unit cost split. The selector that used to live
+                        here was removed so the requester doesn't pre-commit a
+                        choice the HRD has to override anyway. */}
+                    <Card className="p-6 bg-amber-50 border-amber-200">
+                        <div className="flex items-start gap-3">
+                            <svg className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <div>
+                                <p className="text-sm font-semibold text-amber-900">Cost allocation handled at approval</p>
+                                <p className="text-xs text-amber-800 mt-1">
+                                    The HR Director will allocate this complimentary booking across the
+                                    appropriate business units and category (Marketing, Administration, etc.)
+                                    when they review the request. You don't need to pick an allocation here.
+                                </p>
+                            </div>
+                        </div>
                     </Card>
 
                     {/* Details */}
@@ -1749,13 +1766,101 @@ export default function HotelBookingPage() {
                                 type="checkbox"
                                 id="processTravelDocument"
                                 checked={formData.processTravelDocument}
-                                onChange={(e) => setFormData({ ...formData, processTravelDocument: e.target.checked })}
+                                onChange={(e) => {
+                                    const enable = e.target.checked;
+                                    setFormData({ ...formData, processTravelDocument: enable });
+                                    // Auto-fill the inline travel doc from the complimentary
+                                    // booking data the moment the user enables it. We only
+                                    // seed empty fields so a user who toggled off-and-on
+                                    // doesn't lose any in-progress edits, and we generate
+                                    // one itinerary leg per booked business unit using its
+                                    // arrival / departure dates.
+                                    if (enable) {
+                                        const sortedStays = [...selectedBusinessUnits]
+                                            .filter(bu => bu.arrivalDate || bu.departureDate)
+                                            .sort((a, b) => {
+                                                const ad = a.arrivalDate ? new Date(a.arrivalDate).getTime() : 0;
+                                                const bd = b.arrivalDate ? new Date(b.arrivalDate).getTime() : 0;
+                                                return ad - bd;
+                                            });
+                                        const firstArrival = sortedStays[0]?.arrivalDate || '';
+                                        // Resolve a TRAVEL_LOCATIONS code for a booked business
+                                        // unit. The unit carries the HRIMS code directly (e.g.
+                                        // "MRC"), so that's the primary match. Fall back to a
+                                        // tolerant name match for any HRIMS units whose codes
+                                        // don't line up with the travel-auth list. Returns ''
+                                        // when no dropdown entry can represent this unit.
+                                        const normalise = (s: string) =>
+                                            s.toLowerCase()
+                                                .replace(/\s*\([^)]*\)\s*/g, ' ')
+                                                .replace(/[^a-z0-9]+/g, ' ')
+                                                .trim();
+                                        const codeForUnit = (bu: { code?: string; name?: string }): string => {
+                                            const rawCode = (bu.code || '').trim().toUpperCase();
+                                            if (rawCode) {
+                                                const byCode = TRAVEL_LOCATIONS.find(l => l.code === rawCode);
+                                                if (byCode) return byCode.code;
+                                            }
+                                            const name = bu.name || '';
+                                            if (!name) return '';
+                                            const upper = name.trim().toUpperCase();
+                                            const codeHit = TRAVEL_LOCATIONS.find(l => l.code === upper);
+                                            if (codeHit) return codeHit.code;
+                                            const n = normalise(name);
+                                            const hit = TRAVEL_LOCATIONS.find(l => {
+                                                if (l.code === 'OTHER') return false;
+                                                const locName = normalise(l.name);
+                                                return locName === n || locName.includes(n) || n.includes(locName);
+                                            });
+                                            return hit?.code || '';
+                                        };
+                                        const seededItinerary = sortedStays.length > 0
+                                            ? sortedStays.map((bu, i) => {
+                                                const prev = sortedStays[i - 1];
+                                                // Match HRIMS units directly to TRAVEL_LOCATIONS
+                                                // codes. If a unit doesn't resolve to a known
+                                                // dropdown entry we leave the field blank rather
+                                                // than picking "Other" — the user wants the
+                                                // dropdown populated, not coerced.
+                                                const fromCode = prev ? codeForUnit(prev) : '';
+                                                const toCode = codeForUnit(bu);
+                                                return {
+                                                    date: bu.arrivalDate || '',
+                                                    from: fromCode,
+                                                    fromCustom: '',
+                                                    to: toCode,
+                                                    toCustom: '',
+                                                    km: '',
+                                                    justification: `Travel to ${bu.name}${bu.departureDate ? ` (departs ${bu.departureDate})` : ''}`,
+                                                };
+                                            })
+                                            : null;
+
+                                        setTravelData(prev => {
+                                            // If the user already has itinerary content, leave
+                                            // it; only seed when the travel doc is genuinely
+                                            // blank. Otherwise we'd clobber their edits.
+                                            const itineraryIsBlank =
+                                                prev.itinerary.length === 0 ||
+                                                prev.itinerary.every(r => !r.date && !r.from && !r.to && !r.km && !r.justification);
+
+                                            return {
+                                                ...prev,
+                                                dateOfIntendedTravel: prev.dateOfIntendedTravel || firstArrival,
+                                                purposeOfTravel: prev.purposeOfTravel || formData.reason || '',
+                                                accompanyingAssociates: prev.accompanyingAssociates || formData.guestNames || '',
+                                                itinerary: seededItinerary && itineraryIsBlank ? seededItinerary : prev.itinerary,
+                                            };
+                                        });
+                                    }
+                                }}
                                 className="mt-1 w-5 h-5 text-primary-600 focus:ring-primary-500 border-gray-300 rounded cursor-pointer"
                             />
                             <label htmlFor="processTravelDocument" className="cursor-pointer">
                                 <span className="font-semibold text-gray-900 block">Process Travel Document</span>
                                 <span className="text-sm text-gray-500 mt-1 block">
                                     Check this box if you would like to process your travel authorization document along with this booking request.
+                                    Date of travel, purpose, accompanying associates and itinerary will be pre-filled from your booking.
                                 </span>
                             </label>
                         </div>

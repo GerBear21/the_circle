@@ -1,14 +1,19 @@
 /**
  * Risk-Based Authentication for Approvals
  * ----------------------------------------
- * Classifies an approval action as low / medium / high risk. The classification
+ * Classifies an approval action as medium / high risk. The classification
  * drives which authentication ceremony the user must pass before their decision
  * is recorded:
  *
- *   low    -> valid session + in-product confirmation modal
  *   medium -> Microsoft Entra step-up (prompt=login, tenant-enforced MFA)
+ *            — this is the organisation-wide FLOOR; every approval requires
+ *              at least an MFA re-verification (a 15-minute elevated session
+ *              covers a batch of approvals after one successful ceremony).
  *   high   -> WebAuthn biometric (Windows Hello / Touch ID / Face ID)
  *            (fallback to medium if the user has no registered credential)
+ *
+ * The 'low' tier is retained in the type for historical records and
+ * defense-in-depth conversions, but the evaluator never produces it.
  *
  * Signals (any one is sufficient to escalate):
  *   - monetary value          -> >= HIGH_VALUE_THRESHOLD -> high
@@ -60,7 +65,14 @@ const MEDIUM_RISK_DEPARTMENTS = new Set([
   'compliance',
 ]);
 
-/** Workflow categories that are inherently sensitive. */
+/** Workflow categories that ALWAYS escalate to HIGH risk regardless of value. */
+const HIGH_RISK_CATEGORIES = new Set([
+  'capex',
+  'capital_expenditure',
+  'capital-expenditure',
+]);
+
+/** Workflow categories that are inherently sensitive (medium minimum). */
 const SENSITIVE_CATEGORIES = new Set([
   'payroll',
   'compensation',
@@ -70,18 +82,23 @@ const SENSITIVE_CATEGORIES = new Set([
   'hr',
   'finance',
   'budget',
-  'capex',
   'termination',
   'hiring',
 ]);
 
-/** Request types that are inherently sensitive, regardless of value. */
+/** Request types that ALWAYS escalate to HIGH risk regardless of value. */
+const HIGH_RISK_REQUEST_TYPES = new Set([
+  'capex',
+  'capex_request',
+  'capital_expenditure',
+]);
+
+/** Request types that are inherently sensitive (medium minimum). */
 const SENSITIVE_REQUEST_TYPES = new Set([
   'contract_approval',
   'salary_change',
   'termination_request',
   'policy_change',
-  'capex_request',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -171,10 +188,22 @@ function isMediumRiskDepartment(name: string | null | undefined): boolean {
   return [...MEDIUM_RISK_DEPARTMENTS].some(d => n === d || n.includes(d));
 }
 
+function isHighRiskCategory(category: string | null | undefined): boolean {
+  const c = normalize(category);
+  if (!c) return false;
+  return [...HIGH_RISK_CATEGORIES].some(cat => c === cat || c.includes(cat));
+}
+
 function isSensitiveCategory(category: string | null | undefined): boolean {
   const c = normalize(category);
   if (!c) return false;
   return [...SENSITIVE_CATEGORIES].some(cat => c === cat || c.includes(cat));
+}
+
+function isHighRiskRequestType(type: string | null | undefined): boolean {
+  const t = normalize(type);
+  if (!t) return false;
+  return [...HIGH_RISK_REQUEST_TYPES].some(rt => t === rt || t.includes(rt));
 }
 
 function isSensitiveRequestType(type: string | null | undefined): boolean {
@@ -196,19 +225,29 @@ function isSensitiveRequestType(type: string | null | undefined): boolean {
  */
 export function getApprovalRisk(input: ApprovalRiskInput): RiskEvaluation {
   // Respect explicit risk override (e.g. a workflow author marked a step
-  // "always high"). Still compute reasons for audit visibility.
+  // "always high"). Still compute reasons for audit visibility. A workflow
+  // declaring 'low' is bumped to the organisation-wide floor of 'medium' —
+  // we never accept a session-only approval.
   if (input.explicitRisk) {
+    const effective: ApprovalRisk = input.explicitRisk === 'low' ? 'medium' : input.explicitRisk;
     return {
-      risk: input.explicitRisk,
-      reasons: [`Workflow-declared risk: ${input.explicitRisk}`],
-      requiredAuth: authForRisk(input.explicitRisk),
+      risk: effective,
+      reasons: [`Workflow-declared risk: ${input.explicitRisk}`].concat(
+        effective !== input.explicitRisk ? ['Raised to organisation floor (medium)'] : []
+      ),
+      requiredAuth: authForRisk(effective),
     };
   }
 
   const reasons: string[] = [];
-  let risk: ApprovalRisk = 'low';
+  // Policy: every approval requires identity re-verification. We start at
+  // 'medium' (Microsoft MFA) as the organisation-wide floor — the 15-minute
+  // elevated-session cookie keeps batch approvals frictionless. Specific
+  // signals can still raise this to 'high' (biometric).
+  let risk: ApprovalRisk = 'medium';
+  reasons.push('All approvals require identity verification');
 
-  // Helper that only *raises* the risk level — low -> medium -> high, never backwards.
+  // Helper that only *raises* the risk level — medium -> high, never backwards.
   const raise = (to: ApprovalRisk, reason: string) => {
     if (rank(to) > rank(risk)) risk = to;
     reasons.push(reason);
@@ -236,10 +275,14 @@ export function getApprovalRisk(input: ApprovalRiskInput): RiskEvaluation {
   }
 
   // ---- category / request type ----------------------------------------
-  if (isSensitiveCategory(input.workflowCategory)) {
+  if (isHighRiskCategory(input.workflowCategory)) {
+    raise('high', `High-risk workflow category: ${input.workflowCategory}`);
+  } else if (isSensitiveCategory(input.workflowCategory)) {
     raise('medium', `Sensitive workflow category: ${input.workflowCategory}`);
   }
-  if (isSensitiveRequestType(input.requestType)) {
+  if (isHighRiskRequestType(input.requestType)) {
+    raise('high', `High-risk request type: ${input.requestType}`);
+  } else if (isSensitiveRequestType(input.requestType)) {
     raise('medium', `Sensitive request type: ${input.requestType}`);
   }
 
@@ -262,7 +305,7 @@ export function getApprovalRisk(input: ApprovalRiskInput): RiskEvaluation {
 
   return {
     risk,
-    reasons: reasons.length > 0 ? reasons : ['No elevated-risk signals'],
+    reasons,
     requiredAuth: authForRisk(risk),
   };
 }
@@ -280,7 +323,10 @@ export function authForRisk(risk: ApprovalRisk): AuthenticationMethod {
       return 'microsoft_mfa';
     case 'low':
     default:
-      return 'session';
+      // Defense-in-depth: even if some caller bypasses getApprovalRisk and
+      // hands us 'low' directly, require MFA. Session-only approvals are not
+      // permitted under the current policy.
+      return 'microsoft_mfa';
   }
 }
 
