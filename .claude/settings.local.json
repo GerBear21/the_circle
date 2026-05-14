@@ -52,7 +52,8 @@
       "Bash(curl -sI http://localhost:3001/requests/new/travel-auth -o /dev/null -w \"%{http_code}\\\\n\")",
       "Bash(curl -sI http://localhost:3001/requests/new/hotel-booking -o /dev/null -w \"%{http_code}\\\\n\")",
       "Bash(curl -sI http://localhost:3001/requests/new/petty-cash -o /dev/null -w \"%{http_code}\\\\n\")",
-      "Bash(cmd /c dir \"C:\\\\Users\\\\Admin\\\\the_circle\\\\components\\\\requests\" \"C:\\\\Users\\\\Admin\\\\the_circle\\\\lib\\\\previews\")"
+      "Bash(cmd /c dir \"C:\\\\Users\\\\Admin\\\\the_circle\\\\components\\\\requests\" \"C:\\\\Users\\\\Admin\\\\the_circle\\\\lib\\\\previews\")",
+      "Bash(echo \"EXIT=$?\")"
     ]
   }
 }
