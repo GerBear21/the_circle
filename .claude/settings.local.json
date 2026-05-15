@@ -73,7 +73,11 @@
       "Bash(node -e \"const j=require\\('fs'\\).readFileSync\\(0,'utf8'\\);console.log\\(JSON.parse\\(j\\).version\\)\")",
       "Bash(node the_circle_presentation.js)",
       "Bash(npm root:*)",
-      "Bash(node -e \"require\\('pptxgenjs'\\)\")"
+      "Bash(node -e \"require\\('pptxgenjs'\\)\")",
+      "Bash(git -c core.editor=true commit --no-edit)",
+      "Bash(echo \"---EXIT=$?---\")",
+      "Bash(git push *)",
+      "Bash(git checkout *)"
     ]
   }
 }
