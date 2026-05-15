@@ -62,14 +62,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .eq('type', 'message')
         .eq('is_read', false);
 
+      // The panel surfaces task + approval + info under the "Tasks" tab, so
+      // the unread badge has to count those same types — otherwise a requester
+      // gets "Step 2 approved" notifications (type: info) and never sees the
+      // bell light up.
       const { count: unreadTasks } = await supabaseAdmin
         .from('notifications')
         .select('*', { count: 'exact', head: true })
         .eq('recipient_id', userId)
-        .eq('type', 'task')
+        .in('type', ['task', 'approval', 'info'])
         .eq('is_read', false);
 
-      return res.status(200).json({ 
+      return res.status(200).json({
         notifications: notifications || [],
         unreadCounts: {
           messages: unreadMessages || 0,

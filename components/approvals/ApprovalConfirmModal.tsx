@@ -25,6 +25,16 @@ import BiometricSetupModal from './BiometricSetupModal';
 export type ApprovalConfirmResult = {
   stepUpToken: string | null; // null is valid for low-risk (session is enough)
   authMethod: AuthenticationMethod;
+  /**
+   * Elevation info reported back to the parent so it can show the
+   * "verified for the next N minutes" toast + countdown after a successful
+   * ceremony, OR confirm that an existing elevation was reused (no toast).
+   */
+  elevation?: {
+    expiresAt: number;
+    ttlMinutes: number;
+    reused: boolean;
+  } | null;
 };
 
 interface Props {
@@ -59,15 +69,61 @@ export default function ApprovalConfirmModal({
   const [error, setError] = useState<string | null>(null);
   const [showBiometricSetup, setShowBiometricSetup] = useState(false);
   const [userHasBiometric, setUserHasBiometric] = useState(hasBiometric);
+  const [elevation, setElevation] = useState<{ method: AuthenticationMethod; expiresAt: number } | null>(null);
+  const [elevationChecked, setElevationChecked] = useState(false);
   const popupRef = useRef<Window | null>(null);
+
+  // Required auth rank for the current risk bucket.
+  const requiredRank = risk === 'high' ? 2 : risk === 'medium' ? 1 : 0;
+  const methodRank = (m: AuthenticationMethod) =>
+    m === 'biometric' ? 2 : m === 'microsoft_mfa' ? 1 : 0;
+  // Mirror server inclusivity: biometric is preferred for HIGH risk, but a
+  // microsoft_mfa elevation is an acceptable fallback (see action.ts).
+  const elevationSatisfies = !!elevation && (
+    methodRank(elevation.method) >= requiredRank ||
+    (requiredRank === 2 && methodRank(elevation.method) >= 1)
+  );
 
   useEffect(() => {
     if (isOpen) {
       setError(null);
       setVerifying(false);
       setUserHasBiometric(hasBiometric);
+      setElevationChecked(false);
+      setElevation(null);
+
+      // Pre-check elevation. If the user already has a valid elevated session
+      // covering this risk level we skip the ceremony entirely.
+      if (risk !== 'low') {
+        fetch('/api/auth/elevation')
+          .then(r => r.ok ? r.json() : null)
+          .then((data) => {
+            if (data?.elevated && typeof data.expiresAt === 'number') {
+              setElevation({ method: data.method, expiresAt: data.expiresAt });
+            }
+          })
+          .catch(() => { /* fail open — user runs ceremony */ })
+          .finally(() => setElevationChecked(true));
+      } else {
+        setElevationChecked(true);
+      }
+
+      // Always re-probe biometric registration when the modal opens for
+      // high-risk approvals. Otherwise we may show "register" to a user
+      // who already has a credential (the parent's `hasBiometric` prop is
+      // not always populated — e.g. when the parent's gated-flow handler
+      // opens this modal before the parent has fetched credentials).
+      if (risk === 'high') {
+        fetch('/api/webauthn/credentials')
+          .then(r => r.ok ? r.json() : null)
+          .then((data) => {
+            const has = (data?.credentials || []).some((c: any) => c.is_active);
+            if (has) setUserHasBiometric(true);
+          })
+          .catch(() => { /* fall back to the prop */ });
+      }
     }
-  }, [isOpen, hasBiometric]);
+  }, [isOpen, hasBiometric, risk]);
 
   // Close any open popup if the modal itself is dismissed.
   useEffect(() => {
@@ -81,7 +137,20 @@ export default function ApprovalConfirmModal({
   // LOW risk: one-click confirmation, no extra ceremony.
   // ------------------------------------------------------------------
   const handleLowConfirm = async () => {
-    await onConfirmed({ stepUpToken: null, authMethod: 'session' });
+    await onConfirmed({ stepUpToken: null, authMethod: 'session', elevation: null });
+  };
+
+  // ------------------------------------------------------------------
+  // Reuse existing elevation: skip the ceremony, server will validate
+  // the elevation cookie at /api/approvals/action.
+  // ------------------------------------------------------------------
+  const handleReuseElevation = async () => {
+    if (!elevation) return;
+    await onConfirmed({
+      stepUpToken: null,
+      authMethod: elevation.method,
+      elevation: { expiresAt: elevation.expiresAt, ttlMinutes: 0, reused: true },
+    });
   };
 
   // ------------------------------------------------------------------
@@ -110,19 +179,27 @@ export default function ApprovalConfirmModal({
       const result = await new Promise<ApprovalConfirmResult>((resolve, reject) => {
         let channel: BroadcastChannel | null = null;
         let timeoutId: ReturnType<typeof setTimeout>;
+        let closedPoll: ReturnType<typeof setInterval>;
         let settled = false;
         const cleanup = () => {
           if (settled) return;
           settled = true;
           window.removeEventListener('message', handler);
           clearTimeout(timeoutId);
+          clearInterval(closedPoll);
           try { channel?.close(); } catch (_) {}
         };
         const onResult = (payload: any) => {
           cleanup();
           try { popup.close(); } catch (_) {}
           if (payload.success && payload.stepUpToken) {
-            resolve({ stepUpToken: payload.stepUpToken, authMethod: 'microsoft_mfa' });
+            resolve({
+              stepUpToken: payload.stepUpToken,
+              authMethod: 'microsoft_mfa',
+              elevation: payload.elevation
+                ? { expiresAt: payload.elevation.expiresAt, ttlMinutes: payload.elevation.ttlMinutes, reused: false }
+                : null,
+            });
           } else {
             reject(new Error(payload.error || 'Microsoft verification failed'));
           }
@@ -143,10 +220,18 @@ export default function ApprovalConfirmModal({
           onResult(event.data.payload || {});
         };
         window.addEventListener('message', handler);
-        // NOTE: We deliberately do NOT poll popup.closed — Microsoft's login
-        // page sets Cross-Origin-Opener-Policy which makes that property
-        // inaccessible and logs noisy console errors. Instead we rely on
-        // BroadcastChannel for the result and a safety timeout.
+        // Poll popup.closed so we don't get stuck "Verifying…" when the user
+        // closes the Microsoft window before completing the ceremony. COOP can
+        // make this property momentarily unreadable while on the MS origin —
+        // we wrap in try/catch and only act on a definite `true`.
+        closedPoll = setInterval(() => {
+          let isClosed = false;
+          try { isClosed = popup.closed; } catch (_) { /* COOP — ignore */ }
+          if (isClosed) {
+            cleanup();
+            reject(new Error('Verification window was closed before completing. Please try again.'));
+          }
+        }, 600);
         timeoutId = setTimeout(() => {
           cleanup();
           reject(new Error('Verification timed out. Please try again.'));
@@ -209,7 +294,13 @@ export default function ApprovalConfirmModal({
         throw new Error(verifyJson.error || 'Biometric verification failed');
       }
 
-      await onConfirmed({ stepUpToken: verifyJson.stepUpToken, authMethod: 'biometric' });
+      await onConfirmed({
+        stepUpToken: verifyJson.stepUpToken,
+        authMethod: 'biometric',
+        elevation: verifyJson.elevation
+          ? { expiresAt: verifyJson.elevation.expiresAt, ttlMinutes: verifyJson.elevation.ttlMinutes, reused: false }
+          : null,
+      });
     } catch (err: any) {
       setError(err?.message || 'Biometric verification failed');
     } finally {
@@ -247,23 +338,37 @@ export default function ApprovalConfirmModal({
   );
 
   const title =
+    elevationSatisfies ? `Confirm ${action === 'approve' ? 'approval' : 'rejection'}` :
     risk === 'high' ? 'Biometric verification required' :
     risk === 'medium' ? 'Microsoft verification required' :
     `Confirm ${action === 'approve' ? 'approval' : 'rejection'}`;
 
+  const elevationMinutesLeft = elevation
+    ? Math.max(0, Math.ceil((elevation.expiresAt - Date.now()) / 60000))
+    : 0;
+
   const description =
+    elevationSatisfies
+      ? `You're already verified for the next ${elevationMinutesLeft} minute${elevationMinutesLeft === 1 ? '' : 's'}. No re-authentication needed.` :
     risk === 'high' ? 'This is a sensitive approval. Please verify with Windows Hello, Touch ID, or Face ID.' :
     risk === 'medium' ? 'We\'ll quickly re-verify you with Microsoft before recording this decision.' :
     `You are about to ${action} this request. This action will be recorded with your signature.`;
 
   const primaryLabel =
+    elevationSatisfies ? `${actionVerb} now` :
     risk === 'high' ? 'Verify with biometrics' :
     risk === 'medium' ? 'Continue with Microsoft' :
     `${actionVerb} now`;
 
+  // For HIGH risk we always start the WebAuthn ceremony; the options endpoint
+  // is authoritative on whether the user has credentials, and handleBiometric
+  // already routes to BiometricSetupModal on NO_CREDENTIALS. Don't pre-judge
+  // off the (possibly stale) `userHasBiometric` flag — that misroutes users
+  // with registered passkeys to the registration screen.
   const onPrimary =
+    elevationSatisfies ? handleReuseElevation :
     risk === 'high'
-      ? (userHasBiometric ? handleBiometric : () => setShowBiometricSetup(true))
+      ? handleBiometric
       : risk === 'medium'
       ? handleMicrosoftStepUp
       : handleLowConfirm;
@@ -310,15 +415,19 @@ export default function ApprovalConfirmModal({
             </div>
           )}
 
-          {/* High-risk fallback affordance: let the user choose MS MFA if biometrics fail. */}
-          {risk === 'high' && !verifying && (
+          {/* Always offer both verification methods when verification is needed.
+              The primary button defaults to the recommended method for the risk
+              level, but the user can always pick the other. */}
+          {risk !== 'low' && !verifying && !elevationSatisfies && (
             <div className="px-6 pb-2 text-center">
               <button
                 type="button"
-                onClick={handleMicrosoftStepUp}
+                onClick={risk === 'high' ? handleMicrosoftStepUp : handleBiometric}
                 className="text-xs text-gray-500 hover:text-gray-700 underline"
               >
-                Can't use biometrics? Verify with Microsoft instead.
+                {risk === 'high'
+                  ? "Can't use biometrics? Verify with Microsoft instead."
+                  : 'Prefer biometrics? Verify with Touch ID / Windows Hello.'}
               </button>
             </div>
           )}
@@ -333,7 +442,7 @@ export default function ApprovalConfirmModal({
             </button>
             <button
               onClick={onPrimary}
-              disabled={verifying || busy}
+              disabled={verifying || busy || (risk !== 'low' && !elevationChecked)}
               className={`flex-1 py-2.5 px-4 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2 disabled:bg-gray-300 disabled:cursor-not-allowed ${
                 risk === 'low' ? colorClass : 'bg-primary-600 hover:bg-primary-700'
               }`}

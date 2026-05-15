@@ -1,8 +1,6 @@
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import { useEffect } from 'react';
-import Lottie from 'lottie-react';
-import sendingApprovalAnimation from '../../../Sending approval lottie.json';
 import { AppLayout } from '../../../components/layout';
 
 export default function TravelAuthorizationChooserPage() {
@@ -34,14 +32,6 @@ export default function TravelAuthorizationChooserPage() {
         {/* Hero Section */}
         <div className="mb-8 rounded-2xl bg-gradient-to-br from-[#F3EADC] via-white to-[#F3EADC]/30 border border-[#C9B896] p-6 sm:p-8 shadow-sm">
           <div className="flex flex-col sm:flex-row items-center gap-6">
-            <div className="w-44 h-44 sm:w-56 sm:h-56 flex-shrink-0 relative">
-              <div className="absolute inset-0 bg-[#C9A574]/20 rounded-full blur-2xl animate-pulse"></div>
-              <Lottie
-                animationData={sendingApprovalAnimation}
-                loop={true}
-                className="w-full h-full drop-shadow-xl relative z-10"
-              />
-            </div>
             <div className="text-center sm:text-left flex-1">
               <span className="inline-block py-1 px-3 rounded-full bg-[#F3EADC] text-[#9A7545] text-xs font-bold tracking-wider uppercase mb-3">
                 Select Option

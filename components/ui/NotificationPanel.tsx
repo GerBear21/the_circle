@@ -77,6 +77,14 @@ export default function NotificationPanel({ isOpen, onClose, onUnreadCheck }: No
         fetchNotifications();
     }, [isOpen, fetchNotifications]);
 
+    // Lightweight polling so unread state stays accurate even when the
+    // panel is closed (the bell icon depends on `onUnreadCheck`). 30s feels
+    // responsive enough for approval flows without hammering the API.
+    useEffect(() => {
+        const id = setInterval(() => { fetchNotifications(); }, 30000);
+        return () => clearInterval(id);
+    }, [fetchNotifications]);
+
     const handleNotificationClick = async (notification: Notification) => {
         // Mark as read
         if (!notification.is_read) {
@@ -169,6 +177,8 @@ export default function NotificationPanel({ isOpen, onClose, onUnreadCheck }: No
                                 <NotificationItem
                                     key={notification.id}
                                     id={notification.id}
+                                    // Keep the icon variant on type — task icon for actionable items,
+                                    // message icon for sender-attributed updates (e.g. an approver's decision).
                                     type={notification.type === 'task' || notification.type === 'approval' ? 'task' : 'message'}
                                     title={notification.title}
                                     description={notification.message || ''}
@@ -176,6 +186,9 @@ export default function NotificationPanel({ isOpen, onClose, onUnreadCheck }: No
                                     isRead={notification.is_read}
                                     actionLabel={notification.metadata?.action_label}
                                     onClick={() => handleNotificationClick(notification)}
+                                    // Always pass the sender so "From: Jane Smith" appears
+                                    // regardless of notification type. Falls back to undefined
+                                    // when the row has no sender_id (e.g. system events).
                                     userParams={notification.sender ? {
                                         name: notification.sender.display_name || 'Unknown',
                                     } : undefined}
