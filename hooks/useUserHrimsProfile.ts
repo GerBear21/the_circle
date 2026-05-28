@@ -165,6 +165,7 @@ export function useUserHrimsProfile() {
     cacheStale,
     departmentName: profile?.department?.name || null,
     businessUnitName: profile?.businessUnit?.name || null,
+    businessUnitCode: profile?.businessUnit?.code || null,
     jobTitle: profile?.employee?.job_title || null,
     positionTitle: profile?.position?.position_title || null,
   };

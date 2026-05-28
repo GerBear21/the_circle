@@ -56,6 +56,10 @@ export const authOptions: NextAuthOptions = {
   },
   pages: {
     error: "/auth/error", // Custom error page
+    // NextAuth redirects OAuth* errors to the signin page (not the error page),
+    // so we point signin at the error page too. Real sign-in is initiated by
+    // calling signIn("azure-ad") directly, which bypasses this page.
+    signIn: "/auth/error",
   },
   callbacks: {
     async signIn({ user, account, profile }) {

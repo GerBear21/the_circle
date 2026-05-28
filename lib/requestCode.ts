@@ -27,6 +27,14 @@ const PREFIX_MAP: Record<string, string> = {
   workflow: 'WFR',
   form_request: 'FRM',
   approval: 'APR',
+  inter_unit_debit_note: 'IUDN',
+  'inter-unit-debit-note': 'IUDN',
+  inter_unit_credit_note: 'IUCN',
+  'inter-unit-credit-note': 'IUCN',
+  journal: 'JNL',
+  journals: 'JNL',
+  journal_entry: 'JNL',
+  'journal-entry': 'JNL',
 };
 
 export function getPrefixForRequestType(requestType?: string | null): string {

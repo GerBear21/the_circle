@@ -2462,6 +2462,32 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                             </svg>
                             Preview
                         </Button>
+                        {/* Inter-Unit Debit Note: dedicated paper-format printable view. */}
+                        {(request.metadata?.type === 'inter_unit_debit_note' || request.metadata?.requestType === 'inter_unit_debit_note') && (
+                            <Button
+                                variant="outline"
+                                className="gap-2 bg-white text-[#5E4426] border-[#C9B896] hover:bg-[#F3EADC]"
+                                onClick={() => window.open(`/api/requests/${id}/debit-note-pdf`, '_blank')}
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                                </svg>
+                                Print Debit Note
+                            </Button>
+                        )}
+                        {/* Inter-Unit Credit Note: dedicated paper-format printable view. */}
+                        {(request.metadata?.type === 'inter_unit_credit_note' || request.metadata?.requestType === 'inter_unit_credit_note') && (
+                            <Button
+                                variant="outline"
+                                className="gap-2 bg-white text-[#5E4426] border-[#C9B896] hover:bg-[#F3EADC]"
+                                onClick={() => window.open(`/api/requests/${id}/credit-note-pdf`, '_blank')}
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                                </svg>
+                                Print Credit Note
+                            </Button>
+                        )}
                         {/* Download — only visible once fully approved. Uses primary variant
                             with explicit emerald colours so the white-on-emerald text stays
                             readable on hover (the previous outline variant ate the bg). */}
@@ -2492,6 +2518,8 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                         'hotel_booking': 'hotel-booking',
                                         'travel_authorization': 'travel-auth',
                                         'external_hotel_booking': 'external-hotel-booking',
+                                        'inter_unit_debit_note': 'inter-unit-debit-note',
+                                        'inter_unit_credit_note': 'inter-unit-credit-note',
                                     };
                                     const route = routeMap[requestType] || requestType;
                                     router.push(`/requests/new/${route}?edit=${id}`);

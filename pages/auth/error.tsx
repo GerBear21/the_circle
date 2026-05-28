@@ -15,16 +15,68 @@ const errorMessages: Record<string, string> = {
   Default: "An authentication error occurred.",
 };
 
+// Threshold above which we treat the local clock as out of sync with the server.
+// Microsoft rejects tokens whose nbf is more than ~5 minutes in the future, so
+// anything beyond that will reliably break OAuth.
+const CLOCK_SKEW_THRESHOLD_MS = 2 * 60 * 1000;
+
+function formatSkew(ms: number): string {
+  const abs = Math.abs(ms);
+  const direction = ms > 0 ? "behind" : "ahead";
+  const minutes = Math.round(abs / 60000);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ${direction}`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ${direction}`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ${direction}`;
+}
+
 export default function AuthError() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const [clockSkewMs, setClockSkewMs] = useState<number | null>(null);
 
   useEffect(() => {
+    if (!router.isReady) return;
     if (router.query.error) {
       setError(router.query.error as string);
+    } else {
+      // No error code → this route is also configured as pages.signIn, so a
+      // bare visit means NextAuth wants us to start a sign-in. Bounce home
+      // where the real sign-in button lives.
+      router.replace("/");
     }
-  }, [router.query]);
+  }, [router.isReady, router.query, router]);
 
+  // When the OAuth callback fails, the most common root cause we see in the
+  // wild is the user's machine clock being out of sync. NextAuth swallows the
+  // underlying "JWT not active yet" message and just forwards `OAuthCallback`,
+  // so we detect skew here by comparing the server's `Date` header against the
+  // local clock and surface a specific, actionable message.
+  useEffect(() => {
+    if (error !== "OAuthCallback" && error !== "Callback") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await fetch("/api/auth/csrf", { cache: "no-store" });
+        const serverDate = resp.headers.get("date");
+        if (!serverDate) return;
+        const serverMs = new Date(serverDate).getTime();
+        if (Number.isNaN(serverMs)) return;
+        const skew = serverMs - Date.now();
+        if (!cancelled && Math.abs(skew) > CLOCK_SKEW_THRESHOLD_MS) {
+          setClockSkewMs(skew);
+        }
+      } catch {
+        // Network failure — fall back to the generic message.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [error]);
+
+  const isClockSkew = clockSkewMs !== null;
   const errorMessage = error ? errorMessages[error] || errorMessages.Default : errorMessages.Default;
 
   return (
@@ -36,13 +88,44 @@ export default function AuthError() {
           </svg>
         </div>
         
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Authentication Error</h1>
-        
-        {error && (
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">
+          {isClockSkew ? "Your computer's clock is wrong" : "Authentication Error"}
+        </h1>
+
+        {error && !isClockSkew && (
           <p className="text-sm text-gray-500 mb-2">Error code: {error}</p>
         )}
-        
-        <p className="text-gray-600 mb-6">{errorMessage}</p>
+
+        {isClockSkew ? (
+          <div className="text-left text-gray-700 mb-6 space-y-3 text-sm">
+            <p>
+              Sign-in failed because this device's clock is off by about{" "}
+              <strong>{formatSkew(clockSkewMs!)}</strong> compared to the server.
+              Microsoft rejects sign-in tokens when the clock is more than a few
+              minutes off, so you'll keep getting this error until the time is
+              fixed.
+            </p>
+            <p className="font-semibold text-gray-900">How to fix it:</p>
+            <ol className="list-decimal list-inside space-y-1">
+              <li>
+                Open <strong>Settings &rarr; Time &amp; language &rarr; Date &amp; time</strong>.
+              </li>
+              <li>
+                Turn on <strong>Set time automatically</strong> and{" "}
+                <strong>Set time zone automatically</strong>.
+              </li>
+              <li>
+                Click <strong>Sync now</strong>, then try signing in again.
+              </li>
+            </ol>
+            <p className="text-xs text-gray-500">
+              If you're on a managed device and these settings are locked, ask
+              your IT administrator to resync the system clock.
+            </p>
+          </div>
+        ) : (
+          <p className="text-gray-600 mb-6">{errorMessage}</p>
+        )}
         
         <div className="space-y-3">
           <button

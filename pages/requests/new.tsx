@@ -13,7 +13,7 @@ const ESignModal = dynamic(
 );
 
 // Defined types for better type safety
-type RequestCategory = 'Finance' | 'Travel & Events' | 'BIS forms' | 'System & Design';
+type RequestCategory = 'System Functions' | 'Finance' | 'HR' | 'BIS forms';
 
 interface RequestItem {
   id: string;
@@ -29,7 +29,7 @@ interface RequestItem {
 }
 
 const allRequestItems: RequestItem[] = [
-  // --- E-Sign ---
+  // --- System Functions (top of page) ---
   {
     id: 'esign',
     title: 'E-Sign PDF',
@@ -37,7 +37,7 @@ const allRequestItems: RequestItem[] = [
     icon: 'M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z',
     color: 'success',
     href: '#esign',
-    category: 'Finance',
+    category: 'System Functions',
     popular: true,
   },
   // --- Finance ---
@@ -70,12 +70,21 @@ const allRequestItems: RequestItem[] = [
     category: 'Finance',
   },
   {
-    id: 'credit_debit_note',
-    title: 'Credit / Debit Note',
-    description: 'Prepare a finance note request for account adjustments',
-    icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
+    id: 'inter_unit_debit_note',
+    title: 'Inter-Unit Debit Note',
+    description: 'Issue a debit note between business units with line items and authorised signature',
+    icon: 'M3 10h18M5 6h14a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2zm4 8h2m4 0h4',
     color: 'primary',
-    href: '/requests/new/credit-debit-note',
+    href: '/requests/new/inter-unit-debit-note',
+    category: 'Finance',
+  },
+  {
+    id: 'inter_unit_credit_note',
+    title: 'Inter-Unit Credit Note',
+    description: 'Issue a credit note between business units to refund or adjust prior charges',
+    icon: 'M3 10h18M5 6h14a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2zm5 8l2 -3 2 3 2 -3',
+    color: 'success',
+    href: '/requests/new/inter-unit-credit-note',
     category: 'Finance',
   },
   {
@@ -98,7 +107,7 @@ const allRequestItems: RequestItem[] = [
   //   popular: true,
   // },
 
-  // --- Travel & Events ---
+  // --- HR Department ---
   {
     id: 'travel_authorization',
     title: 'Travel Authorization',
@@ -106,7 +115,7 @@ const allRequestItems: RequestItem[] = [
     icon: 'M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
     color: 'indigo',
     href: '/requests/new/travel-authorization',
-    category: 'Travel & Events',
+    category: 'HR',
   },
   {
     id: 'hotel',
@@ -115,7 +124,7 @@ const allRequestItems: RequestItem[] = [
     icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4',
     color: 'primary',
     href: '/requests/new/accommodation',
-    category: 'Travel & Events',
+    category: 'HR',
   },
 
 
@@ -160,7 +169,7 @@ const allRequestItems: RequestItem[] = [
     popular: true,
   },
 
-  // --- System & Design ---
+  // --- System Functions (continued) ---
   {
     id: 'form',
     title: 'Design New Form',
@@ -168,7 +177,7 @@ const allRequestItems: RequestItem[] = [
     icon: 'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z',
     color: 'accent',
     href: '/requests/new/form',
-    category: 'System & Design',
+    category: 'System Functions',
   },
   {
     id: 'workflow',
@@ -177,7 +186,7 @@ const allRequestItems: RequestItem[] = [
     icon: 'M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2',
     color: 'accent',
     href: '/requests/new/workflow',
-    category: 'System & Design',
+    category: 'System Functions',
   },
 ];
 
@@ -240,12 +249,12 @@ export default function NewRequestPage() {
   return (
     <>
     <AppLayout title="Create New">
-      <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-8">
+      <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6">
 
-        {/* Hero Section with Animation - Restored Original Design */}
-        <div className="mb-8 rounded-2xl bg-gradient-to-br from-primary-50 via-white to-accent/5 border border-primary-100/50 p-6 sm:p-8">
+        {/* Hero Section with Animation */}
+        <div className="rounded-2xl bg-gradient-to-br from-primary-50 via-white to-accent/5 border border-primary-100/50 p-6 sm:p-8">
           <div className="flex flex-col sm:flex-row items-center gap-6">
-            <div className="w-48 h-48 sm:w-56 sm:h-56 flex-shrink-0">
+            <div className="w-40 h-40 sm:w-48 sm:h-48 flex-shrink-0">
               <Lottie
                 animationData={sendingApprovalAnimation}
                 loop={true}
@@ -253,15 +262,19 @@ export default function NewRequestPage() {
               />
             </div>
             <div className="text-center sm:text-left flex-1">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary-100/60 text-primary-700 text-xs font-semibold uppercase tracking-wider mb-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-primary-500 animate-pulse" />
+                Create New Request
+              </div>
               <h1 className="text-2xl sm:text-3xl font-bold text-text-primary font-heading">
                 What would you like to create?
               </h1>
-              <p className="text-text-secondary mt-2 text-base sm:text-lg max-w-md">
-                Select an option below to get started with your approval workflow
+              <p className="text-text-secondary mt-2 text-sm sm:text-base max-w-md">
+                Pick a form below to start a new approval workflow. Search by name or jump to a department.
               </p>
 
               {/* Search Bar */}
-              <div className="mt-6 relative max-w-md mx-auto sm:mx-0">
+              <div className="mt-5 relative max-w-md mx-auto sm:mx-0">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -270,17 +283,57 @@ export default function NewRequestPage() {
                 <input
                   type="text"
                   placeholder="Search for forms..."
-                  className="block w-full pl-10 pr-4 py-3 rounded-xl border-gray-200 bg-white/50 backdrop-blur-sm text-text-primary placeholder-gray-400 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all shadow-sm"
+                  className="block w-full pl-10 pr-10 py-3 rounded-xl border-gray-200 bg-white/70 backdrop-blur-sm text-text-primary placeholder-gray-400 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all shadow-sm"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                    aria-label="Clear search"
+                  >
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
               </div>
             </div>
           </div>
         </div>
 
+        {/* Quick-jump department nav — appears once results exist. Lets a user
+            scroll straight to a department on long pages. */}
+        {filteredItems.length > 0 && (
+          <nav className="flex flex-wrap items-center gap-2 max-w-6xl mx-auto" aria-label="Jump to department">
+            <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 mr-1">Jump to:</span>
+            {(['System Functions', 'Finance', 'HR', 'BIS forms'] as RequestCategory[]).map((cat) => {
+              const count = filteredItems.filter(i => i.category === cat).length;
+              if (count === 0) return null;
+              const label = cat === 'BIS forms' ? 'BIS' : cat === 'HR' ? 'HR' : cat;
+              const anchor = cat.toLowerCase().replace(/\s+/g, '-');
+              return (
+                <a
+                  key={cat}
+                  href={`#${anchor}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-gray-200 text-xs font-medium text-text-secondary hover:text-primary-700 hover:border-primary-200 hover:bg-primary-50 transition-colors"
+                >
+                  {label}
+                  <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-gray-100 text-[10px] font-bold">{count}</span>
+                </a>
+              );
+            })}
+          </nav>
+        )}
+
         {/* Content Section */}
-        <div className="space-y-8">
+        <div className="space-y-6">
           {filteredItems.length === 0 ? (
             <div className="text-center py-20 bg-gray-50 rounded-3xl border border-dashed border-gray-300">
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 mb-4">
@@ -297,67 +350,162 @@ export default function NewRequestPage() {
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-5xl mx-auto">
-              {filteredItems.map((item) => {
-                const colors = getColorClasses(item.color);
-                return (
-                  <div
-                    key={item.id}
-                    onClick={() => {
-                      if (item.id === 'esign') {
-                        setShowESignModal(true);
-                      } else {
-                        router.push(item.href);
-                      }
-                    }}
-                    className={`
-                      group relative overflow-hidden bg-white rounded-xl border border-gray-100 
-                      p-4 cursor-pointer transition-all duration-300
-                      hover:shadow-md hover:border-gray-200 ${colors.border} hover:border
-                    `}
-                  >
-                    {/* Background Decorative Blob - Smaller and more subtle */}
-                    <div className={`
-                       absolute -top-6 -right-6 w-24 h-24 rounded-full opacity-0 blur-2xl transition-opacity duration-500 group-hover:opacity-100
-                       ${colors.bg.replace('50', '200')}
-                     `} />
+            (() => {
+              // Group filtered items by department. System Functions sits at
+              // the top because it's not tied to a specific department; the
+              // remaining departments follow in their organisational order.
+              const departmentOrder: {
+                key: RequestCategory;
+                label: string;
+                description: string;
+                iconPath: string;
+                accent: string;    // header chip background
+                accentText: string; // header chip text
+                rail: string;       // left rail border colour
+              }[] = [
+                {
+                  key: 'System Functions',
+                  label: 'System Functions',
+                  description: 'Cross-cutting tools — signing, form design and workflow building',
+                  iconPath: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z',
+                  accent: 'bg-[#EEF2FF]',
+                  accentText: 'text-[#4338CA]',
+                  rail: 'border-l-[#6366F1]',
+                },
+                {
+                  key: 'Finance',
+                  label: 'Finance Department',
+                  description: 'Approvals for finance, accounting and reimbursements',
+                  iconPath: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+                  accent: 'bg-[#F3EADC]',
+                  accentText: 'text-[#7C5A33]',
+                  rail: 'border-l-[#9A7545]',
+                },
+                {
+                  key: 'HR',
+                  label: 'Human Resources',
+                  description: 'Travel authorisations, accommodation and people-related approvals',
+                  iconPath: 'M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-7a4 4 0 11-8 0 4 4 0 018 0zm6 3a3 3 0 11-6 0 3 3 0 016 0z',
+                  accent: 'bg-[#FEF3C7]',
+                  accentText: 'text-[#92400E]',
+                  rail: 'border-l-[#F59E0B]',
+                },
+                {
+                  key: 'BIS forms',
+                  label: 'Business Information Systems',
+                  description: 'IT, user access and BIS support requests',
+                  iconPath: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z',
+                  accent: 'bg-[#DCFCE7]',
+                  accentText: 'text-[#166534]',
+                  rail: 'border-l-[#22C55E]',
+                },
+              ];
 
-                    <div className="flex items-center gap-4 relative z-10">
-                      <div className={`
-                        w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0
-                        ${colors.bg} transition-transform duration-300 group-hover:scale-105
-                      `}>
-                        <svg className={`w-6 h-6 ${colors.icon}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={item.icon} />
-                        </svg>
-                      </div>
+              const grouped = departmentOrder
+                .map((dept) => ({ dept, items: filteredItems.filter((i) => i.category === dept.key) }))
+                .filter((g) => g.items.length > 0);
 
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <h3 className="font-semibold text-gray-900 group-hover:text-primary-600 transition-colors">
-                            {item.title}
-                          </h3>
-                          {item.popular && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-primary-50 text-primary-600 border border-primary-100 uppercase tracking-wide">
-                              Popular
-                            </span>
-                          )}
+              return (
+                <div className="space-y-6 max-w-6xl mx-auto">
+                  {grouped.map(({ dept, items }) => (
+                    <section
+                      key={dept.key}
+                      id={dept.key.toLowerCase().replace(/\s+/g, '-')}
+                      className={`relative scroll-mt-24 rounded-2xl border border-gray-100 bg-white/60 backdrop-blur-sm shadow-sm hover:shadow-md transition-shadow p-5 sm:p-6 border-l-4 ${dept.rail}`}
+                    >
+                      <header className="flex items-start sm:items-center gap-3 mb-5">
+                        <div className={`w-11 h-11 rounded-xl ${dept.accent} flex items-center justify-center flex-shrink-0 ring-1 ring-inset ring-white/50`}>
+                          <svg className={`w-5 h-5 ${dept.accentText}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={dept.iconPath} />
+                          </svg>
                         </div>
-                        <p className="text-gray-500 text-sm leading-snug line-clamp-1">
-                          {item.description}
-                        </p>
-                      </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h2 className="text-base sm:text-lg font-bold text-text-primary font-heading">{dept.label}</h2>
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full ${dept.accent} ${dept.accentText} text-[11px] font-semibold`}>
+                              {items.length} {items.length === 1 ? 'form' : 'forms'}
+                            </span>
+                          </div>
+                          <p className="text-xs sm:text-sm text-gray-500 mt-0.5">{dept.description}</p>
+                        </div>
+                      </header>
 
-                      <div className="self-center opacity-0 -translate-x-2 transition-all duration-300 group-hover:opacity-100 group-hover:translate-x-0">
-                        <svg className="w-5 h-5 text-gray-300 group-hover:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                        {items.map((item) => {
+                          const colors = getColorClasses(item.color);
+                          return (
+                            <div
+                              key={item.id}
+                              onClick={() => {
+                                if (item.id === 'esign') {
+                                  setShowESignModal(true);
+                                } else {
+                                  router.push(item.href);
+                                }
+                              }}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  if (item.id === 'esign') setShowESignModal(true);
+                                  else router.push(item.href);
+                                }
+                              }}
+                              className={`
+                                group relative overflow-hidden bg-white rounded-xl border border-gray-100
+                                p-4 cursor-pointer transition-all duration-300
+                                hover:shadow-card-hover hover:border-[#E6D3B3] hover:-translate-y-0.5
+                                focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-300
+                              `}
+                            >
+                              {/* Decorative gradient corner — appears on hover */}
+                              <div className={`
+                                 absolute -top-8 -right-8 w-28 h-28 rounded-full opacity-0 blur-2xl transition-opacity duration-500 group-hover:opacity-100
+                                 ${colors.bg.replace('50', '200')}
+                               `} />
+
+                              <div className="flex items-center gap-4 relative z-10">
+                                <div className={`
+                                  w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0
+                                  ${colors.bg} transition-transform duration-300 group-hover:scale-105 group-hover:rotate-3
+                                `}>
+                                  <svg className={`w-6 h-6 ${colors.icon}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={item.icon} />
+                                  </svg>
+                                </div>
+
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                                    <h3 className="font-semibold text-gray-900 group-hover:text-primary-700 transition-colors">
+                                      {item.title}
+                                    </h3>
+                                    {item.popular && (
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-primary-50 text-primary-700 border border-primary-100 uppercase tracking-wide">
+                                        Popular
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-gray-500 text-sm leading-snug line-clamp-2">
+                                    {item.description}
+                                  </p>
+                                </div>
+
+                                <div className="self-center opacity-0 -translate-x-2 transition-all duration-300 group-hover:opacity-100 group-hover:translate-x-0">
+                                  <svg className="w-5 h-5 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                  </svg>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                    </section>
+                  ))}
+                </div>
+              );
+            })()
           )}
         </div>
 
