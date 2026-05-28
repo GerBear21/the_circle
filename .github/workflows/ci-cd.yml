@@ -162,3 +162,4 @@ jobs:
           vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
           vercel-args: '--prod'  # <-- this flag makes it a production deployment
           github-token: ${{ secrets.GITHUB_TOKEN }}
+# Pipeline test
