@@ -150,7 +150,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment:
       name: production
-      url: https://thecircle.yourdomain.com  # update this to your real domain
+      url: https://the-circle-approvals.vercel.app  # update to circle.rtgatlas.com when domain is ready
     steps:
       - uses: actions/checkout@v4
 
