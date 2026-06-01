@@ -21,9 +21,20 @@ const PREFIX_MAP: Record<string, string> = {
   voucher_request: 'CVR',
   capex: 'CEF',
   capex_request: 'CEF',
+  petty_cash: 'PCV',
+  petty_cash_request: 'PCV',
+  'petty-cash': 'PCV',
   workflow: 'WFR',
   form_request: 'FRM',
   approval: 'APR',
+  inter_unit_debit_note: 'IUDN',
+  'inter-unit-debit-note': 'IUDN',
+  inter_unit_credit_note: 'IUCN',
+  'inter-unit-credit-note': 'IUCN',
+  journal: 'JNL',
+  journals: 'JNL',
+  journal_entry: 'JNL',
+  'journal-entry': 'JNL',
 };
 
 export function getPrefixForRequestType(requestType?: string | null): string {

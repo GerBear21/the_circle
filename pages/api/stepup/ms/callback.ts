@@ -13,6 +13,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import crypto from 'crypto';
 import { signStepUpToken } from '@/lib/stepUpToken';
+import { setElevationCookie } from '@/lib/elevatedSession';
 
 function verifyState(raw: string): {
   userId: string;
@@ -185,9 +186,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     ttlSeconds: 120,
   });
 
+  // Also persist an elevated session cookie so subsequent approvals within
+  // the configured window don't need another MFA prompt.
+  const elevation = await setElevationCookie(res, {
+    userId: stateObj.userId,
+    method: 'microsoft_mfa',
+    credentialId: null,
+  }).catch(() => null);
+
   return popupResponse(res, {
     success: true,
     stepUpToken,
+    elevation: elevation
+      ? { expiresAt: elevation.expiresAt, ttlMinutes: elevation.ttlMinutes, method: 'microsoft_mfa' }
+      : null,
     mfaSatisfied,
     // amr is surfaced so the UI can warn "Your tenant did not enforce MFA"
     // even though the re-auth completed — useful during rollout.

@@ -48,9 +48,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     rpID,
     userName: user.email || userId,
     userDisplayName: user.display_name || user.email || 'User',
-    // userID must be a Buffer/Uint8Array; we use the UUID bytes so the
-    // authenticator consistently identifies this user across ceremonies.
-    userID: new TextEncoder().encode(userId),
+    // userID must be a Uint8Array<ArrayBuffer>; Buffer.from gives us a concrete
+    // ArrayBuffer-backed view (TextEncoder.encode returns ArrayBufferLike, which
+    // TS 5.7+ no longer accepts for SimpleWebAuthn's stricter signature).
+    userID: Buffer.from(userId, 'utf-8'),
     attestationType: 'none', // we don't need attestation for internal use
     authenticatorSelection: {
       residentKey: 'preferred',

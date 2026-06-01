@@ -19,6 +19,7 @@ import { authOptions } from '../../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { getRpConfig, consumeChallenge } from '@/lib/webauthn';
 import { signStepUpToken } from '@/lib/stepUpToken';
+import { setElevationCookie } from '@/lib/elevatedSession';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -107,9 +108,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     ttlSeconds: 120,
   });
 
+  // Persist an elevated session cookie — biometric auth grants the highest
+  // tier, so subsequent medium/high-risk approvals can skip re-verification
+  // for the configured window.
+  const elevation = await setElevationCookie(res, {
+    userId,
+    method: 'biometric',
+    credentialId: credential.credential_id,
+  }).catch(() => null);
+
   return res.status(200).json({
     success: true,
     stepUpToken,
     credentialId: credential.credential_id,
+    elevation: elevation
+      ? { expiresAt: elevation.expiresAt, ttlMinutes: elevation.ttlMinutes, method: 'biometric' }
+      : null,
   });
 }

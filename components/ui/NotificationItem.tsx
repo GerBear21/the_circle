@@ -73,7 +73,15 @@ export default function NotificationItem({
                     </h4>
                     <span className="text-xs text-gray-400 whitespace-nowrap ml-2">{time}</span>
                 </div>
-                <p className="text-sm text-gray-500 line-clamp-2 mb-2">
+                {userParams?.name && (
+                    <p className="text-xs text-gray-500 mb-1">
+                        From <span className="font-medium text-gray-700">{userParams.name}</span>
+                    </p>
+                )}
+                {/* Show the full message — the approval engine encodes useful
+                    context (approver name & role, step #, comment, next approver)
+                    into a multi-line message and we shouldn't truncate it. */}
+                <p className="text-sm text-gray-600 whitespace-pre-wrap mb-2">
                     {description}
                 </p>
 

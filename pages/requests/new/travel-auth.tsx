@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input, RequestPreviewModal, UnsavedChangesModal, ReferenceCodeBanner } from '../../../components/ui';
 import type { PreviewSection, DocumentHeader } from '../../../components/ui';
+import { buildTravelAuthPreviewSections, buildTravelAuthDocumentHeader } from '../../../lib/previews/travelAuthPreview';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import { useUnsavedChangesPrompt } from '../../../hooks';
 import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
@@ -108,7 +109,7 @@ export default function TravelAuthPage() {
     const { data: session, status } = useSession();
     const router = useRouter();
     const { user } = useCurrentUser();
-    const { departmentName, businessUnitName } = useUserHrimsProfile();
+    const { departmentName, businessUnitName, loading: hrimsLoading } = useUserHrimsProfile();
     // International travel shares this page but swaps the itinerary to manual free-text entry
     // with no business-unit dropdown and no auto-km calculation or unit-based cost allocation.
     const isInternational = typeof router.pathname === 'string' && router.pathname.includes('international');
@@ -232,7 +233,9 @@ export default function TravelAuthPage() {
     const addItineraryRow = () => {
         setTravelData(prev => ({
             ...prev,
-            itinerary: [...prev.itinerary, { date: '', from: '', to: '', km: '', justification: '' }]
+            // New itinerary rows inherit the intended-travel date so the user
+            // doesn't have to retype it for each leg.
+            itinerary: [...prev.itinerary, { date: prev.dateOfIntendedTravel || '', from: '', to: '', km: '', justification: '' }]
         }));
     };
 
@@ -768,297 +771,45 @@ export default function TravelAuthPage() {
     const headCellStyle: React.CSSProperties = { ...cellStyle, background: '#F3EADC', color: '#5E4426', fontWeight: 700, textAlign: 'left' };
     const labelCellStyle: React.CSSProperties = { ...cellStyle, background: '#FAF7F0', fontWeight: 700, textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.04em', width: '28%' };
 
+    // Pre-submission preview: hand off to the shared builder so the document
+    // layout stays identical to what the user will see on the [id] detail
+    // page after submission. Keep the local builder as a thin adapter that
+    // pulls values out of form state.
     const buildPreviewSections = (): PreviewSection[] => {
-        const allocation = calculateCostAllocation();
         const requestTimestamp = new Date().toLocaleString('en-GB', {
             day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
         });
-        const totalKm = travelData.itinerary.reduce((sum, r) => sum + (parseFloat(r.km) || 0), 0);
 
-        return [
-            // 3. Main form header section — table layout
-            {
-                content: (
-                    <table className="doc-grid" style={tableStyle}>
-                        <tbody>
-                            <tr>
-                                <td style={labelCellStyle}>Name of Employee</td>
-                                <td style={cellStyle}>{user?.display_name || session?.user?.name || '—'}</td>
-                                <td style={labelCellStyle}>Department</td>
-                                <td style={cellStyle}>{departmentName || '—'}</td>
-                            </tr>
-                            <tr>
-                                <td style={labelCellStyle}>Business Unit</td>
-                                <td style={cellStyle}>{businessUnitName || '—'}</td>
-                                <td style={labelCellStyle}>Date &amp; Time of Request</td>
-                                <td style={cellStyle}>{requestTimestamp}</td>
-                            </tr>
-                            <tr>
-                                <td style={labelCellStyle}>Date of Intended Travel</td>
-                                <td style={cellStyle} colSpan={3}>{travelData.dateOfIntendedTravel || '—'}</td>
-                            </tr>
-                            <tr>
-                                <td style={labelCellStyle}>Purpose of Travel</td>
-                                <td style={cellStyle} colSpan={3}>{travelData.purposeOfTravel || '—'}</td>
-                            </tr>
-                            <tr>
-                                <td style={labelCellStyle}>Accompanying Associates</td>
-                                <td style={cellStyle} colSpan={3}>{travelData.accompanyingAssociates || '—'}</td>
-                            </tr>
-                            <tr>
-                                <td style={labelCellStyle}>Travel Mode (Vehicle Registration if driving)</td>
-                                <td style={cellStyle} colSpan={3}>{travelModeText()}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                ),
+        // Map the four approval-role keys to the currently selected user names.
+        const approverDisplay: Record<string, { name?: string }> = {};
+        for (const r of approvalRoles) {
+            const u = users.find(u => u.id === selectedApprovers[r.key]);
+            approverDisplay[r.key] = { name: u?.display_name };
+        }
+
+        return buildTravelAuthPreviewSections({
+            employee: {
+                name: user?.display_name || session?.user?.name || undefined,
+                department: departmentName || undefined,
+                businessUnit: businessUnitName || undefined,
             },
-            // 4. Conditions section
-            {
-                title: 'Conditions',
-                content: (
-                    <div
-                        className="conditions"
-                        style={{
-                            fontSize: 10.5,
-                            lineHeight: 1.5,
-                            color: '#222',
-                            background: '#FAF7F0',
-                            border: '1px solid #E5DFD2',
-                            padding: '10px 12px',
-                        }}
-                    >
-                        <p style={{ margin: 0 }}>
-                            The employee is to travel for the stated business purpose only. All travel
-                            must comply with the Rainbow Tourism Group travel policy. Where personal
-                            motor vehicles are used, the driver warrants that the vehicle is licensed,
-                            insured and roadworthy. Receipts must be retained for all reimbursable
-                            expenditure and submitted with the retirement of the travel advance.
-                        </p>
-                        {isEmergencyRequest && (
-                            <p style={{ margin: '8px 0 0', fontWeight: 600, color: '#8A3B1A' }}>
-                                Emergency travel reason: {emergencyReason || '—'}
-                            </p>
-                        )}
-                    </div>
-                ),
-            },
-            // 5. Travel itinerary table
-            {
-                title: 'Travel Itinerary',
-                content: (
-                    <table className="doc-grid" style={tableStyle}>
-                        <thead>
-                            <tr>
-                                <th style={headCellStyle}>Date / Time</th>
-                                <th style={headCellStyle}>From</th>
-                                <th style={headCellStyle}>To</th>
-                                <th style={{ ...headCellStyle, textAlign: 'right', width: '12%' }}>Distance (km)</th>
-                                <th style={headCellStyle}>Justification</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {travelData.itinerary.length === 0 ? (
-                                <tr>
-                                    <td style={cellStyle} colSpan={5}>No itinerary entries.</td>
-                                </tr>
-                            ) : (
-                                travelData.itinerary.map((it, i) => (
-                                    <tr key={i}>
-                                        <td style={cellStyle}>{it.date || '—'}</td>
-                                        <td style={cellStyle}>{locationLabel(it.from, it.fromCustom)}</td>
-                                        <td style={cellStyle}>{locationLabel(it.to, it.toCustom)}</td>
-                                        <td style={{ ...cellStyle, textAlign: 'right' }}>{it.km || '—'}</td>
-                                        <td style={cellStyle}>{it.justification || '—'}</td>
-                                    </tr>
-                                ))
-                            )}
-                            <tr>
-                                <td style={{ ...cellStyle, fontWeight: 700 }} colSpan={3}>Total Distance</td>
-                                <td style={{ ...cellStyle, textAlign: 'right', fontWeight: 700 }}>{totalKm.toFixed(1)}</td>
-                                <td style={cellStyle}></td>
-                            </tr>
-                        </tbody>
-                    </table>
-                ),
-            },
-            // 6. Hotel reservation
-            {
-                title: 'Hotel Reservation',
-                content: (
-                    <table className="doc-grid" style={tableStyle}>
-                        <tbody>
-                            <tr>
-                                <td style={labelCellStyle}>Hotel Reservation Details</td>
-                                <td style={cellStyle}>
-                                    <span style={{ color: '#666', fontStyle: 'italic' }}>
-                                        Submit a separate Hotel Booking request if accommodation is required.
-                                    </span>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                ),
-            },
-            // 7. Travel budget
-            {
-                title: 'Travel Budget',
-                content: (
-                    <table className="doc-grid" style={tableStyle}>
-                        <thead>
-                            <tr>
-                                <th style={headCellStyle}>Item</th>
-                                <th style={{ ...headCellStyle, textAlign: 'right', width: '12%' }}>Quantity</th>
-                                <th style={{ ...headCellStyle, textAlign: 'right', width: '16%' }}>Unit Cost (USD)</th>
-                                <th style={{ ...headCellStyle, textAlign: 'right', width: '18%' }}>Total (USD)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td style={cellStyle}>AA Rates (Personal Vehicle)</td>
-                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.aaRates.quantity || '—'}</td>
-                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.aaRates.unitCost || '—'}</td>
-                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.aaRates.totalCost || '0.00'}</td>
-                            </tr>
-                            <tr>
-                                <td style={cellStyle}>Air / Bus Tickets</td>
-                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.airBusTickets.quantity || '—'}</td>
-                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.airBusTickets.unitCost || '—'}</td>
-                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.airBusTickets.totalCost || '0.00'}</td>
-                            </tr>
-                            <tr>
-                                <td style={cellStyle}>Conferencing Cost</td>
-                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.conferencingCost.quantity || '—'}</td>
-                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.conferencingCost.unitCost || '—'}</td>
-                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.conferencingCost.totalCost || '0.00'}</td>
-                            </tr>
-                            {(Array.isArray(travelData.budget.tollgates) ? travelData.budget.tollgates : []).map((t, i) => (
-                                <tr key={`toll-${i}`}>
-                                    <td style={cellStyle}>Tollgate{t.road ? ` — ${t.road}` : ''}</td>
-                                    <td style={{ ...cellStyle, textAlign: 'right' }}>{t.quantity || '—'}</td>
-                                    <td style={{ ...cellStyle, textAlign: 'right' }}>{t.unitCost || '—'}</td>
-                                    <td style={{ ...cellStyle, textAlign: 'right' }}>{t.totalCost || '0.00'}</td>
-                                </tr>
-                            ))}
-                            <tr>
-                                <td style={cellStyle}>
-                                    Other{travelData.budget.other.description ? ` — ${travelData.budget.other.description}` : ''}
-                                </td>
-                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.other.quantity || '—'}</td>
-                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.other.unitCost || '—'}</td>
-                                <td style={{ ...cellStyle, textAlign: 'right' }}>{travelData.budget.other.totalCost || '0.00'}</td>
-                            </tr>
-                            <tr>
-                                <td style={{ ...cellStyle, fontWeight: 700, background: '#F3EADC' }} colSpan={3}>Grand Total</td>
-                                <td style={{ ...cellStyle, textAlign: 'right', fontWeight: 700, background: '#F3EADC' }}>
-                                    {calculateGrandTotal()}
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                ),
-            },
-            // 8. Cost allocation (local travel only — business-unit allocation does not apply to international trips)
-            ...(isInternational ? [] : [{
-                title: 'Cost Allocation',
-                content: (
-                    <table className="doc-grid" style={tableStyle}>
-                        <thead>
-                            <tr>
-                                <th style={headCellStyle}>Business Unit</th>
-                                <th style={{ ...headCellStyle, textAlign: 'right' }}>Allocated Amount (USD)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {([
-                                ['MRC', allocation.mrc],
-                                ['NAH', allocation.nah],
-                                ['RTH', allocation.rth],
-                                ['KHCC', allocation.khcc],
-                                ['BRH', allocation.brh],
-                                ['VFRH', allocation.vfrh],
-                                ['AZAM', allocation.azam],
-                            ] as const).map(([unit, amt]) => (
-                                <tr key={unit}>
-                                    <td style={cellStyle}>{unit}</td>
-                                    <td style={{ ...cellStyle, textAlign: 'right' }}>{amt || '0.00'}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                ),
-            }]),
-            // 9. Approval section — multi-column
-            {
-                title: 'Approval',
-                content: (
-                    <table className="doc-grid approval-row" style={tableStyle}>
-                        <thead>
-                            <tr>
-                                {approvalRoles.map(r => (
-                                    <th key={r.key} style={{ ...headCellStyle, textAlign: 'center', width: '25%' }}>
-                                        {r.label}
-                                        <div style={{ fontSize: 9, fontWeight: 500, color: '#7C5A33', textTransform: 'none' }}>
-                                            {r.description}
-                                        </div>
-                                    </th>
-                                ))}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                {approvalRoles.map(r => {
-                                    const u = users.find(u => u.id === selectedApprovers[r.key]);
-                                    return (
-                                        <td key={r.key} style={{ ...cellStyle, width: '25%' }}>
-                                            <div style={{ fontSize: 9, fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Name</div>
-                                            <div style={{ fontSize: 11, marginBottom: 8 }}>{u?.display_name || '—'}</div>
-                                            <div style={{ fontSize: 9, fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Signature</div>
-                                            <div
-                                                className="sig-line"
-                                                style={{ borderBottom: '1px solid #666', height: 28, marginTop: 4, marginBottom: 8 }}
-                                            />
-                                            <div style={{ fontSize: 9, fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Date</div>
-                                            <div
-                                                className="sig-line"
-                                                style={{ borderBottom: '1px solid #666', height: 18, marginTop: 4 }}
-                                            />
-                                        </td>
-                                    );
-                                })}
-                            </tr>
-                        </tbody>
-                    </table>
-                ),
-            },
-            // 10. Additional comments
-            {
-                title: 'Additional Comments',
-                content: (
-                    <div
-                        style={{
-                            border: '1px solid #333',
-                            minHeight: 60,
-                            padding: '8px 10px',
-                            fontSize: 11,
-                            color: '#222',
-                            whiteSpace: 'pre-wrap',
-                        }}
-                    >
-                        {/* No dedicated comments field in the form — reserved for approver annotations. */}
-                        &nbsp;
-                    </div>
-                ),
-            },
-        ];
+            requestTimestamp,
+            dateOfIntendedTravel: travelData.dateOfIntendedTravel,
+            purposeOfTravel: travelData.purposeOfTravel,
+            accompanyingAssociates: travelData.accompanyingAssociates,
+            travelMode: travelData.travelMode,
+            vehicleRegistration: travelData.vehicleRegistration,
+            isInternational,
+            isEmergencyRequest,
+            emergencyReason,
+            itinerary: travelData.itinerary,
+            budget: travelData.budget,
+            grandTotal: calculateGrandTotal(),
+            approvers: approverDisplay,
+        });
     };
 
-    const travelDocumentHeader: DocumentHeader = {
-        logoUrl: '/images/RTG_LOGO.png',
-        docNo: isInternational ? 'DOC NO: HR APX – 27 INTERNATIONAL TRAVEL AUTHORISATION' : 'DOC NO: HR APX – 27 LOCAL TRAVEL AUTHORISATION',
-        department: 'DEPARTMENT: HUMAN RESOURCES',
-        page: 'PAGE: 1 of 1',
-    };
+    const travelDocumentHeader: DocumentHeader = buildTravelAuthDocumentHeader(isInternational);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -1227,10 +978,34 @@ export default function TravelAuthPage() {
                     <Card className="p-6">
                         <h3 className="text-sm font-semibold text-gray-700 mb-4 uppercase border-b pb-2">Requestor Information</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                            <div><label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Name</label><div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600">{user?.display_name || session?.user?.name || 'N/A'}</div></div>
-                            <div><label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Business Unit</label><div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600">{businessUnitName || 'N/A'}</div></div>
-                            <div><label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Department</label><div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600">{departmentName || 'N/A'}</div></div>
-                            <div><label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Date</label><div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600">{today}</div></div>
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Name</label>
+                                <div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600">
+                                    {user?.display_name || session?.user?.name || (hrimsLoading
+                                        ? <span className="inline-block h-4 w-32 bg-gray-200 rounded animate-pulse align-middle" />
+                                        : '—')}
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Business Unit</label>
+                                <div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600">
+                                    {businessUnitName || (hrimsLoading
+                                        ? <span className="inline-block h-4 w-24 bg-gray-200 rounded animate-pulse align-middle" />
+                                        : '—')}
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Department</label>
+                                <div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600">
+                                    {departmentName || (hrimsLoading
+                                        ? <span className="inline-block h-4 w-28 bg-gray-200 rounded animate-pulse align-middle" />
+                                        : '—')}
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Date</label>
+                                <div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600">{today}</div>
+                            </div>
                         </div>
                     </Card>
 
@@ -1239,7 +1014,29 @@ export default function TravelAuthPage() {
                         <h3 className="text-sm font-semibold text-gray-700 mb-4 uppercase border-b pb-2">Travel Details</h3>
                         <div className="space-y-4">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <Input type="date" label="Date of Intended Travel *" value={travelData.dateOfIntendedTravel} onChange={(e) => setTravelData({ ...travelData, dateOfIntendedTravel: e.target.value })} required min={todayISO} />
+                                <Input
+                                    type="date"
+                                    label="Date of Intended Travel *"
+                                    value={travelData.dateOfIntendedTravel}
+                                    onChange={(e) => {
+                                        const newDate = e.target.value;
+                                        setTravelData(prev => ({
+                                            ...prev,
+                                            dateOfIntendedTravel: newDate,
+                                            // Auto-fill the itinerary date for any row that hasn't been
+                                            // manually set, OR rows that were previously synced to the
+                                            // old intended date. This keeps the itinerary in sync as
+                                            // the user revises the travel date without overwriting any
+                                            // dates the user explicitly typed.
+                                            itinerary: prev.itinerary.map(row => {
+                                                const previouslySynced = !row.date || row.date === prev.dateOfIntendedTravel;
+                                                return previouslySynced ? { ...row, date: newDate } : row;
+                                            }),
+                                        }));
+                                    }}
+                                    required
+                                    min={todayISO}
+                                />
                                 <div><label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Purpose of Travel <span className="text-danger-500">*</span></label><textarea className="w-full px-4 py-2 rounded-xl border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all resize-none min-h-[60px]" value={travelData.purposeOfTravel} onChange={(e) => setTravelData({ ...travelData, purposeOfTravel: e.target.value })} placeholder="Enter purpose of travel" required /></div>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

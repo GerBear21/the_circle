@@ -17,6 +17,7 @@ import {
   findEmployeeByPositionTitle,
 } from './hrimsClient';
 import { onCapexApproved, onCapexRejected } from './capexTrackerHooks';
+import { autoCreatePettyCashFromTravelAuth } from './autoPettyCash';
 
 // ============================================================================
 // Types
@@ -663,9 +664,9 @@ export class ApprovalEngine {
     
     // 4. Handle next steps based on action
     if (action === 'approve') {
-      return await this.handleApproval(requestId, step, userId);
+      return await this.handleApproval(requestId, step, userId, comment);
     } else {
-      return await this.handleRejection(requestId, step, userId);
+      return await this.handleRejection(requestId, step, userId, comment);
     }
   }
   
@@ -675,24 +676,33 @@ export class ApprovalEngine {
   private static async handleApproval(
     requestId: string,
     currentStep: any,
-    approverId: string
+    approverId: string,
+    comment?: string
   ): Promise<{ success: boolean; message?: string }> {
-    
+
     // Get request details for notification and to check parallel mode
     const { data: request } = await supabaseAdmin
       .from('requests')
       .select('title, organization_id, creator_id, metadata')
       .eq('id', requestId)
       .single();
-    
-    // Get approver name for notification message
+
+    // Get approver name + role for the notification message. Role/job title
+    // makes the update legible to the requester ("approved by Jane Smith,
+    // Finance Director") without forcing them to open the request.
     const { data: approver } = await supabaseAdmin
       .from('app_users')
-      .select('display_name')
+      .select('display_name, job_title, role')
       .eq('id', approverId)
       .single();
-    
+
     const approverName = approver?.display_name || 'an approver';
+    const approverRole = approver?.job_title || approver?.role || null;
+    const approverLabel = approverRole ? `${approverName} (${approverRole})` : approverName;
+    const stepLabel = formatStepLabel(currentStep);
+    const requestRef = (request?.metadata as any)?.referenceCode || (request?.title || 'your request');
+    const trimmedComment = (comment || '').trim();
+    const commentSuffix = trimmedComment ? `\n\nComment: "${truncate(trimmedComment, 240)}"` : '';
     const isParallelApproval = request?.metadata?.useParallelApprovals === true;
     
     if (isParallelApproval) {
@@ -713,11 +723,12 @@ export class ApprovalEngine {
           requestId,
           request.creator_id,
           request.organization_id,
-          `Your request "${request.title}" was approved by ${approverName} (${approvedSteps.length} of ${totalSteps} approvals received).`,
-          requestType
+          `${approverLabel} approved ${requestRef} — ${approvedSteps.length} of ${totalSteps} parallel approvals received.${commentSuffix}`,
+          requestType,
+          { title: `Approval received (${approvedSteps.length}/${totalSteps})`, senderId: approverId }
         );
       }
-      
+
       if (pendingSteps.length === 0) {
         // All approvers have approved - complete the workflow
         await supabaseAdmin
@@ -730,9 +741,13 @@ export class ApprovalEngine {
             requestId,
             request.creator_id,
             request.organization_id,
-            `Your request "${request.title}" has been fully approved! All ${totalSteps} approvers have approved.`,
-            requestType
+            `Your request ${requestRef} has been fully approved. All ${totalSteps} approvers have signed off — the request is now finalised and the approved document is available to download.`,
+            requestType,
+            { title: 'Request fully approved', senderId: approverId }
           );
+
+          // Travel-auth: prompt requester to optionally process a petty cash voucher.
+          await this.maybeNotifyPettyCashCta(requestId, request, requestType);
 
           // Auto-generate and store PDF archive
           try {
@@ -793,10 +808,10 @@ export class ApprovalEngine {
           .from('request_steps')
           .select('id', { count: 'exact', head: true })
           .eq('request_id', requestId);
-        
+
         const nextStepNumber = currentStep.step_index + 1;
         const stepsInfo = totalSteps ? ` (Step ${nextStepNumber} of ${totalSteps})` : '';
-        
+
         // SEQUENTIAL NOTIFICATION: Notify the next approver only when their turn comes
         await this.notifyApprover(
           requestId,
@@ -805,15 +820,30 @@ export class ApprovalEngine {
           approverId,
           `Request "${request.title}" is ready for your approval${stepsInfo}`
         );
-        
-        // Notify the requestor about this step approval
+
+        // Resolve the next approver's name so the requester can see who they're waiting on.
+        const { data: nextApprover } = await supabaseAdmin
+          .from('app_users')
+          .select('display_name, job_title')
+          .eq('id', nextStep.approver_user_id)
+          .single();
+        const nextApproverName = nextApprover?.display_name || 'the next approver';
+        const nextApproverLabel = nextApprover?.job_title
+          ? `${nextApproverName} (${nextApprover.job_title})`
+          : nextApproverName;
+
+        // Notify the requestor about this step approval — include who approved,
+        // their role, the step in the chain, any comment, and who is up next.
         const requestType = request.metadata?.type || request.metadata?.requestType;
+        const currentNum = currentStep.step_index;
+        const stepFrame = totalSteps ? `step ${currentNum} of ${totalSteps}` : `step ${currentNum}`;
         await this.notifyRequester(
           requestId,
           request.creator_id,
           request.organization_id,
-          `Your request "${request.title}" was approved by ${approverName} (Step ${currentStep.step_index}). Awaiting next approval.`,
-          requestType
+          `${approverLabel} approved ${requestRef} at ${stepFrame}${stepLabel ? ` (${stepLabel})` : ''}. Now awaiting ${nextApproverLabel}.${commentSuffix}`,
+          requestType,
+          { title: `Step ${currentNum} approved — awaiting ${nextApproverName}`, senderId: approverId }
         );
       }
       
@@ -841,9 +871,13 @@ export class ApprovalEngine {
           requestId,
           request.creator_id,
           request.organization_id,
-          `Your request "${request.title}" has been fully approved by ${approverName}!`,
-          requestType
+          `Your request ${requestRef} has been fully approved. Final sign-off by ${approverLabel}. The approved document is available to preview and download.${commentSuffix}`,
+          requestType,
+          { title: 'Request fully approved', senderId: approverId }
         );
+
+        // Travel-auth: prompt requester to optionally process a petty cash voucher.
+        await this.maybeNotifyPettyCashCta(requestId, request, requestType);
 
         // Auto-generate and store PDF archive
         try {
@@ -869,36 +903,51 @@ export class ApprovalEngine {
   private static async handleRejection(
     requestId: string,
     currentStep: any,
-    rejecterId: string
+    rejecterId: string,
+    comment?: string
   ): Promise<{ success: boolean; message?: string }> {
-    
+
     // Update request status to rejected
     await supabaseAdmin
       .from('requests')
       .update({ status: 'rejected' })
       .eq('id', requestId);
-    
+
     // Notify the requester
     const { data: request } = await supabaseAdmin
       .from('requests')
       .select('creator_id, organization_id, title, metadata')
       .eq('id', requestId)
       .single();
-    
+
     if (request) {
       const { data: rejecter } = await supabaseAdmin
         .from('app_users')
-        .select('display_name')
+        .select('display_name, job_title, role')
         .eq('id', rejecterId)
         .single();
+
+      const rejecterName = rejecter?.display_name || 'an approver';
+      const rejecterRole = rejecter?.job_title || rejecter?.role || null;
+      const rejecterLabel = rejecterRole ? `${rejecterName} (${rejecterRole})` : rejecterName;
+      const requestRef = (request.metadata as any)?.referenceCode || `"${request.title}"`;
+      const stepLabel = formatStepLabel(currentStep);
+      const stepFrame = stepLabel
+        ? ` at step ${currentStep.step_index} (${stepLabel})`
+        : ` at step ${currentStep.step_index}`;
+      const trimmedComment = (comment || '').trim();
+      const reasonSuffix = trimmedComment
+        ? `\n\nReason: "${truncate(trimmedComment, 240)}"`
+        : '\n\nNo reason was provided.';
 
       const requestType = request.metadata?.type || request.metadata?.requestType;
       await this.notifyRequester(
         requestId,
         request.creator_id,
         request.organization_id,
-        `Your request "${request.title}" was rejected by ${rejecter?.display_name || 'an approver'}`,
-        requestType
+        `${rejecterLabel} rejected ${requestRef}${stepFrame}. The request will not proceed further.${reasonSuffix}`,
+        requestType,
+        { title: `Request rejected by ${rejecterName}`, senderId: rejecterId }
       );
 
       // CAPEX Tracker: flip status to rejected. Safe for all types — hook guards internally.
@@ -1072,31 +1121,42 @@ export class ApprovalEngine {
   }
   
   /**
-   * Notify the requester about their request status
+   * Notify the requester about their request status.
+   *
+   * Callers should pass a `title` describing the specific event ("Step 2
+   * approved — awaiting Jane Smith", "Request rejected by John Doe",
+   * "Request fully approved"). The generic 'Request Update' fallback is
+   * only used when the caller doesn't supply one.
    */
   private static async notifyRequester(
     requestId: string,
     requesterId: string,
     organizationId: string,
     message: string,
-    requestType?: string
+    requestType?: string,
+    options?: { title?: string; actionLabel?: string; senderId?: string | null }
   ): Promise<void> {
     try {
       // Determine the correct URL based on request type
       const isComplimentaryRequest = requestType === 'hotel_booking' || requestType === 'voucher_request';
       const actionUrl = isComplimentaryRequest ? `/requests/comp/${requestId}` : `/requests/${requestId}`;
-      
+
       await supabaseAdmin
         .from('notifications')
         .insert({
           organization_id: organizationId,
           recipient_id: requesterId,
+          // Attribute the notification to the approver who triggered it so
+          // the notification panel can display "from Jane Smith" alongside
+          // the message — this is what gives the requester immediate context
+          // before they expand the notification.
+          sender_id: options?.senderId || null,
           type: 'info',
-          title: 'Request Update',
+          title: options?.title || 'Request Update',
           message,
           metadata: {
             request_id: requestId,
-            action_label: 'View Request',
+            action_label: options?.actionLabel || 'View Request',
             action_url: actionUrl,
           },
           is_read: false,
@@ -1105,6 +1165,100 @@ export class ApprovalEngine {
       console.error('Failed to notify requester:', error);
     }
   }
+
+  /**
+   * Hook fired when a travel authorisation reaches fully-approved.
+   *
+   * The IPD calls for the petty cash voucher to be auto-generated from the
+   * approved trip and routed straight through HOD → Accountant → Finance
+   * Director. We attempt that first via `autoCreatePettyCashFromTravelAuth`;
+   * if approver resolution fails or the trip has no usable budget, we fall
+   * back to the legacy "would you like to process petty cash?" CTA so the
+   * requester can still create one manually.
+   *
+   * Only fires for travel types and only when no petty cash voucher is
+   * already linked.
+   */
+  private static async maybeNotifyPettyCashCta(
+    requestId: string,
+    request: { creator_id: string; organization_id: string; title: string; metadata?: any },
+    requestType?: string
+  ): Promise<void> {
+    const isTravelAuth = requestType === 'travel_authorization' || requestType === 'international_travel_authorization';
+    // Complimentary/hotel/voucher requests can attach a travel document — when
+    // they do, the same auto-petty-cash flow applies (the embedded travel doc
+    // is treated as the source of the trip's budget).
+    const isCompWithTravel = (
+        requestType === 'hotel_booking'
+        || requestType === 'external_hotel_booking'
+        || requestType === 'voucher_request'
+    ) && request.metadata?.processTravelDocument && request.metadata?.travelDocument;
+
+    if (!isTravelAuth && !isCompWithTravel) return;
+
+    // Skip if a petty cash voucher is already linked to this parent.
+    if (request.metadata?.linkedPettyCashId) return;
+
+    // Try the auto-create path first.
+    try {
+      const result = await autoCreatePettyCashFromTravelAuth(requestId);
+      if (result.success && result.pettyCashRequestId) {
+        // autoCreatePettyCash already notified the requester. Done.
+        return;
+      }
+      if (!result.skipped) {
+        // Genuine error worth logging — still fall through to the manual CTA
+        // so the requester isn't left without a path forward.
+        console.error('Auto-create petty cash failed:', result.error);
+      }
+    } catch (autoError) {
+      console.error('Auto-create petty cash threw:', autoError);
+    }
+
+    // Fallback CTA: invite the requester to create the voucher themselves.
+    try {
+      await supabaseAdmin
+        .from('notifications')
+        .insert({
+          organization_id: request.organization_id,
+          recipient_id: request.creator_id,
+          type: 'task',
+          title: 'Process Petty Cash?',
+          message: `Your ${
+              isCompWithTravel ? 'complimentary booking' : 'travel authorization'
+          } "${request.title}" is fully approved. We couldn't auto-generate the petty cash voucher (likely missing approver mapping). Would you like to create it yourself?`,
+          metadata: {
+            request_id: requestId,
+            action_label: 'Process Petty Cash',
+            action_url: `/requests/new/petty-cash?linkedTo=${requestId}`,
+            cta_kind: 'petty_cash_followup',
+          },
+          is_read: false,
+        });
+    } catch (error) {
+      console.error('Failed to send petty cash CTA notification:', error);
+    }
+  }
+}
+
+/**
+ * Render a short human label for a step, drawn from its workflow definition
+ * (e.g. "Department Head", "Finance Director"). Returns an empty string when
+ * the step has no useful name so callers can omit the parenthetical.
+ */
+function formatStepLabel(step: any): string {
+  if (!step) return '';
+  const def = step.step_definition as WorkflowStepDefinition | undefined;
+  const name = def?.name?.trim();
+  if (name) return name;
+  if (step.approver_role) return String(step.approver_role).replace(/_/g, ' ');
+  return '';
+}
+
+/** Trim user-supplied text to a notification-friendly length, with an ellipsis. */
+function truncate(value: string, max: number): string {
+  if (value.length <= max) return value;
+  return value.slice(0, Math.max(0, max - 1)).trimEnd() + '…';
 }
 
 export default ApprovalEngine;

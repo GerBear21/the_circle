@@ -377,7 +377,10 @@ export default function NotificationsPage({ initialNotifications }: Notification
                                 
                                 {notification.message && (
                                     <p className={cn(
-                                        "text-sm mb-3 line-clamp-2",
+                                        // No line-clamp on the full notifications page — the engine
+                                        // composes multi-line messages with comment/reason details
+                                        // and the user should see them all here.
+                                        "text-sm mb-3 whitespace-pre-wrap",
                                         notification.is_read ? "text-gray-500" : "text-gray-700 font-medium"
                                     )}>
                                         {notification.message}

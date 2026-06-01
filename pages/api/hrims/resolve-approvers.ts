@@ -33,7 +33,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (!formType || typeof formType !== 'string') {
-      return res.status(400).json({ error: 'Form type is required (travel, hotel-booking, voucher, capex)' });
+      return res.status(400).json({ error: 'Form type is required (travel, hotel-booking, voucher, capex, petty-cash)' });
     }
 
     if (!organizationId) {
@@ -410,8 +410,166 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (!approvers.ceo) {
         approvers.ceo = await resolveByPositionTitle('Chief Executive Officer');
       }
+    } else if (formType === 'petty-cash') {
+      // Petty cash workflow: Department Head -> Accountant -> Finance Manager (sequential)
+
+      // Department Head — head of the requestor's own department.
+      // Resolution mirrors the capex branch: departments.department_head_id is authoritative.
+      {
+        const { data: requestorEmp } = await hrimsClient
+          .from('employees')
+          .select('id, first_name, last_name, email, current_position_id, department_id')
+          .ilike('email', email)
+          .eq('employment_status', 'active')
+          .single();
+
+        let resolved: ResolvedApprover | null = null;
+
+        if (requestorEmp?.department_id) {
+          const { data: dept } = await hrimsClient
+            .from('departments')
+            .select('id, name, code, department_head_id')
+            .eq('id', requestorEmp.department_id)
+            .single();
+
+          if (dept?.department_head_id && dept.department_head_id !== requestorEmp.id) {
+            const { data: headEmp } = await hrimsClient
+              .from('employees')
+              .select('id, first_name, last_name, email, phone, job_title, employee_number, employment_status, manager_id, department_id, business_unit_id, current_position_id')
+              .eq('id', dept.department_head_id)
+              .eq('employment_status', 'active')
+              .single();
+
+            if (headEmp) {
+              const title = headEmp.job_title || `Head of ${dept.name}`;
+              resolved = await buildApprover(headEmp as HrimsEmployee, title, 'organogram_chain');
+            }
+          }
+        }
+
+        // Fallback: walk up the organogram chain looking for a head-like title
+        if (!resolved && requestorEmp?.current_position_id) {
+          let currentPosId: string | null = requestorEmp.current_position_id;
+          let safety = 0;
+
+          while (currentPosId && safety < 10 && !resolved) {
+            safety++;
+            const { data: pos } = await hrimsClient
+              .from('organogram_positions')
+              .select('id, position_title, parent_position_id, employee_id, is_active')
+              .eq('id', currentPosId)
+              .single();
+
+            if (!pos) break;
+
+            if (pos.id !== requestorEmp.current_position_id && pos.is_active) {
+              const title = (pos.position_title || '').toLowerCase();
+              const looksLikeHead = /head\s+of|hod|director|general\s+manager|chief/i.test(title);
+              if (looksLikeHead) {
+                const headEmp = await findEmployeeForPosition(pos.id, pos.employee_id);
+                if (headEmp && headEmp.id !== requestorEmp.id) {
+                  resolved = await buildApprover(headEmp, pos.position_title, 'organogram_chain');
+                  break;
+                }
+              }
+            }
+
+            currentPosId = pos.parent_position_id;
+          }
+        }
+
+        approvers.department_head = resolved;
+      }
+
+      // Accountant
+      approvers.accountant = await resolveByPositionTitle('Accountant');
+      if (!approvers.accountant) {
+        approvers.accountant = await resolveByPositionTitle('Senior Accountant');
+      }
+      if (!approvers.accountant) {
+        approvers.accountant = await resolveByPositionTitle('Group Accountant');
+      }
+
+      // Finance Manager
+      approvers.finance_manager = await resolveByPositionTitle('Finance Manager');
+      if (!approvers.finance_manager) {
+        approvers.finance_manager = await resolveByPositionTitle('Head of Finance');
+      }
+      if (!approvers.finance_manager) {
+        approvers.finance_manager = await resolveByPositionTitle('Finance Director');
+      }
+    } else if (formType === 'inter-unit-debit-note' || formType === 'inter-unit-credit-note') {
+      // Inter-unit debit note: From Unit Accountant (the requestor signs themselves) ->
+      // From Unit Finance Manager -> Receiving Unit Accountant.
+      // Receiving-unit lookup is scoped by the toUnitCode query param so the
+      // accountant comes from the correct hotel/business unit.
+      const toUnitCode = typeof req.query.toUnit === 'string' ? req.query.toUnit.trim() : '';
+
+      // From-side finance manager — same resolution as petty-cash, but scoped
+      // to the requestor's own business unit when we can find it.
+      const { data: requestorEmp } = await hrimsClient
+        .from('employees')
+        .select('id, first_name, last_name, email, business_unit_id')
+        .ilike('email', email)
+        .eq('employment_status', 'active')
+        .single();
+
+      const fromBuId = requestorEmp?.business_unit_id;
+
+      const tryFromTitles = ['Finance Manager', 'Head of Finance', 'Finance Director'];
+      for (const title of tryFromTitles) {
+        // Try within-unit first, then organisation-wide as fallback.
+        let result = fromBuId
+          ? await findEmployeeByPositionTitle(title, fromBuId)
+          : null;
+        if (!result) result = await findEmployeeByPositionTitle(title);
+        if (result?.employee?.email) {
+          const appUser = await findAppUserByEmail(result.employee.email);
+          if (appUser) {
+            approvers.from_finance_manager = {
+              userId: appUser.id,
+              displayName: appUser.display_name,
+              email: appUser.email,
+              positionTitle: result.position.position_title,
+              source: 'position_title',
+            };
+            break;
+          }
+        }
+      }
+
+      // Receiving-unit accountant — resolution requires the receiving unit code.
+      if (toUnitCode) {
+        const { data: toBu } = await hrimsClient
+          .from('business_units')
+          .select('id, code')
+          .ilike('code', toUnitCode)
+          .eq('is_active', true)
+          .single();
+
+        const toBuId = toBu?.id;
+
+        const tryToTitles = ['Accountant', 'Senior Accountant', 'Unit Accountant', 'Group Accountant'];
+        for (const title of tryToTitles) {
+          if (!toBuId) break;
+          const result = await findEmployeeByPositionTitle(title, toBuId);
+          if (result?.employee?.email) {
+            const appUser = await findAppUserByEmail(result.employee.email);
+            if (appUser) {
+              approvers.to_accountant = {
+                userId: appUser.id,
+                displayName: appUser.display_name,
+                email: appUser.email,
+                positionTitle: result.position.position_title,
+                source: 'position_title',
+              };
+              break;
+            }
+          }
+        }
+      }
     } else {
-      return res.status(400).json({ error: 'Invalid form type. Must be: travel, hotel-booking, or voucher' });
+      return res.status(400).json({ error: 'Invalid form type. Must be: travel, hotel-booking, voucher, capex, petty-cash, inter-unit-debit-note, or inter-unit-credit-note' });
     }
 
     console.log('[resolve-approvers] Debug trace:', debug.join(' | '));

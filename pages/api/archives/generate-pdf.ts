@@ -565,10 +565,14 @@ function renderTravelAuth(doc: any, formData: Record<string, any>, yPos: number,
       { label: 'Fuel (Indicate Total litres)', data: b.fuel },
       { label: 'AA Rates (Indicate total mileage)', data: b.aaRates },
       { label: 'Air/Bus Tickets', data: b.airBusTickets },
-      { label: 'Overnight Accommodation (b&b)', data: b.b&b },
+      // `b.b&b` was a typo: JS parses it as `b.b & b` (bitwise AND on an
+      // object → 0), silently dropping the B&B row. The actual key on the
+      // budget object is `bb` (set by the form).
+      { label: 'Overnight Accommodation (b&b)', data: b.bb || b['b&b'] },
       { label: 'Lunch/Dinner', data: b.lunchDinner },
       { label: 'Conferencing Cost', data: b.conferencingCost },
-      { label: 'Tollgates', data: b.tollgates },      { label: b.other?.description || 'Other', data: b.other },
+      { label: 'Tollgates', data: b.tollgates },
+      { label: b.other?.description || 'Other', data: b.other },
     ];
     const budgetRows = budgetItems
       .filter(item => item.data)

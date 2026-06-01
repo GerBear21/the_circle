@@ -90,6 +90,13 @@ interface PlacedElement {
   signatureSource?: 'saved' | 'manual';
 }
 
+const TEXT_COLORS = [
+  { name: 'Black', value: '#000000' },
+  { name: 'Blue', value: '#1e40af' },
+  { name: 'Navy', value: '#1e3a5f' },
+  { name: 'Dark Gray', value: '#374151' },
+];
+
 interface DiagnosticEntry {
   ts: number;
   level: 'info' | 'warn' | 'error';
@@ -104,6 +111,9 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
   const [pdfBytes, setPdfBytes] = useState<ArrayBuffer | null>(null);
   const [placedElements, setPlacedElements] = useState<PlacedElement[]>([]);
   const [selectedElement, setSelectedElement] = useState<string | null>(null);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinVerified, setPinVerified] = useState(false);
+  const [textColor, setTextColor] = useState('#000000');
   const [textInput, setTextInput] = useState('');
   const [showTextInput, setShowTextInput] = useState(false);
   const [activeMode, setActiveMode] = useState<'select' | 'signature' | 'text'>('select');
@@ -141,6 +151,18 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
   const [pdfDoc, setPdfDoc] = useState<PdfJsDocument | null>(null);
   const [renderingPage, setRenderingPage] = useState(false);
 
+  // Drag refs — avoid stale-closure issues in the window listeners. scaleRef is
+  // kept in sync below so the move handler reads the live zoom factor.
+  const dragRef = useRef({
+    active: false,
+    elementId: null as string | null,
+    offsetX: 0,
+    offsetY: 0,
+    startX: 0,
+    startY: 0,
+    hasMoved: false,
+  });
+
   const log = useCallback((level: DiagnosticEntry['level'], message: string, detail?: unknown) => {
     const entry: DiagnosticEntry = { ts: Date.now(), level, message, detail };
     // eslint-disable-next-line no-console
@@ -150,6 +172,8 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
 
   const pageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const scaleRef = useRef(scale);
+  scaleRef.current = scale;
 
   const { signatureUrl, hasSignature, loading: signatureLoading } = useUserSignature();
 
@@ -389,45 +413,76 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
     }
   };
 
-  // Drag via closure-scoped values. Previously this read React state inside
-  // the move handler, but the handler was attached in the same tick as the
-  // setState call — so `isDragging` was still false and the guard bailed out.
-  // Capturing start coordinates locally sidesteps the whole stale-state issue.
-  const handleOverlayMouseDown = useCallback(
-    (e: React.MouseEvent, elementId: string) => {
-      e.stopPropagation();
-      e.preventDefault();
-      setSelectedElement(elementId);
+  // Ref-based drag with movement threshold + touch support. Refs avoid the
+  // stale-closure trap where window listeners read setState values from the
+  // tick they were attached on.
+  const handleDragStart = useCallback((e: React.MouseEvent | React.TouchEvent, elementId: string) => {
+    e.stopPropagation();
+    e.preventDefault();
 
-      const element = placedElements.find(el => el.id === elementId);
-      if (!element) return;
+    const pageEl = pageRef.current;
+    if (!pageEl) return;
 
-      const startMouseX = e.clientX;
-      const startMouseY = e.clientY;
-      const startX = element.x;
-      const startY = element.y;
-      const currentScale = scale;
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
 
-      const onMove = (ev: MouseEvent) => {
-        const dx = (ev.clientX - startMouseX) / currentScale;
-        const dy = (ev.clientY - startMouseY) / currentScale;
-        setPlacedElements(els =>
-          els.map(el =>
-            el.id === elementId
-              ? { ...el, x: Math.max(0, startX + dx), y: Math.max(0, startY + dy) }
-              : el
-          )
-        );
-      };
-      const onUp = () => {
-        window.removeEventListener('mousemove', onMove);
-        window.removeEventListener('mouseup', onUp);
-      };
-      window.addEventListener('mousemove', onMove);
-      window.addEventListener('mouseup', onUp);
-    },
-    [placedElements, scale]
-  );
+    const containerEl = (e.currentTarget as HTMLElement);
+    const containerRect = containerEl.getBoundingClientRect();
+
+    dragRef.current = {
+      active: true,
+      elementId,
+      offsetX: clientX - containerRect.left,
+      offsetY: clientY - containerRect.top,
+      startX: clientX,
+      startY: clientY,
+      hasMoved: false,
+    };
+
+    setSelectedElement(elementId);
+
+    const onMove = (ev: MouseEvent | TouchEvent) => {
+      const drag = dragRef.current;
+      if (!drag.active || !drag.elementId) return;
+
+      const cx = 'touches' in ev ? ev.touches[0].clientX : ev.clientX;
+      const cy = 'touches' in ev ? ev.touches[0].clientY : ev.clientY;
+
+      // 3px threshold prevents accidental micro-drags from a click
+      if (!drag.hasMoved) {
+        const dist = Math.sqrt((cx - drag.startX) ** 2 + (cy - drag.startY) ** 2);
+        if (dist < 3) return;
+        drag.hasMoved = true;
+      }
+
+      const pageRect = pageEl.getBoundingClientRect();
+      const sc = scaleRef.current;
+      const newX = (cx - pageRect.left - drag.offsetX) / sc;
+      const newY = (cy - pageRect.top - drag.offsetY) / sc;
+
+      setPlacedElements(prev =>
+        prev.map(el =>
+          el.id === drag.elementId
+            ? { ...el, x: Math.max(0, newX), y: Math.max(0, newY) }
+            : el
+        )
+      );
+    };
+
+    const onEnd = () => {
+      dragRef.current.active = false;
+      dragRef.current.elementId = null;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onEnd);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onEnd);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onEnd);
+    window.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('touchend', onEnd);
+  }, []);
 
   const handleDeleteElement = (elementId: string) => {
     setPlacedElements(elements => elements.filter(el => el.id !== elementId));
@@ -635,8 +690,36 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
             Add Text
           </button>
 
-          <div className="h-6 w-px bg-gray-300 mx-1" />
+          {activeMode === 'signature' && (
+            <>
+              <div className="h-6 w-px bg-gray-300 mx-1" />
+              <span className="text-xs text-gray-500 bg-primary-50 border border-primary-200 rounded-lg px-3 py-1.5">
+                Click on the document to place your signature
+              </span>
+            </>
+          )}
 
+          {activeMode === 'text' && (
+            <>
+              <div className="h-6 w-px bg-gray-300 mx-1" />
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500">Color:</span>
+                <div className="flex gap-1">
+                  {TEXT_COLORS.map((color) => (
+                    <button
+                      key={color.value}
+                      onClick={() => setTextColor(color.value)}
+                      className={`w-6 h-6 rounded-full border-2 transition-all ${
+                        textColor === color.value ? 'border-primary-500 scale-110' : 'border-gray-300 hover:border-gray-400'
+                      }`}
+                      style={{ backgroundColor: color.value }}
+                      title={color.name}
+                    />
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Zoom controls */}
@@ -919,20 +1002,31 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
                     width: element.width * scale,
                     height: element.height * scale,
                   }}
-                  onMouseDown={(e) => handleOverlayMouseDown(e, element.id)}
+                  onMouseDown={(e) => handleDragStart(e, element.id)}
+                  onTouchStart={(e) => handleDragStart(e, element.id)}
                 >
+                  {/* Drag handle indicator */}
+                  <div className={`absolute -top-6 left-1/2 -translate-x-1/2 flex items-center gap-1 px-2 py-0.5 rounded-t-md text-[10px] font-medium whitespace-nowrap pointer-events-none transition-opacity ${
+                    selectedElement === element.id ? 'opacity-100 bg-primary-500 text-white' : 'opacity-0 group-hover:opacity-100 bg-gray-700 text-white'
+                  }`}>
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0m-3 6a1.5 1.5 0 00-3 0v2a7.5 7.5 0 0015 0v-5a1.5 1.5 0 00-3 0m-6-3V11m0-5.5v-1a1.5 1.5 0 013 0v1m0 0V11m0-5.5a1.5 1.5 0 013 0v3m0 0V11" />
+                    </svg>
+                    Drag to move
+                  </div>
+
                   {element.type === 'signature' && (element.imageSrc || signatureUrl) && (
                     <img
                       src={element.imageSrc || signatureUrl!}
                       alt="Signature"
-                      className="w-full h-full object-contain"
+                      className="w-full h-full object-contain pointer-events-none"
                       draggable={false}
                     />
                   )}
                   {element.type === 'text' && (
                     <div
-                      className="w-full h-full flex items-center text-gray-900"
-                      style={{ fontSize: (element.fontSize || 14) * scale }}
+                      className="w-full h-full flex items-center pointer-events-none"
+                      style={{ color: (element as any).color, fontSize: (element.fontSize || 14) * scale }}
                     >
                       {element.content}
                     </div>

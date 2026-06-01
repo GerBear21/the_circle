@@ -203,8 +203,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           // CAPEX: finance_manager -> general_manager -> procurement_manager -> corporate_hod -> projects_manager -> operations_director -> finance_director -> ceo
           // Hotel Booking: hod -> hr_director -> finance_director -> ceo
           const orderedKeys = [
+            // Petty cash roles (must come first so department_head -> accountant -> finance_manager
+            // is the canonical sequential order for petty cash submissions)
+            'department_head', 'accountant',
             // CAPEX roles
-            'finance_manager', 'general_manager', 'procurement_manager', 'corporate_hod', 
+            'finance_manager', 'general_manager', 'procurement_manager', 'corporate_hod',
             'projects_manager', 'managing_director',
             // Hotel Booking roles (some overlap with CAPEX)
             'hod', 'hr_director', 'finance_director', 'ceo',

@@ -6,6 +6,7 @@ export function PreferencesConfig({ getSetting, queueChange }: ConfigTabProps) {
   const timezone = getSetting('preferences', 'timezone', 'Africa/Harare (GMT+2)');
   const currency = getSetting('preferences', 'currency', 'USD ($)');
   const sessionTimeout = getSetting('preferences', 'session_timeout_minutes', 30);
+  const elevationMinutes = getSetting('preferences', 'elevation_session_minutes', 15);
   const require2FA = getSetting('preferences', 'require_2fa', true);
   const maintenanceMode = getSetting('preferences', 'maintenance_mode', false);
   const dateFormat = getSetting('preferences', 'date_format', 'DD/MM/YYYY');
@@ -76,6 +77,18 @@ export function PreferencesConfig({ getSetting, queueChange }: ConfigTabProps) {
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-700">Session Timeout (Minutes)</label>
             <input type="number" defaultValue={sessionTimeout} onChange={(e) => queueChange('preferences', 'session_timeout_minutes', Number(e.target.value))} className={inputCls} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-gray-700">MFA / Biometric Re-Auth Window (Minutes)</label>
+            <input
+              type="number"
+              min={1}
+              max={240}
+              defaultValue={elevationMinutes}
+              onChange={(e) => queueChange('preferences', 'elevation_session_minutes', Number(e.target.value))}
+              className={inputCls}
+            />
+            <p className="text-xs text-gray-500">After a successful MFA or biometric verification, users can approve medium and high-risk requests for this many minutes without being re-prompted. Default: 15.</p>
           </div>
           <ToggleSwitch
             checked={is2FA}
