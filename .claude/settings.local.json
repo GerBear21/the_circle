@@ -77,7 +77,24 @@
       "Bash(git -c core.editor=true commit --no-edit)",
       "Bash(echo \"---EXIT=$?---\")",
       "Bash(git push *)",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Read(//c/Users/Admin/AppData/Roaming/Claude/local-agent-mode-sessions/skills-plugin/2ab1d8be-e308-4482-bd7e-dd18095926e1/19ce60e0-ad43-46a5-a68d-4074be65af44/skills/docx/**)",
+      "Bash(python scripts/office/unpack.py \"C:\\\\Users\\\\Admin\\\\Downloads\\\\Contract Management System and Automated Compliance Register.docx\" \"C:\\\\Users\\\\Admin\\\\Downloads\\\\contract_unpacked/\")",
+      "Bash(pandoc \"C:\\\\Users\\\\Admin\\\\Downloads\\\\Contract Management System and Automated Compliance Register.docx\" -t markdown)",
+      "Bash(pip install *)",
+      "Bash(python -c ' *)",
+      "Bash(node generate_srs.js)",
+      "Bash(node -e \"require\\('docx'\\)\")",
+      "Bash(NODE_PATH=\"C:\\\\Users\\\\Admin\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\" node generate_srs.js)",
+      "Bash(python scripts/office/validate.py \"C:\\\\Users\\\\Admin\\\\Downloads\\\\The_Circle_Legal_Module_SRS_v1.0.docx\")",
+      "Bash(Remove-Item \"C:\\\\Users\\\\Admin\\\\Downloads\\\\generate_srs.js\" -Force)",
+      "Bash(Remove-Item \"C:\\\\Users\\\\Admin\\\\Downloads\\\\contract_unpacked\" -Recurse -Force)",
+      "PowerShell(Remove-Item \"C:\\\\Users\\\\Admin\\\\Downloads\\\\contract_unpacked\" -Recurse -Force -Confirm:$false)",
+      "Bash(NODE_PATH='C:\\\\Users\\\\Admin\\\\AppData\\\\Roaming\\\\npm\\\\node_modules' node -e ' *)",
+      "Bash(NODE_PATH=\"C:\\\\Users\\\\Admin\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\" node generate_srs2.js)",
+      "Bash(rm generate_srs2.js)",
+      "Bash(npx tsc *)",
+      "Bash(rm -f \"C:/Users/Admin/the_circle/_ts.log\")"
     ]
   }
 }

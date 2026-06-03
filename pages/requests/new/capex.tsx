@@ -73,7 +73,23 @@ export default function NewCapexRequestPage() {
   const [showWatcherDropdown, setShowWatcherDropdown] = useState(false);
   const [quotationDocuments, setQuotationDocuments] = useState<DocumentMetadata[]>([]);
   const [quotationJustification, setQuotationJustification] = useState('');
+  const [quotationReason, setQuotationReason] = useState<string>('');
+  const [cooApproverId, setCooApproverId] = useState<string>('');
+  const [cooSearch, setCooSearch] = useState('');
+  const [showCooDropdown, setShowCooDropdown] = useState(false);
   const [supportingDocuments, setSupportingDocuments] = useState<DocumentMetadata[]>([]);
+
+  const QUOTATION_REASONS: Array<{ value: string; label: string }> = [
+    { value: 'sole_supplier', label: 'Sole supplier — no alternatives available' },
+    { value: 'emergency', label: 'Emergency / urgent requirement' },
+    { value: 'specialized', label: 'Specialized service requiring specific expertise' },
+    { value: 'existing_supplier', label: 'Existing supplier — continuity required' },
+    { value: 'confidentiality', label: 'Confidentiality requirements' },
+    { value: 'time_constraints', label: 'Time constraints' },
+    { value: 'other', label: 'Other (requires COO pre-approval)' },
+  ];
+
+  const requiresCooApproval = quotationReason === 'other';
 
   // Edit mode state
   const { edit: editRequestId, approver: isApproverEdit } = router.query;
@@ -335,6 +351,14 @@ export default function NewCapexRequestPage() {
         }
         if (justificationData) {
           setQuotationJustification(justificationData);
+        }
+        const reasonData = metadata.quotationReason || capexData.quotationReason;
+        if (reasonData) {
+          setQuotationReason(reasonData);
+        }
+        const cooApproverData = metadata.cooApproverId || capexData.cooApproverId;
+        if (cooApproverData) {
+          setCooApproverId(cooApproverData);
         }
         
         // Also check for documents from the documents table (actual uploaded files)
@@ -635,7 +659,23 @@ export default function NewCapexRequestPage() {
                 ))}
               </>
             )}
-            {quotationJustification && (
+            {quotationReason && (
+              <tr>
+                <td style={{ ...labelCellStyle, width: '22%' }} colSpan={1}>Reason (&lt; 3 quotations)</td>
+                <td style={cellStyle} colSpan={4}>
+                  {QUOTATION_REASONS.find(r => r.value === quotationReason)?.label || quotationReason}
+                  {requiresCooApproval && (
+                    <>
+                      <br />
+                      <em>Details: </em>{quotationJustification || '—'}
+                      <br />
+                      <strong>COO pre-approver:</strong> {users.find(u => u.id === cooApproverId)?.display_name || '—'}
+                    </>
+                  )}
+                </td>
+              </tr>
+            )}
+            {!quotationReason && quotationJustification && (
               <tr>
                 <td style={{ ...labelCellStyle, width: '22%' }} colSpan={1}>Justification (&lt; 3 quotations)</td>
                 <td style={cellStyle} colSpan={4}>{quotationJustification}</td>
@@ -870,10 +910,24 @@ export default function NewCapexRequestPage() {
         setLoading(false);
         return;
       }
-      if (totalQuotations < 3 && !quotationJustification.trim()) {
-        setError('Please provide a justification for uploading fewer than 3 quotations.');
-        setLoading(false);
-        return;
+      if (totalQuotations < 3) {
+        if (!quotationReason) {
+          setError('Please select a reason for uploading fewer than 3 quotations.');
+          setLoading(false);
+          return;
+        }
+        if (quotationReason === 'other') {
+          if (!quotationJustification.trim()) {
+            setError('Please describe your "Other" reason for uploading fewer than 3 quotations.');
+            setLoading(false);
+            return;
+          }
+          if (!cooApproverId) {
+            setError('Selecting "Other" requires the COO to pre-approve. Please select the COO before submitting.');
+            setLoading(false);
+            return;
+          }
+        }
       }
     }
 
@@ -939,7 +993,7 @@ export default function NewCapexRequestPage() {
         } else {
           // Regular update for non-approver edits (creator editing draft)
           // Always save even if no field changes detected (approvers/watchers might have changed)
-          const approversArray = [
+          const baseApproversForEdit = [
             selectedApprovers.finance_manager,
             selectedApprovers.general_manager,
             selectedApprovers.procurement_manager,
@@ -949,6 +1003,9 @@ export default function NewCapexRequestPage() {
             selectedApprovers.finance_director,
             selectedApprovers.ceo,
           ].filter(Boolean);
+          const approversArray = (requiresCooApproval && cooApproverId)
+            ? [cooApproverId, ...baseApproversForEdit.filter(id => id !== cooApproverId)]
+            : baseApproversForEdit;
 
           const updatePayload = {
             title: `CAPEX: ${formData.projectName}`,
@@ -1011,6 +1068,9 @@ export default function NewCapexRequestPage() {
                 })),
               ],
               quotationJustification: quotationJustification || null,
+              quotationReason: quotationReason || null,
+              cooApprovalRequired: requiresCooApproval,
+              cooApproverId: requiresCooApproval ? (cooApproverId || null) : null,
             },
           };
 
@@ -1102,7 +1162,9 @@ export default function NewCapexRequestPage() {
       // Create new request (original flow)
       // Convert approvers object to ordered array for sequential approval
       // Order: Finance Manager -> General Manager -> Procurement Manager -> Corporate HOD -> Projects Manager -> Operations Director -> Finance Director -> CEO
-      const approversArray = [
+      // If "Other" reason was given for <3 quotations, the COO is prepended as the first approver
+      // so the request cannot move into the official approval trail until the COO signs off.
+      const baseApprovers = [
         selectedApprovers.finance_manager,
         selectedApprovers.general_manager,
         selectedApprovers.procurement_manager,
@@ -1111,7 +1173,10 @@ export default function NewCapexRequestPage() {
         selectedApprovers.managing_director,
         selectedApprovers.finance_director,
         selectedApprovers.ceo,
-      ].filter(Boolean); // Remove any empty values
+      ].filter(Boolean);
+      const approversArray = (requiresCooApproval && cooApproverId)
+        ? [cooApproverId, ...baseApprovers.filter(id => id !== cooApproverId)]
+        : baseApprovers;
 
       const response = await fetch('/api/requests', {
         method: 'POST',
@@ -1175,6 +1240,9 @@ export default function NewCapexRequestPage() {
               uploadedAt: new Date().toISOString(),
             })),
             quotationJustification: quotationJustification || null,
+            quotationReason: quotationReason || null,
+            cooApprovalRequired: requiresCooApproval,
+            cooApproverId: requiresCooApproval ? (cooApproverId || null) : null,
           },
         }),
       });
@@ -1293,7 +1361,7 @@ export default function NewCapexRequestPage() {
     
     try {
       // First, save any changes to the draft
-      const approversArray = [
+      const basePublishApprovers = [
         selectedApprovers.finance_manager,
         selectedApprovers.general_manager,
         selectedApprovers.procurement_manager,
@@ -1303,6 +1371,9 @@ export default function NewCapexRequestPage() {
         selectedApprovers.finance_director,
         selectedApprovers.ceo,
       ].filter(Boolean);
+      const approversArray = (requiresCooApproval && cooApproverId)
+        ? [cooApproverId, ...basePublishApprovers.filter(id => id !== cooApproverId)]
+        : basePublishApprovers;
 
       // Update the request with current form data before publishing
       const updateResponse = await fetch(`/api/requests/${editRequestId}`, {
@@ -1368,6 +1439,9 @@ export default function NewCapexRequestPage() {
               })),
             ],
             quotationJustification: quotationJustification || null,
+            quotationReason: quotationReason || null,
+            cooApprovalRequired: requiresCooApproval,
+            cooApproverId: requiresCooApproval ? (cooApproverId || null) : null,
           },
         }),
       });
@@ -1921,26 +1995,180 @@ export default function NewCapexRequestPage() {
             </div>
           )}
 
-          {/* Justification for less than 3 quotations — only available once at least 1 quotation is uploaded */}
+          {/* Reason for less than 3 quotations — only available once at least 1 quotation is uploaded */}
           {(existingQuotations.length + quotationDocuments.length) >= 1 &&
             (existingQuotations.length + quotationDocuments.length) < 3 && (
-            <div className="mt-4 p-4 bg-warning-50 border border-warning-200 rounded-xl">
-              <div className="flex items-start gap-2 mb-2">
+            <div className="mt-4 p-4 bg-warning-50 border border-warning-200 rounded-xl space-y-3">
+              <div className="flex items-start gap-2">
                 <svg className="w-5 h-5 text-warning-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
                 <div className="flex-1">
-                  <h4 className="text-sm font-semibold text-warning-800">Justification Required</h4>
-                  <p className="text-xs text-warning-700 mt-1">You have uploaded {existingQuotations.length + quotationDocuments.length} quotation(s). Please explain why you cannot provide all 3 required quotations.</p>
+                  <h4 className="text-sm font-semibold text-warning-800">Reason Required</h4>
+                  <p className="text-xs text-warning-700 mt-1">
+                    You have uploaded {existingQuotations.length + quotationDocuments.length} quotation(s).
+                    Please choose a reason why you cannot provide all 3 required quotations.
+                  </p>
                 </div>
               </div>
-              <textarea
-                className="w-full px-4 py-3 min-h-[80px] rounded-xl border border-warning-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-warning-500 focus:border-transparent resize-none transition-all mt-2"
-                placeholder="Explain why you are submitting fewer than 3 quotations..."
-                value={quotationJustification}
-                onChange={(e) => setQuotationJustification(e.target.value)}
-                required={(existingQuotations.length + quotationDocuments.length) < 3}
-              />
+
+              <div>
+                <label className="block text-xs font-semibold text-warning-800 mb-1">
+                  Reason <span className="text-danger-500">*</span>
+                </label>
+                <select
+                  className="w-full px-4 py-2 min-h-[44px] rounded-xl border border-warning-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-warning-500 focus:border-transparent transition-all"
+                  value={quotationReason}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setQuotationReason(v);
+                    if (v !== 'other') {
+                      // Clear the COO selector + free-text when leaving "Other"
+                      setCooApproverId('');
+                      setCooSearch('');
+                      setShowCooDropdown(false);
+                      setQuotationJustification('');
+                    }
+                  }}
+                  required={(existingQuotations.length + quotationDocuments.length) < 3}
+                >
+                  <option value="">Select a reason…</option>
+                  {QUOTATION_REASONS.map(r => (
+                    <option key={r.value} value={r.value}>{r.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {requiresCooApproval && (
+                <div className="space-y-3 rounded-xl border border-danger-200 bg-danger-50/40 p-3">
+                  <div className="flex items-start gap-2">
+                    <svg className="w-5 h-5 text-danger-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M4.93 19h14.14a2 2 0 001.74-3L13.74 4a2 2 0 00-3.48 0L3.19 16a2 2 0 001.74 3z" />
+                    </svg>
+                    <div className="flex-1">
+                      <h4 className="text-sm font-semibold text-danger-800">COO Pre-Approval Required</h4>
+                      <p className="text-xs text-danger-700 mt-1">
+                        Because you selected "Other", this CAPEX cannot enter the official approval trail until the
+                        COO has reviewed and approved it. Please describe the reason and select the COO below.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-danger-800 mb-1">
+                      Describe your reason <span className="text-danger-500">*</span>
+                    </label>
+                    <textarea
+                      className="w-full px-4 py-3 min-h-[80px] rounded-xl border border-danger-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-danger-500 focus:border-transparent resize-none transition-all"
+                      placeholder="Explain your reason for fewer than 3 quotations…"
+                      value={quotationJustification}
+                      onChange={(e) => setQuotationJustification(e.target.value)}
+                      required={requiresCooApproval}
+                    />
+                  </div>
+
+                  <div className="relative">
+                    <label className="block text-xs font-semibold text-danger-800 mb-1">
+                      COO (Pre-Approver) <span className="text-danger-500">*</span>
+                    </label>
+                    {(() => {
+                      const cooUser = users.find(u => u.id === cooApproverId);
+                      if (cooUser) {
+                        return (
+                          <div className="flex items-center gap-3 p-3 bg-white border border-danger-200 rounded-xl">
+                            <div className="w-8 h-8 rounded-full bg-danger-100 flex items-center justify-center flex-shrink-0">
+                              <span className="text-sm font-medium text-danger-600">
+                                {cooUser.display_name?.charAt(0)?.toUpperCase() || '?'}
+                              </span>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 truncate">{cooUser.display_name}</p>
+                              <p className="text-xs text-gray-500 truncate">{cooUser.email}</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => { setCooApproverId(''); setCooSearch(''); }}
+                              className="p-1.5 rounded-lg hover:bg-danger-50 text-gray-400 hover:text-danger-500 transition-colors"
+                              title="Remove COO"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                        );
+                      }
+                      const cooMatches = users.filter(u => {
+                        const term = (cooSearch || '').toLowerCase();
+                        if (!term) return true;
+                        return (
+                          (u.display_name || '').toLowerCase().includes(term) ||
+                          (u.email || '').toLowerCase().includes(term) ||
+                          (u.job_title || '').toLowerCase().includes(term)
+                        );
+                      });
+                      return (
+                        <div className="relative">
+                          <input
+                            type="text"
+                            className="w-full px-4 py-2 min-h-[44px] rounded-xl border border-danger-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-danger-500 focus:border-transparent transition-all text-sm"
+                            placeholder="Search for the COO by name, email or job title…"
+                            value={cooSearch}
+                            onChange={(e) => { setCooSearch(e.target.value); setShowCooDropdown(true); }}
+                            onFocus={() => setShowCooDropdown(true)}
+                          />
+                          {showCooDropdown && (
+                            <>
+                              <div
+                                className="fixed inset-0 z-10"
+                                onClick={() => setShowCooDropdown(false)}
+                              />
+                              <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                                {loadingUsers ? (
+                                  <div className="flex items-center justify-center py-4">
+                                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary-500" />
+                                  </div>
+                                ) : cooMatches.length === 0 ? (
+                                  <div className="px-4 py-3 text-sm text-gray-500">No users found</div>
+                                ) : (
+                                  cooMatches.slice(0, 10).map(u => (
+                                    <button
+                                      key={u.id}
+                                      type="button"
+                                      onClick={() => {
+                                        setCooApproverId(u.id);
+                                        setCooSearch('');
+                                        setShowCooDropdown(false);
+                                      }}
+                                      className="w-full px-4 py-2 text-left hover:bg-danger-50 transition-colors flex items-center gap-3 border-b border-gray-100 last:border-b-0"
+                                    >
+                                      <div className="w-7 h-7 rounded-full bg-danger-100 flex items-center justify-center flex-shrink-0">
+                                        <span className="text-xs font-medium text-danger-600">
+                                          {u.display_name?.charAt(0)?.toUpperCase() || '?'}
+                                        </span>
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-medium text-gray-900 truncate">{u.display_name}</p>
+                                        <p className="text-xs text-gray-500 truncate">
+                                          {u.email}{u.job_title ? ` · ${u.job_title}` : ''}
+                                        </p>
+                                      </div>
+                                    </button>
+                                  ))
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })()}
+                    <p className="text-[11px] text-danger-700 mt-1">
+                      The COO will be added as the first signatory. The official approval trail will only begin
+                      after the COO approves.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           {(existingQuotations.length + quotationDocuments.length) === 0 && (
@@ -2407,7 +2635,8 @@ export default function NewCapexRequestPage() {
                 !formData.priority ||
                 (!isApproverEditing && Object.values(selectedApprovers).filter(Boolean).length < 8) ||
                 ((existingQuotations.length + quotationDocuments.length) < 1) ||
-                ((existingQuotations.length + quotationDocuments.length) < 3 && !quotationJustification.trim()) ||
+                ((existingQuotations.length + quotationDocuments.length) < 3 && !quotationReason) ||
+                (requiresCooApproval && (!quotationJustification.trim() || !cooApproverId)) ||
                 savingDraft
               }
             >
