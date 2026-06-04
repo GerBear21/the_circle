@@ -78,11 +78,7 @@ export default function CapexTrackerPage() {
     };
 
     const formatDate = (dateString: string) => {
-        return new Date(dateString).toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric',
-        });
+        return new Date(dateString).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
     };
 
     const getInitials = (name: string) => {
@@ -131,7 +127,7 @@ export default function CapexTrackerPage() {
                         className="flex items-center gap-2 shadow-lg shadow-brand-500/20"
                     >
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
                         </svg>
                         New Request
                     </Button>
@@ -281,7 +277,7 @@ export default function CapexTrackerPage() {
                                                 <td className="px-6 py-4 text-right">
                                                     <button className="text-gray-400 hover:text-brand-600 transition-colors">
                                                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
                                                         </svg>
                                                     </button>
                                                 </td>

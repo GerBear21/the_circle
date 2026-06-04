@@ -17,25 +17,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const userId = session.user.id;
 
-    // Fetch active delegations where current user is the delegate
-    const now = new Date().toISOString();
-    const { data: activeDelegations } = await supabaseAdmin
-      .from('approval_delegations')
-      .select('delegator_id')
-      .eq('delegate_id', userId)
-      .eq('is_active', true)
-      .eq('status', 'approved')
-      .lte('starts_at', now)
-      .or(`ends_at.is.null,ends_at.gte.${now}`);
-
-    const delegatorIds = (activeDelegations || []).map(d => d.delegator_id);
-    const approverIds = [userId, ...delegatorIds];
-
-    // Fetch pending steps for the user AND any delegators
+    // Fetch pending steps for the current user
     const { data: pendingSteps, error: stepsError } = await supabaseAdmin
       .from('request_steps')
       .select('request_id')
-      .in('approver_user_id', approverIds)
+      .eq('approver_user_id', userId)
       .eq('status', 'pending');
 
     if (stepsError) {
@@ -88,10 +74,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(500).json({ error: 'Failed to fetch pending approvals' });
     }
 
-    // Only return requests where user's step (or delegated step) is actually pending
+    // Only return requests where the current user's step is actually pending
     const filteredData = (data || []).filter((req: any) => {
       const userStep = req.request_steps?.find(
-        (step: any) => approverIds.includes(step.approver_user_id) && step.status === 'pending'
+        (step: any) => step.approver_user_id === userId && step.status === 'pending'
       );
       return !!userStep;
     });

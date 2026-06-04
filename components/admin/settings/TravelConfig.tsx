@@ -63,7 +63,7 @@ export function TravelConfig({ getSetting, queueChange }: ConfigTabProps) {
       <SectionHeading title="Travel & Distance Configuration" subtitle="Manage business unit locations, inter-unit distances, and travel form rules." />
 
       <Card className="!p-6">
-        <CardHeading icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>} iconBg="bg-orange-100" iconColor="text-orange-600" title="Travel Rules" />
+        <CardHeading icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>} iconBg="bg-orange-100" iconColor="text-orange-600" title="Travel Rules" />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           <FieldRow label="Emergency travel threshold" unit="days">
             <input type="number" defaultValue={emergencyDays} onChange={(e) => queueChange('travel', 'emergency_threshold_days', Number(e.target.value))} className={compactInputCls} />
@@ -81,7 +81,7 @@ export function TravelConfig({ getSetting, queueChange }: ConfigTabProps) {
       </Card>
 
       <Card className="!p-6">
-        <CardHeading icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>} iconBg="bg-[#F3EADC]" iconColor="text-[#9A7545]" title="Business Unit Locations" />
+        <CardHeading icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>} iconBg="bg-[#F3EADC]" iconColor="text-[#9A7545]" title="Business Unit Locations" />
         <p className="text-sm text-gray-500 mb-4">Toggle locations that appear in Travel Authorization and Hotel Booking itinerary dropdowns.</p>
         <div className="space-y-2">
           {locs.map((loc: any, i: number) => (
@@ -142,7 +142,7 @@ export function TravelConfig({ getSetting, queueChange }: ConfigTabProps) {
       </Card>
 
       <Card className="!p-6">
-        <CardHeading icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" /></svg>} iconBg="bg-pink-100" iconColor="text-pink-600" title="Cost Allocation Units" />
+        <CardHeading icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" /></svg>} iconBg="bg-pink-100" iconColor="text-pink-600" title="Cost Allocation Units" />
         <p className="text-sm text-gray-500 mb-4">Business units used in the cost allocation split on travel forms. Comma-separated codes.</p>
         <div className="space-y-1">
           <label className="text-sm font-medium text-gray-700">Allocation Unit Codes</label>

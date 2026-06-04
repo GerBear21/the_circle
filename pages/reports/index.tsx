@@ -280,7 +280,7 @@ export default function ReportsPage() {
                         <div className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-2">Avg. Turnaround</div>
                         <div className="text-3xl font-bold text-gray-900">{data.avgTurnaroundTime.toFixed(1)} hrs</div>
                         <div className="mt-2 text-xs text-emerald-600 font-medium flex items-center gap-1">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                             Time to decision
                         </div>
                     </Card>

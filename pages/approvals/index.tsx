@@ -12,8 +12,6 @@ import { useApprovals } from '../../hooks';
 import tickAnimation from '../../tick.json';
 import criticalAnimation from '../../lotties/red critical.json';
 import urgentAnimation from '../../lotties/orange warning exclamation.json';
-import { useRBAC } from '../../contexts/RBACContext';
-import { DelegationConfig } from '../../components/admin/settings';
 
 const Lottie = dynamic(() => import('lottie-react'), { ssr: false });
 
@@ -70,7 +68,7 @@ const priorityConfig: Record<string, { label: string; bg: string; text: string; 
   low: { label: 'Low', bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-200' },
 };
 
-type TabType = 'pending' | 'watching' | 'history' | 'admin';
+type TabType = 'pending' | 'watching' | 'history';
 
 interface ApprovalsPageProps {
   initialPendingApprovals: any[];
@@ -95,25 +93,11 @@ export const getServerSideProps: GetServerSideProps<ApprovalsPageProps> = async 
   const organizationId = (session.user as any).org_id;
 
   try {
-    // Fetch active delegations where current user is the delegate
-    const now = new Date().toISOString();
-    const { data: activeDelegations } = await supabaseAdmin
-      .from('approval_delegations')
-      .select('delegator_id')
-      .eq('delegate_id', userId)
-      .eq('is_active', true)
-      .eq('status', 'approved')
-      .lte('starts_at', now)
-      .or(`ends_at.is.null,ends_at.gte.${now}`);
-
-    const delegatorIds = (activeDelegations || []).map(d => d.delegator_id);
-
-    // Fetch pending approvals (own + delegated)
-    const approverIds = [userId, ...delegatorIds];
+    // Fetch pending approvals for current user
     const { data: pendingSteps, error: stepsError } = await supabaseAdmin
       .from('request_steps')
       .select('request_id, approver_user_id')
-      .in('approver_user_id', approverIds)
+      .eq('approver_user_id', userId)
       .eq('status', 'pending');
 
     let pendingApprovals: any[] = [];
@@ -155,7 +139,7 @@ export const getServerSideProps: GetServerSideProps<ApprovalsPageProps> = async 
       if (!fetchError && pendingData) {
         pendingApprovals = pendingData.filter((req: any) => {
           const userStep = req.request_steps?.find(
-            (step: any) => approverIds.includes(step.approver_user_id) && step.status === 'pending'
+            (step: any) => step.approver_user_id === userId && step.status === 'pending'
           );
           return !!userStep;
         });
@@ -280,7 +264,6 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
   const { data: session, status } = useSession();
   const router = useRouter();
   const { pendingApprovals, watchingRequests, historyRequests, loading, watchingLoading, historyLoading, error } = useApprovals();
-  const { isSuperAdmin, isSystemAdmin } = useRBAC();
   const [activeTab, setActiveTab] = useState<TabType>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -365,7 +348,7 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
     } else if (diffDays < 7) {
       return `${diffDays} days ago`;
     } else {
-      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
     }
   };
 
@@ -409,7 +392,7 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
       count: displayPendingApprovals.length,
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
       ),
     },
@@ -419,8 +402,8 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
       count: displayWatchingRequests.length,
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
         </svg>
       ),
     },
@@ -430,24 +413,12 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
       count: displayHistoryRequests.length,
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
       ),
     },
   ];
 
-  if (isSuperAdmin || isSystemAdmin) {
-    tabs.push({
-      id: 'admin',
-      label: 'Admin Approvals',
-      icon: (
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-        </svg>
-      ),
-    });
-  }
 
   const getTabDescription = () => {
     switch (activeTab) {
@@ -516,18 +487,12 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
           </div>
         </div>
 
-        {activeTab === 'admin' ? (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-            <DelegationConfig />
-          </div>
-        ) : (
-          <>
-            {/* Error State */}
-            {error && (
+        {/* Error State */}
+        {error && (
           <Card className="bg-red-50 border-red-200 mb-6">
             <div className="flex items-center gap-3">
               <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <p className="text-red-600 text-sm">Error loading approvals: {error.message}</p>
             </div>
@@ -540,7 +505,7 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
               <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
               <input
                 type="text"
@@ -559,7 +524,7 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
               }`}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
               </svg>
               <span className="font-medium">Filters</span>
               {activeFiltersCount > 0 && (
@@ -628,7 +593,7 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
                     className="text-sm text-gray-600 hover:text-gray-900 font-medium flex items-center gap-1"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                     Clear all filters
                   </button>
@@ -646,7 +611,7 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
                   Status: {statusConfig[statusFilter]?.label || statusFilter}
                   <button onClick={() => setStatusFilter('all')} className="hover:text-brand-900">
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
                 </span>
@@ -656,7 +621,7 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
                   Priority: {priorityFilter.charAt(0).toUpperCase() + priorityFilter.slice(1)}
                   <button onClick={() => setPriorityFilter('all')} className="hover:text-brand-900">
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
                 </span>
@@ -666,7 +631,7 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
                   Date: {dateFilter === 'today' ? 'Today' : dateFilter === 'week' ? 'Last 7 Days' : 'Last 30 Days'}
                   <button onClick={() => setDateFilter('all')} className="hover:text-brand-900">
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
                 </span>
@@ -823,7 +788,7 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
                           {amount && (
                             <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 rounded-lg">
                               <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                               </svg>
                               <span className="text-sm font-semibold text-gray-700">
                                 {currency} {Number(amount).toLocaleString()}
@@ -834,7 +799,7 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
                           {activeTab === 'pending' && currentStep && (
                             <div className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-50 rounded-lg">
                               <svg className="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                               </svg>
                               <span className="text-sm font-medium text-brand-700">Step {currentStep.step_index + 1}</span>
                             </div>
@@ -843,7 +808,7 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
                           {activeTab === 'pending' && dueStatus && (
                             <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg ${dueStatus.className}`}>
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                               </svg>
                               <span className="text-sm font-medium">{dueStatus.label}</span>
                             </div>
@@ -854,7 +819,7 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
                               userAction === 'approved' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
                             }`}>
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={
                                   userAction === 'approved' ? 'M5 13l4 4L19 7' : 'M6 18L18 6M6 6l12 12'
                                 } />
                               </svg>
@@ -865,8 +830,8 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
                           {activeTab === 'watching' && (
                             <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[#F3EADC] rounded-lg">
                               <svg className="w-4 h-4 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                               </svg>
                               <span className="text-sm font-medium text-[#5E4426]">Watching</span>
                             </div>
@@ -883,7 +848,7 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
                           }`}>
                             {activeTab === 'pending' ? 'Review Now' : 'View Details'}
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 8l4 4m0 0l-4 4m4-4H3" />
                             </svg>
                           </div>
                         </div>
@@ -894,8 +859,6 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
               })}
             </div>
           )}
-          </>
-        )}
       </div>
     </AppLayout>
   );

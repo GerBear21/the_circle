@@ -51,20 +51,6 @@ export interface UserRBACProfile {
   is_super_admin: boolean;
 }
 
-export interface ApprovalDelegation {
-  id: string;
-  delegator_id: string;
-  delegate_id: string;
-  reason: string | null;
-  department_id: string | null;
-  business_unit_id: string | null;
-  starts_at: string;
-  ends_at: string | null;
-  is_active: boolean;
-  created_by: string | null;
-  created_at: string;
-}
-
 // ============================================================
 // Permission Constants
 // ============================================================
@@ -81,10 +67,8 @@ export const PERMISSIONS = {
   APPROVALS_VIEW: 'approvals.view',
   APPROVALS_APPROVE: 'approvals.approve',
   APPROVALS_REJECT: 'approvals.reject',
-  APPROVALS_DELEGATE: 'approvals.delegate',
   APPROVALS_OVERRIDE: 'approvals.override',
   APPROVALS_REASSIGN: 'approvals.reassign',
-  APPROVALS_CONFIGURE_DELEGATION: 'approvals.configure_delegation',
   // Users
   USERS_VIEW: 'users.view',
   USERS_CREATE: 'users.create',

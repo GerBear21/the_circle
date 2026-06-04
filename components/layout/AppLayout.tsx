@@ -1,4 +1,4 @@
-import { ReactNode, useState } from 'react';
+import { ReactNode, useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import AppHeader from './AppHeader';
 import Sidebar from './Sidebar';
@@ -26,7 +26,24 @@ export default function AppLayout({
   skipSignatureCheck = false
 }: AppLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const router = useRouter();
+
+  // Persist the desktop collapsed state so it survives page navigations
+  // (AppLayout remounts on every route change).
+  useEffect(() => {
+    try {
+      setCollapsed(localStorage.getItem('sidebar:collapsed') === 'true');
+    } catch {}
+  }, []);
+
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try { localStorage.setItem('sidebar:collapsed', String(next)); } catch {}
+      return next;
+    });
+  };
   const { hasSignature, loading: signatureLoading, refetch } = useSignatureCheck();
   const { user, loading: userLoading, needsProfileSetup, refetch: refetchUser } = useCurrentUser();
 
@@ -43,7 +60,7 @@ export default function AppLayout({
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-background">
       {/* Profile Setup Modal - shown first if user needs to set up profile */}
       {!userLoading && user && needsProfileSetup && (
         <ProfileSetupModal
@@ -66,11 +83,16 @@ export default function AppLayout({
 
       {/* Sidebar for desktop and mobile */}
       {!hideSidebar && (
-        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <Sidebar
+          isOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          collapsed={collapsed}
+          onToggleCollapse={toggleCollapsed}
+        />
       )}
 
       {/* Main content area */}
-      <div className={`flex flex-col min-h-screen ${!hideSidebar ? 'lg:pl-64' : ''} transition-all duration-300`}>
+      <div className={`flex flex-col min-h-screen ${!hideSidebar ? (collapsed ? 'lg:pl-16' : 'lg:pl-64') : ''} transition-all duration-300`}>
         <AppHeader
           title={title}
           showBack={showBack}

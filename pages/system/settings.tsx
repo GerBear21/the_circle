@@ -6,31 +6,55 @@ import { authOptions } from '../api/auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { AppLayout } from '@/components/layout';
 import { Card, Button } from '@/components/ui';
-import { SettingsIllustration } from '@/components/illustrations/SettingsIllustration';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useUserHrimsProfile } from '@/hooks/useUserHrimsProfile';
 import dynamic from 'next/dynamic';
 import BiometricSetupModal from '@/components/approvals/BiometricSetupModal';
+import {
+  Pencil,
+  SlidersHorizontal,
+  Bell,
+  ShieldCheck,
+  PenLine,
+  Fingerprint,
+  Check,
+} from 'lucide-react';
 
 const SignaturePad = dynamic(() => import('@/components/SignaturePad'), {
   ssr: false,
-  loading: () => <div className="h-40 bg-gray-50 animate-pulse rounded-xl" />
+  loading: () => <div className="h-40 bg-neutral-100 animate-pulse rounded-xl" />,
 });
 
 interface SettingsProps {
   initialSignatureUrl: string | null;
 }
 
+interface Preferences {
+  landingPage: string;
+  itemsPerPage: string;
+  defaultPriority: string;
+  density: string;
+  emailNotifications: boolean;
+  approvalReminders: boolean;
+  weeklyDigest: boolean;
+}
+
+const DEFAULT_PREFS: Preferences = {
+  landingPage: '/dashboard',
+  itemsPerPage: '25',
+  defaultPriority: 'normal',
+  density: 'comfortable',
+  emailNotifications: true,
+  approvalReminders: true,
+  weeklyDigest: false,
+};
+
+const PREFS_KEY = 'circle:preferences';
+
 export const getServerSideProps: GetServerSideProps<SettingsProps> = async (context) => {
   const session = await getServerSession(context.req, context.res, authOptions);
-
   if (!session?.user) {
-    return {
-      redirect: {
-        destination: '/',
-        permanent: false,
-      },
-    };
+    return { redirect: { destination: '/', permanent: false } };
   }
 
   const user = session.user as any;
@@ -40,426 +64,392 @@ export const getServerSideProps: GetServerSideProps<SettingsProps> = async (cont
   try {
     if (userId) {
       const { data } = supabaseAdmin.storage.from('signatures').getPublicUrl(`${userId}.png`);
-      // Check if signature exists by making a HEAD request
       const res = await fetch(data.publicUrl, { method: 'HEAD' });
-      if (res.ok) {
-        initialSignatureUrl = `${data.publicUrl}?t=${Date.now()}`;
-      }
+      if (res.ok) initialSignatureUrl = `${data.publicUrl}?t=${Date.now()}`;
     }
   } catch (e) {
-    // No signature found or error fetching
+    // No signature found
   }
 
-  return {
-    props: {
-      initialSignatureUrl,
-    },
-  };
+  return { props: { initialSignatureUrl } };
 };
 
+// ---- Small building blocks ----
+
+function SectionCard({ icon: Icon, title, subtitle, children }: { icon: any; title: string; subtitle?: string; children: React.ReactNode }) {
+  return (
+    <Card className="p-6">
+      <div className="flex items-start gap-3 mb-5">
+        <span className="text-neutral-700 mt-0.5">
+          <Icon className="w-5 h-5" strokeWidth={1.5} />
+        </span>
+        <div>
+          <h2 className="text-base font-semibold text-text-primary">{title}</h2>
+          {subtitle && <p className="text-sm text-text-secondary mt-0.5">{subtitle}</p>}
+        </div>
+      </div>
+      <>{children}</>
+    </Card>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block text-sm font-medium text-text-primary mb-1.5">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+const selectCls =
+  'w-full h-11 px-3.5 bg-white border border-border rounded-xl text-sm text-text-primary focus:border-primary-300 focus:ring-2 focus:ring-primary-100 outline-none transition-all';
+
+function Toggle({ checked, onChange, label, description }: { checked: boolean; onChange: (v: boolean) => void; label: string; description?: string }) {
+  return (
+    <div className="flex items-center justify-between py-2.5 gap-4">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-text-primary">{label}</p>
+        {description && <p className="text-xs text-text-secondary mt-0.5">{description}</p>}
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${checked ? 'bg-primary-500' : 'bg-neutral-300'}`}
+      >
+        <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${checked ? 'translate-x-5' : ''}`} />
+      </button>
+    </div>
+  );
+}
+
+function ReadOnlyRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-2 border-b border-border last:border-0">
+      <span className="text-xs font-medium text-text-secondary">{label}</span>
+      <span className="text-sm text-text-primary font-medium text-right truncate capitalize">{value}</span>
+    </div>
+  );
+}
+
 export default function Settings({ initialSignatureUrl }: SettingsProps) {
-    const { user, session, loading: userLoading, updateProfilePicture } = useCurrentUser();
-    const { departmentName, businessUnitName, jobTitle: hrimsJobTitle } = useUserHrimsProfile();
-    const [activeTab, setActiveTab] = useState('profile');
-    const [isLoading, setIsLoading] = useState(false);
-    const [signatureUrl, setSignatureUrl] = useState<string | null>(initialSignatureUrl);
-    const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
-    const [uploadingPicture, setUploadingPicture] = useState(false);
-    const fileInputRef = useRef<HTMLInputElement>(null);
-    
-    // Biometric credentials state
-    const [biometricCredentials, setBiometricCredentials] = useState<any[]>([]);
-    const [loadingBiometrics, setLoadingBiometrics] = useState(false);
-    const [showBiometricSetup, setShowBiometricSetup] = useState(false);
+  const { user, session, updateProfilePicture } = useCurrentUser();
+  const { departmentName, businessUnitName, jobTitle: hrimsJobTitle } = useUserHrimsProfile();
 
-    // Load profile picture when user data is available
-    useEffect(() => {
-        if (user?.id) {
-            // Set profile picture from user data
-            if (user.profile_picture_url) {
-                const url = user.profile_picture_url;
-                setProfilePhoto(url.includes('?') ? url : `${url}?t=${Date.now()}`);
-            } else {
-                fetchProfilePictureFromStorage(user.id);
-            }
-        }
-    }, [user]);
+  const [signatureUrl, setSignatureUrl] = useState<string | null>(initialSignatureUrl);
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const [uploadingPicture, setUploadingPicture] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const fetchProfilePictureFromStorage = async (userId: string) => {
+  const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFS);
+  const [saved, setSaved] = useState(false);
+
+  const [biometricCredentials, setBiometricCredentials] = useState<any[]>([]);
+  const [loadingBiometrics, setLoadingBiometrics] = useState(false);
+  const [showBiometricSetup, setShowBiometricSetup] = useState(false);
+
+  // Load preferences (stored locally per device)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(PREFS_KEY);
+      if (raw) setPrefs({ ...DEFAULT_PREFS, ...JSON.parse(raw) });
+    } catch {}
+  }, []);
+
+  const setPref = <K extends keyof Preferences>(key: K, value: Preferences[K]) => {
+    setPrefs((prev) => ({ ...prev, [key]: value }));
+    setSaved(false);
+  };
+
+  // Load profile picture
+  useEffect(() => {
+    if (user?.id) {
+      if (user.profile_picture_url) {
+        const url = user.profile_picture_url;
+        setProfilePhoto(url.includes('?') ? url : `${url}?t=${Date.now()}`);
+      } else {
+        fetchProfilePictureFromStorage(user.id);
+      }
+    }
+  }, [user]);
+
+  const fetchProfilePictureFromStorage = async (userId: string) => {
+    try {
+      for (const ext of ['png', 'jpg', 'jpeg', 'webp']) {
+        const { data } = supabaseAdmin.storage.from('profile_pictures').getPublicUrl(`${userId}.${ext}`);
         try {
-            const extensions = ['png', 'jpg', 'jpeg', 'webp'];
-            for (const ext of extensions) {
-                const { data } = supabaseAdmin.storage.from('profile_pictures').getPublicUrl(`${userId}.${ext}`);
-                try {
-                    const res = await fetch(data.publicUrl, { method: 'HEAD' });
-                    if (res.ok) {
-                        setProfilePhoto(`${data.publicUrl}?t=${Date.now()}`);
-                        return;
-                    }
-                } catch (e) {
-                    // Continue to next extension
-                }
-            }
-        } catch (err) {
-            console.error("Error fetching profile picture from storage", err);
+          const res = await fetch(data.publicUrl, { method: 'HEAD' });
+          if (res.ok) { setProfilePhoto(`${data.publicUrl}?t=${Date.now()}`); return; }
+        } catch {}
+      }
+    } catch (err) {
+      console.error('Error fetching profile picture from storage', err);
+    }
+  };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { alert('Please select an image file'); return; }
+    if (file.size > 4 * 1024 * 1024) { alert('Image size must be less than 4MB'); return; }
+
+    setUploadingPicture(true);
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const base64 = event.target?.result as string;
+      try {
+        const res = await fetch('/api/user/profile-picture', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: base64 }),
+        });
+        const data = await res.json();
+        if (data.url) {
+          const urlWithCache = `${data.url}?t=${Date.now()}`;
+          setProfilePhoto(urlWithCache);
+          updateProfilePicture(urlWithCache);
+        } else {
+          alert('Failed to upload profile picture');
         }
+      } catch (err) {
+        console.error('Upload error', err);
+        alert('Failed to upload profile picture');
+      } finally {
+        setUploadingPicture(false);
+      }
     };
+    reader.readAsDataURL(file);
+  };
 
-    const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
+  const handleSave = () => {
+    try {
+      localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch {}
+  };
 
-        if (!file.type.startsWith('image/')) {
-            alert('Please select an image file');
-            return;
-        }
+  const fetchBiometricCredentials = async () => {
+    setLoadingBiometrics(true);
+    try {
+      const res = await fetch('/api/webauthn/credentials');
+      if (res.ok) {
+        const data = await res.json();
+        setBiometricCredentials(data.credentials || []);
+      }
+    } catch (err) {
+      console.error('Failed to load biometric credentials:', err);
+    } finally {
+      setLoadingBiometrics(false);
+    }
+  };
 
-        if (file.size > 4 * 1024 * 1024) {
-            alert('Image size must be less than 4MB');
-            return;
-        }
+  useEffect(() => { fetchBiometricCredentials(); }, []);
 
-        setUploadingPicture(true);
+  const handleDeleteCredential = async (id: string) => {
+    if (!confirm('Remove this device? You will need to re-register it to use biometric verification.')) return;
+    try {
+      const res = await fetch(`/api/webauthn/credentials/${id}`, { method: 'DELETE' });
+      if (res.ok) setBiometricCredentials((prev) => prev.filter((c) => c.id !== id));
+    } catch (err) {
+      console.error('Failed to delete credential:', err);
+    }
+  };
 
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-            const base64 = event.target?.result as string;
-            try {
-                const res = await fetch('/api/user/profile-picture', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ image: base64 }),
-                });
-                const data = await res.json();
-                if (data.url) {
-                    const urlWithCache = `${data.url}?t=${Date.now()}`;
-                    setProfilePhoto(urlWithCache);
-                    // Update the global user context so header/sidebar update immediately
-                    updateProfilePicture(urlWithCache);
-                } else {
-                    alert('Failed to upload profile picture');
-                }
-            } catch (err) {
-                console.error('Upload error', err);
-                alert('Failed to upload profile picture');
-            } finally {
-                setUploadingPicture(false);
-            }
-        };
-        reader.readAsDataURL(file);
-    };
+  const displayName = user?.display_name || session?.user?.name || 'User';
+  const email = user?.email || session?.user?.email || '—';
 
-    const handleSave = () => {
-        setIsLoading(true);
-        setTimeout(() => {
-            setIsLoading(false);
-            alert('Settings saved successfully!');
-        }, 1500);
-    };
+  return (
+    <>
+      <Head>
+        <title>My Settings - The Circle</title>
+      </Head>
 
-    const fetchBiometricCredentials = async () => {
-        setLoadingBiometrics(true);
-        try {
-            const res = await fetch('/api/webauthn/credentials');
-            if (res.ok) {
-                const data = await res.json();
-                setBiometricCredentials(data.credentials || []);
-            }
-        } catch (err) {
-            console.error('Failed to load biometric credentials:', err);
-        } finally {
-            setLoadingBiometrics(false);
-        }
-    };
+      <AppLayout title="My Settings">
+        <div className="w-full px-4 sm:px-6 lg:px-8 py-6 max-w-6xl mx-auto">
+          {/* Page header with save action */}
+          <div className="flex items-center justify-between gap-4 mb-6">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-bold text-text-primary tracking-tight">My Settings</h1>
+              <p className="text-text-secondary mt-1.5 text-sm sm:text-base">
+                Configure how the system works for you. Personal details are managed in HRIMS.
+              </p>
+            </div>
+            <Button variant="primary" onClick={handleSave} className="shrink-0 flex items-center gap-2">
+              {saved ? <Check className="w-4 h-4" strokeWidth={2} /> : null}
+              {saved ? 'Saved' : 'Save Changes'}
+            </Button>
+          </div>
 
-    // Load biometric credentials when security tab is active
-    useEffect(() => {
-        if (activeTab === 'security') {
-            fetchBiometricCredentials();
-        }
-    }, [activeTab]);
-
-    const handleDeleteCredential = async (id: string) => {
-        if (!confirm('Remove this device? You will need to re-register it to use biometric verification.')) return;
-        try {
-            const res = await fetch(`/api/webauthn/credentials/${id}`, { method: 'DELETE' });
-            if (res.ok) {
-                setBiometricCredentials(prev => prev.filter(c => c.id !== id));
-            }
-        } catch (err) {
-            console.error('Failed to delete credential:', err);
-        }
-    };
-
-    const tabs = [
-        { id: 'profile', label: 'Profile' },
-        { id: 'security', label: 'Security' }
-    ];
-
-    return (
-        <>
-            <Head>
-                <title>System Settings - The Circle</title>
-            </Head>
-
-            <AppLayout title="System Settings">
-                <div className="w-full px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-
-                    {/* Header Section */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center mb-8 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                        <div className="md:col-span-2 space-y-4">
-                            <div>
-                                <h1 className="text-3xl font-bold text-gray-900 font-heading">System Settings</h1>
-                                <p className="text-gray-500 mt-2 text-lg">
-                                    Manage your profile information, preferences, and integration settings.
-                                </p>
-                            </div>
-                        </div>
-                        <div className="hidden md:flex md:col-span-1 justify-center items-center">
-                            <div className="w-full max-w-[280px]">
-                                <SettingsIllustration />
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="flex flex-col lg:flex-row gap-6">
-                        {/* Sidebar Navigation */}
-                        <div className="w-full lg:w-64 flex-shrink-0">
-                            <Card className="p-2 sticky top-6">
-                                <nav className="space-y-1">
-                                    {tabs.map((tab) => (
-                                        <button
-                                            key={tab.id}
-                                            onClick={() => setActiveTab(tab.id)}
-                                            className={`w-full flex items-center px-4 py-3 text-sm font-medium rounded-xl transition-all ${activeTab === tab.id
-                                                ? 'bg-brand-50 text-brand-700 shadow-sm'
-                                                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                                                }`}
-                                        >
-                                            {tab.label}
-                                        </button>
-                                    ))}
-                                </nav>
-                            </Card>
-                        </div>
-
-                        {/* Main Content Area */}
-                        <div className="flex-1 space-y-6">
-                            {activeTab === 'profile' && (
-                                <Card className="p-6 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                                    <div>
-                                        <h2 className="text-xl font-bold text-gray-900">Profile Settings</h2>
-                                        <p className="text-sm text-gray-500 mt-1">Manage your personal information and preferences.</p>
-                                    </div>
-
-                                    {/* Profile Photo Section */}
-                                    <div className="flex items-center gap-6 pb-6 border-b border-gray-100">
-                                        <div className="relative group">
-                                            <div className="w-24 h-24 rounded-full bg-brand-100 flex items-center justify-center text-brand-600 text-3xl font-bold overflow-hidden border-4 border-white shadow-md">
-                                                {profilePhoto ? (
-                                                    <img src={profilePhoto} alt="Profile" className="w-full h-full object-cover" />
-                                                ) : (
-                                                    <span>{user?.display_name?.charAt(0) || user?.email?.charAt(0) || 'U'}</span>
-                                                )}
-                                            </div>
-                                            <button 
-                                                onClick={() => fileInputRef.current?.click()}
-                                                disabled={uploadingPicture}
-                                                className="absolute bottom-0 right-0 bg-white rounded-full p-2 shadow-sm border border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors"
-                                            >
-                                                {uploadingPicture ? (
-                                                    <div className="w-4 h-4 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
-                                                ) : (
-                                                    <svg className="w-4 h-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                    </svg>
-                                                )}
-                                            </button>
-                                            <input 
-                                                ref={fileInputRef}
-                                                type="file" 
-                                                className="hidden" 
-                                                accept="image/*" 
-                                                onChange={handlePhotoUpload} 
-                                            />
-                                        </div>
-                                        <div>
-                                            <h3 className="font-medium text-gray-900">Profile Photo</h3>
-                                            <p className="text-sm text-gray-500 mt-1">
-                                                {uploadingPicture ? 'Uploading...' : 'Click the camera icon to update.'}
-                                            </p>
-                                        </div>
-                                    </div>
-
-                                    {/* User Information - Read Only */}
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-                                            <p className="text-gray-900 font-medium bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
-                                                {user?.display_name || session?.user?.name || 'Not set'}
-                                            </p>
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Job Title</label>
-                                            <p className="text-gray-900 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200 capitalize">
-                                                {hrimsJobTitle || user?.job_title || 'User'}
-                                            </p>
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
-                                            <p className="text-gray-900 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
-                                                {departmentName || 'Not assigned'}
-                                            </p>
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Business Unit</label>
-                                            <p className="text-gray-900 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
-                                                {businessUnitName || 'Not assigned'}
-                                            </p>
-                                        </div>
-                                        <div className="md:col-span-2">
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                                            <p className="text-gray-900 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
-                                                {user?.email || session?.user?.email || 'Not set'}
-                                            </p>
-                                        </div>
-                                    </div>
-
-                                    {/* Signature Section */}
-                                    <div className="pt-6 border-t border-gray-100">
-                                        <h3 className="font-medium text-gray-900 mb-2">Digital Signature</h3>
-                                        <p className="text-sm text-gray-500 mb-4">
-                                            Draw your signature, upload an image, or sign from your mobile device.
-                                        </p>
-                                        <SignaturePad
-                                            initialUrl={signatureUrl || undefined}
-                                            onSave={(url) => setSignatureUrl(url)}
-                                        />
-                                    </div>
-                                </Card>
-                            )}
-
-                            {activeTab === 'security' && (
-                                <Card className="p-6 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                                    <div>
-                                        <h2 className="text-xl font-bold text-gray-900">Security Settings</h2>
-                                        <p className="text-sm text-gray-500 mt-1">Manage biometric verification devices for high-risk approvals.</p>
-                                    </div>
-
-                                    {/* Biometric Credentials */}
-                                    <div>
-                                        <div className="flex items-center justify-between mb-4">
-                                            <div>
-                                                <h3 className="font-medium text-gray-900">Biometric Devices</h3>
-                                                <p className="text-sm text-gray-500 mt-0.5">
-                                                    Use Windows Hello, Touch ID, or Face ID for secure approval verification.
-                                                </p>
-                                            </div>
-                                            <Button variant="outline" onClick={() => setShowBiometricSetup(true)}>
-                                                Register device
-                                            </Button>
-                                        </div>
-
-                                        {loadingBiometrics ? (
-                                            <div className="text-sm text-gray-500 py-4 text-center">Loading devices...</div>
-                                        ) : biometricCredentials.length === 0 ? (
-                                            <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 text-center">
-                                                <p className="text-sm text-gray-500">No biometric devices registered yet.</p>
-                                                <p className="text-xs text-gray-400 mt-1">
-                                                    You can register a device now or during your first high-risk approval.
-                                                </p>
-                                            </div>
-                                        ) : (
-                                            <div className="space-y-3">
-                                                {biometricCredentials.map((cred: any) => (
-                                                    <div key={cred.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center">
-                                                                <svg className="w-5 h-5 text-primary-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 11c0-1.1.9-2 2-2s2 .9 2 2m-8 0c0-3.3 2.7-6 6-6s6 2.7 6 6v1c0 5-4 9-6 10-2-1-6-5-6-10v-1z" />
-                                                                </svg>
-                                                            </div>
-                                                            <div>
-                                                                <p className="text-sm font-medium text-gray-900">{cred.device_name || 'Biometric Device'}</p>
-                                                                <p className="text-xs text-gray-500">
-                                                                    Added {new Date(cred.created_at).toLocaleDateString()}
-                                                                    {cred.last_used_at ? ` • Last used ${new Date(cred.last_used_at).toLocaleDateString()}` : ''}
-                                                                </p>
-                                                            </div>
-                                                        </div>
-                                                        <button
-                                                            onClick={() => handleDeleteCredential(cred.id)}
-                                                            className="text-sm text-red-600 hover:text-red-700 font-medium"
-                                                        >
-                                                            Remove
-                                                        </button>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Authentication info */}
-                                    <div className="pt-4 border-t border-gray-100">
-                                        <h3 className="font-medium text-gray-900 mb-2">How verification works</h3>
-                                        <div className="space-y-2 text-sm text-gray-600">
-                                            <div className="flex items-start gap-2">
-                                                <span className="inline-block w-2 h-2 mt-1.5 rounded-full bg-emerald-400 shrink-0"></span>
-                                                <span><strong>Low risk:</strong> Standard session verification (one-click confirmation).</span>
-                                            </div>
-                                            <div className="flex items-start gap-2">
-                                                <span className="inline-block w-2 h-2 mt-1.5 rounded-full bg-blue-400 shrink-0"></span>
-                                                <span><strong>Medium risk:</strong> Microsoft re-authentication with MFA.</span>
-                                            </div>
-                                            <div className="flex items-start gap-2">
-                                                <span className="inline-block w-2 h-2 mt-1.5 rounded-full bg-amber-400 shrink-0"></span>
-                                                <span><strong>High risk:</strong> Biometric verification (Windows Hello, Touch ID, Face ID).</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </Card>
-                            )}
-
-                            
-                            
-
-                            <div className="flex justify-end pt-4">
-                                <Button onClick={handleSave} isLoading={isLoading} className="w-full sm:w-auto">
-                                    Save Changes
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left: configurable preferences */}
+            <div className="lg:col-span-2 space-y-6">
+              <SectionCard icon={SlidersHorizontal} title="Preferences" subtitle="Tune the interface and defaults to suit how you work.">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                  <Field label="Default landing page">
+                    <select className={selectCls} value={prefs.landingPage} onChange={(e) => setPref('landingPage', e.target.value)}>
+                      <option value="/dashboard">Dashboard</option>
+                      <option value="/requests/my-requests">Track Requests</option>
+                      <option value="/requests/drafts">My Drafts</option>
+                      <option value="/approvals">My Approval Tasks</option>
+                      <option value="/notifications">Notifications</option>
+                    </select>
+                  </Field>
+                  <Field label="Default request priority">
+                    <select className={selectCls} value={prefs.defaultPriority} onChange={(e) => setPref('defaultPriority', e.target.value)}>
+                      <option value="low">Low</option>
+                      <option value="normal">Normal</option>
+                      <option value="high">High</option>
+                      <option value="urgent">Urgent</option>
+                    </select>
+                  </Field>
+                  <Field label="Items per page">
+                    <select className={selectCls} value={prefs.itemsPerPage} onChange={(e) => setPref('itemsPerPage', e.target.value)}>
+                      <option value="10">10</option>
+                      <option value="25">25</option>
+                      <option value="50">50</option>
+                    </select>
+                  </Field>
+                  <Field label="List density">
+                    <select className={selectCls} value={prefs.density} onChange={(e) => setPref('density', e.target.value)}>
+                      <option value="comfortable">Comfortable</option>
+                      <option value="compact">Compact</option>
+                    </select>
+                  </Field>
                 </div>
-            <BiometricSetupModal
-                isOpen={showBiometricSetup}
-                onClose={() => setShowBiometricSetup(false)}
-                onSuccess={() => {
-                    setShowBiometricSetup(false);
-                    fetchBiometricCredentials();
-                }}
-            />
-            </AppLayout>
-            <style>{`
-                .toggle-checkbox:checked {
-                    right: 0;
-                    border-color: #3B82F6;
-                }
-                .toggle-checkbox:checked + .toggle-label {
-                    background-color: #3B82F6;
-                }
-                .toggle-checkbox {
-                    right: 0;
-                    z-index: 1;
-                    border-color: #D1D5DB;
-                    transition: all 0.3s;
-                }
-                .toggle-label {
-                    width: 3rem;
-                    height: 1.5rem;
-                }
-            `}</style>
-        </>
-    );
+                <div className="mt-4 flex items-center justify-between rounded-xl bg-neutral-50 border border-border px-3.5 py-3">
+                  <span className="text-sm text-text-secondary">Date format</span>
+                  <span className="text-sm font-medium text-text-primary">DD/MM/YYYY</span>
+                </div>
+              </SectionCard>
+
+              <SectionCard icon={Bell} title="Notifications" subtitle="Choose what you want to be notified about.">
+                <div className="divide-y divide-border">
+                  <Toggle
+                    checked={prefs.emailNotifications}
+                    onChange={(v) => setPref('emailNotifications', v)}
+                    label="Email notifications"
+                    description="Receive updates about your requests and approvals by email."
+                  />
+                  <Toggle
+                    checked={prefs.approvalReminders}
+                    onChange={(v) => setPref('approvalReminders', v)}
+                    label="Approval reminders"
+                    description="Get nudged when an approval task is waiting on you."
+                  />
+                  <Toggle
+                    checked={prefs.weeklyDigest}
+                    onChange={(v) => setPref('weeklyDigest', v)}
+                    label="Weekly summary digest"
+                    description="A weekly recap of your activity across the workspace."
+                  />
+                </div>
+              </SectionCard>
+
+              <SectionCard icon={PenLine} title="Digital signature" subtitle="Used to authorise your requests and approvals.">
+                <SignaturePad initialUrl={signatureUrl || undefined} onSave={(url) => setSignatureUrl(url)} />
+              </SectionCard>
+
+              <SectionCard icon={ShieldCheck} title="Security" subtitle="Manage biometric verification for high-risk approvals.">
+                <div className="flex items-center justify-between mb-4">
+                  <p className="text-sm text-text-secondary">Use Windows Hello, Touch ID, or Face ID to verify sensitive approvals.</p>
+                  <Button variant="outline" onClick={() => setShowBiometricSetup(true)} className="shrink-0">Register device</Button>
+                </div>
+
+                {loadingBiometrics ? (
+                  <div className="text-sm text-text-secondary py-4 text-center">Loading devices…</div>
+                ) : biometricCredentials.length === 0 ? (
+                  <div className="p-4 bg-neutral-50 rounded-xl border border-border text-center">
+                    <p className="text-sm text-text-secondary">No biometric devices registered yet.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {biometricCredentials.map((cred: any) => (
+                      <div key={cred.id} className="flex items-center justify-between p-4 bg-neutral-50 rounded-xl border border-border">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className="text-neutral-700 shrink-0">
+                            <Fingerprint className="w-5 h-5" strokeWidth={1.5} />
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-text-primary truncate">{cred.device_name || 'Biometric Device'}</p>
+                            <p className="text-xs text-text-secondary">
+                              Added {new Date(cred.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                              {cred.last_used_at ? ` • Last used ${new Date(cred.last_used_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}` : ''}
+                            </p>
+                          </div>
+                        </div>
+                        <button onClick={() => handleDeleteCredential(cred.id)} className="text-sm text-danger hover:text-danger-600 font-medium shrink-0">
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </SectionCard>
+            </div>
+
+            {/* Right: profile photo + HRIMS identity (read-only) */}
+            <div className="space-y-6">
+              <Card className="p-6">
+                <h2 className="text-base font-semibold text-text-primary mb-5">Profile photo</h2>
+                <div className="flex flex-col items-center text-center">
+                  <div className="relative">
+                    <div className="w-28 h-28 rounded-full bg-neutral-100 flex items-center justify-center text-neutral-500 text-3xl font-bold overflow-hidden ring-1 ring-border">
+                      {profilePhoto ? (
+                        <img src={profilePhoto} alt="Profile" className="w-full h-full object-cover" />
+                      ) : (
+                        <span>{displayName.charAt(0)}</span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploadingPicture}
+                      className="absolute bottom-0 right-0 bg-primary-500 text-white rounded-full p-2 shadow-sm hover:bg-primary-600 transition-colors"
+                      aria-label="Change photo"
+                    >
+                      {uploadingPicture ? (
+                        <div className="w-4 h-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                      ) : (
+                        <Pencil className="w-4 h-4" strokeWidth={1.5} />
+                      )}
+                    </button>
+                    <input ref={fileInputRef} type="file" className="hidden" accept="image/*" onChange={handlePhotoUpload} />
+                  </div>
+                  <p className="mt-4 font-semibold text-text-primary">{displayName}</p>
+                  <p className="text-sm text-text-secondary">{email}</p>
+                  <p className="mt-1 text-xs text-text-muted">{uploadingPicture ? 'Uploading…' : 'JPG or PNG, up to 4MB'}</p>
+                </div>
+              </Card>
+
+              <Card className="p-6">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-base font-semibold text-text-primary">Identity</h2>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted bg-neutral-100 px-2 py-0.5 rounded-full">From HRIMS</span>
+                </div>
+                <div className="space-y-0">
+                  <ReadOnlyRow label="Full name" value={displayName} />
+                  <ReadOnlyRow label="Job title" value={hrimsJobTitle || user?.job_title || 'User'} />
+                  <ReadOnlyRow label="Department" value={departmentName || 'Not assigned'} />
+                  <ReadOnlyRow label="Business unit" value={businessUnitName || 'Not assigned'} />
+                  <ReadOnlyRow label="Email" value={email} />
+                </div>
+                <p className="mt-3 text-xs text-text-muted">Personal details are sourced from HRIMS and can&apos;t be edited here.</p>
+              </Card>
+            </div>
+          </div>
+        </div>
+
+        <BiometricSetupModal
+          isOpen={showBiometricSetup}
+          onClose={() => setShowBiometricSetup(false)}
+          onSuccess={() => {
+            setShowBiometricSetup(false);
+            fetchBiometricCredentials();
+          }}
+        />
+      </AppLayout>
+    </>
+  );
 }

@@ -411,7 +411,7 @@ export function buildTravelAuthPreviewSections(input: TravelAuthPreviewInput): P
                                         </div>
                                         <div style={{ fontSize: 9, fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Date</div>
                                         <div style={{ borderBottom: '1px solid #666', minHeight: 18, marginTop: 4, fontSize: 10, color: decisionColor }}>
-                                            {a?.signedAt ? new Date(a.signedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}
+                                            {a?.signedAt ? new Date(a.signedAt).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}
                                         </div>
                                     </td>
                                 );
