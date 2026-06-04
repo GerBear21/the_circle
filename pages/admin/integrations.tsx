@@ -344,7 +344,7 @@ export default function AdminIntegrationsPage() {
               </svg>
             </div>
             <h3 className="text-xl font-semibold text-gray-700 mb-2">No integrations found</h3>
-            <p className="text-gray-500 mb-6 max-w-sm mx-auto">Try adjusting your search or filters to find what you're looking for</p>
+            <p className="text-gray-500 mb-6 max-w-sm mx-auto">Try adjusting your search or filters to find what you&apos;re looking for</p>
             <Button
               variant="secondary"
               onClick={() => {

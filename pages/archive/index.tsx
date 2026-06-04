@@ -117,6 +117,7 @@ export default function ArchivePage() {
             };
             autoSync();
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session, status]);
 
     // Filter and sort archived documents

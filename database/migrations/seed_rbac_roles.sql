@@ -41,11 +41,11 @@ BEGIN
     ON CONFLICT (role_id, permission_id) DO NOTHING;
 
     -- ============================================================
-    -- 2. SYSTEM ADMIN — manage rates, forms, workflows, access rights, SLA, delegation
+    -- 2. SYSTEM ADMIN — manage rates, forms, workflows, access rights, SLA
     -- ============================================================
     INSERT INTO roles (organization_id, name, slug, description, color, is_system, is_default, priority)
     VALUES (v_org_id, 'System Admin', 'system_admin',
-        'Manages travel form rates, form design, workflow customization, user access rights, SLA configuration, and approval delegation. Can grant certain rights to other users.',
+        'Manages travel form rates, form design, workflow customization, user access rights, and SLA configuration. Can grant certain rights to other users.',
         'purple', true, false, 90)
     ON CONFLICT (organization_id, slug) DO UPDATE SET
         name = EXCLUDED.name, description = EXCLUDED.description, color = EXCLUDED.color, priority = EXCLUDED.priority, updated_at = now()
@@ -57,9 +57,9 @@ BEGIN
     WHERE p.code IN (
         -- Requests (own + view all for oversight)
         'requests.create', 'requests.view_own', 'requests.view_all', 'requests.edit_own', 'requests.withdraw',
-        -- Approvals (full management including delegation config)
-        'approvals.view', 'approvals.approve', 'approvals.reject', 'approvals.delegate',
-        'approvals.override', 'approvals.reassign', 'approvals.configure_delegation',
+        -- Approvals (full management)
+        'approvals.view', 'approvals.approve', 'approvals.reject',
+        'approvals.override', 'approvals.reassign',
         -- Users (full user management + access rights)
         'users.view', 'users.create', 'users.edit', 'users.deactivate',
         'users.assign_roles', 'users.manage_access',

@@ -157,7 +157,7 @@ const navSections: NavSection[] = [
     items: [
       {
         href: '/admin/settings/slas',
-        label: 'SLAs and Delegations',
+        label: 'SLAs',
         requiredPermissions: ['admin.system_config'],
         requireAny: true,
         icon: <Timer {...iconProps} />,

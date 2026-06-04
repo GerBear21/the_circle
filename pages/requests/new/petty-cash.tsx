@@ -914,6 +914,11 @@ export default function PettyCashRequestPage() {
         }] : []),
     ];
 
+    const unsavedPrompt = useUnsavedChangesPrompt({
+        isDirty,
+        disabled: loading || savingDraft,
+    });
+
     if (status === 'loading' || loadingRequest) {
         return (
             <AppLayout title="Petty Cash" showBack onBack={() => router.back()}>
@@ -925,11 +930,6 @@ export default function PettyCashRequestPage() {
     }
 
     if (!session) return null;
-
-    const unsavedPrompt = useUnsavedChangesPrompt({
-        isDirty,
-        disabled: loading || savingDraft,
-    });
 
     const pageTitle = isApproverEditing
         ? 'Edit Petty Cash Request (Approver)'
@@ -1078,7 +1078,7 @@ export default function PettyCashRequestPage() {
                         {lineItemsLocked && (
                             <p className="text-xs text-gray-500 mb-3">
                                 Line items, amounts and cost allocation were carried over from the approved travel
-                                authorisation and the HR Director's cost allocation. They can't be changed here.
+                                authorisation and the HR Director&apos;s cost allocation. They can&apos;t be changed here.
                             </p>
                         )}
                         <div className="overflow-x-auto">

@@ -15,7 +15,6 @@ interface ApprovalStep {
   conditions: StepCondition[];
   escalation: EscalationConfig;
   notifications: NotificationConfig;
-  allowDelegation: boolean;
   requireComment: boolean;
   autoApprove: AutoApproveConfig;
 }
@@ -132,7 +131,6 @@ const defaultStepConfig = (): Partial<ApprovalStep> => ({
   conditions: [],
   escalation: { enabled: false, hours: 24, escalateTo: '', reminder: true, reminderHours: 12 },
   notifications: { onAssignment: true, onApproval: true, onRejection: true, onEscalation: true, channels: ['email'] },
-  allowDelegation: true,
   requireComment: false,
   autoApprove: { enabled: false, condition: 'amount_below', value: '' },
 });
@@ -639,16 +637,7 @@ export default function NewTemplatePage() {
         {/* Additional Options */}
         <div>
           <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 block">Options</label>
-          <div className="grid grid-cols-2 gap-2">
-            <label className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
-              <input
-                type="checkbox"
-                checked={step.allowDelegation}
-                onChange={(e) => updateStep(step.id, { allowDelegation: e.target.checked })}
-                className="rounded border-gray-300 text-primary-500 focus:ring-primary-500"
-              />
-              <span className="text-xs text-gray-600">Allow delegation</span>
-            </label>
+          <div>
             <label className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
               <input
                 type="checkbox"

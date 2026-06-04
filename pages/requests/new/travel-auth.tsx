@@ -927,6 +927,11 @@ export default function TravelAuthPage() {
         }
     };
 
+    const unsavedPrompt = useUnsavedChangesPrompt({
+        isDirty,
+        disabled: loading || savingDraft,
+    });
+
     if (status === 'loading' || loadingRequest) {
         return (
             <AppLayout title="Travel Authorization" showBack onBack={() => router.back()}>
@@ -938,11 +943,6 @@ export default function TravelAuthPage() {
     }
 
     if (!session) return null;
-
-    const unsavedPrompt = useUnsavedChangesPrompt({
-        isDirty,
-        disabled: loading || savingDraft,
-    });
 
     const pageTitle = isApproverEditing ? `Edit ${formKindLabel} (Approver)` : isEditMode ? `Edit ${formKindLabel}` : formKindLabel;
 

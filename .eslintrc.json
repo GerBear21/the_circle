@@ -1,12 +1,12 @@
 {
   "extends": ["next/core-web-vitals"],
   "rules": {
-    "@next/next/no-img-element": "warn",
-    "@next/next/no-html-link-for-pages": "warn",
     "react-hooks/exhaustive-deps": "warn",
-    "react-hooks/rules-of-hooks": "warn",
+    "react-hooks/rules-of-hooks": "error",
     "react/display-name": "off",
     "react/no-unescaped-entities": "warn",
-    "no-unused-vars": "off"
+    "no-unused-vars": "off",
+    "@next/next/no-html-link-for-pages": "warn",
+    "@next/next/no-img-element": "off"
   }
 }

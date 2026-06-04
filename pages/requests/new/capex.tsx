@@ -408,6 +408,7 @@ export default function NewCapexRequestPage() {
       // Fallback to session name if user profile not yet loaded/available
       setFormData(prev => ({ ...prev, requester: session.user.name || '' }));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, session, isEditMode]);
 
   useEffect(() => {
@@ -2048,7 +2049,7 @@ export default function NewCapexRequestPage() {
                     <div className="flex-1">
                       <h4 className="text-sm font-semibold text-danger-800">COO Pre-Approval Required</h4>
                       <p className="text-xs text-danger-700 mt-1">
-                        Because you selected "Other", this CAPEX cannot enter the official approval trail until the
+                        Because you selected &ldquo;Other&rdquo;, this CAPEX cannot enter the official approval trail until the
                         COO has reviewed and approved it. Please describe the reason and select the COO below.
                       </p>
                     </div>

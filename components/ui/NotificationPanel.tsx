@@ -71,6 +71,9 @@ export default function NotificationPanel({ isOpen, onClose, onUnreadCheck }: No
         } finally {
             setLoading(false);
         }
+        // onUnreadCheck is intentionally omitted to avoid re-creating fetchNotifications
+        // when the parent component re-renders. The callback is invoked through the closure.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useEffect(() => {

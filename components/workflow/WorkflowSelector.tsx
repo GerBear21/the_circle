@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useWorkflows } from '@/hooks/useWorkflows';
 
 interface WorkflowSelectorProps {
@@ -135,9 +136,9 @@ export function WorkflowSelector({
             {!isLoading && workflows.length === 0 && (
                 <p className="text-xs text-gray-400 mt-1.5">
                     No workflows available.{' '}
-                    <a href="/requests/new/workflow" className="text-primary-500 hover:underline">
+                    <Link href="/requests/new/workflow" className="text-primary-500 hover:underline">
                         Create one
-                    </a>
+                    </Link>
                 </p>
             )}
         </div>

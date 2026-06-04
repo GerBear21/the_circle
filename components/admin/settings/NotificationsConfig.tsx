@@ -9,7 +9,6 @@ export function NotificationsConfig({ getSetting, queueChange }: ConfigTabProps)
   const [emailOnEscalation, setEmailOnEscalation] = useState(getSetting('notifications', 'email_on_escalation', true));
   const [emailOnWithdraw, setEmailOnWithdraw] = useState(getSetting('notifications', 'email_on_withdraw', true));
   const [emailOnComment, setEmailOnComment] = useState(getSetting('notifications', 'email_on_comment', false));
-  const [emailOnDelegation, setEmailOnDelegation] = useState(getSetting('notifications', 'email_on_delegation', true));
   const [emailOnReassignment, setEmailOnReassignment] = useState(getSetting('notifications', 'email_on_reassignment', true));
   const [emailOnSLABreach, setEmailOnSLABreach] = useState(getSetting('notifications', 'email_on_sla_breach', true));
   const [inAppEnabled, setInAppEnabled] = useState(getSetting('notifications', 'in_app_enabled', true));
@@ -31,7 +30,6 @@ export function NotificationsConfig({ getSetting, queueChange }: ConfigTabProps)
           <ToggleSwitch checked={emailOnEscalation} onChange={(v) => { setEmailOnEscalation(v); queueChange('notifications', 'email_on_escalation', v); }} label="Request escalated" description="Notify when request is escalated due to SLA breach" />
           <ToggleSwitch checked={emailOnWithdraw} onChange={(v) => { setEmailOnWithdraw(v); queueChange('notifications', 'email_on_withdraw', v); }} label="Request withdrawn" description="Notify approvers when requester withdraws" />
           <ToggleSwitch checked={emailOnComment} onChange={(v) => { setEmailOnComment(v); queueChange('notifications', 'email_on_comment', v); }} label="New comment added" description="Notify participants when a comment is added" />
-          <ToggleSwitch checked={emailOnDelegation} onChange={(v) => { setEmailOnDelegation(v); queueChange('notifications', 'email_on_delegation', v); }} label="Approval delegated" description="Notify delegate when approval is delegated to them" />
           <ToggleSwitch checked={emailOnReassignment} onChange={(v) => { setEmailOnReassignment(v); queueChange('notifications', 'email_on_reassignment', v); }} label="Request reassigned" description="Notify new approver on reassignment" />
           <ToggleSwitch checked={emailOnSLABreach} onChange={(v) => { setEmailOnSLABreach(v); queueChange('notifications', 'email_on_sla_breach', v); }} label="SLA breach warning" description="Notify approver and manager when SLA is about to breach" />
         </div>

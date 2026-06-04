@@ -1737,7 +1737,7 @@ export default function HotelBookingPage() {
                                 <p className="text-xs text-amber-800 mt-1">
                                     The HR Director will allocate this complimentary booking across the
                                     appropriate business units and category (Marketing, Administration, etc.)
-                                    when they review the request. You don't need to pick an allocation here.
+                                    when they review the request. You don&apos;t need to pick an allocation here.
                                 </p>
                             </div>
                         </div>

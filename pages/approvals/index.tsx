@@ -12,8 +12,6 @@ import { useApprovals } from '../../hooks';
 import tickAnimation from '../../tick.json';
 import criticalAnimation from '../../lotties/red critical.json';
 import urgentAnimation from '../../lotties/orange warning exclamation.json';
-import { useRBAC } from '../../contexts/RBACContext';
-import { DelegationConfig } from '../../components/admin/settings';
 
 const Lottie = dynamic(() => import('lottie-react'), { ssr: false });
 
@@ -70,7 +68,7 @@ const priorityConfig: Record<string, { label: string; bg: string; text: string; 
   low: { label: 'Low', bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-200' },
 };
 
-type TabType = 'pending' | 'watching' | 'history' | 'admin';
+type TabType = 'pending' | 'watching' | 'history';
 
 interface ApprovalsPageProps {
   initialPendingApprovals: any[];
@@ -95,25 +93,11 @@ export const getServerSideProps: GetServerSideProps<ApprovalsPageProps> = async 
   const organizationId = (session.user as any).org_id;
 
   try {
-    // Fetch active delegations where current user is the delegate
-    const now = new Date().toISOString();
-    const { data: activeDelegations } = await supabaseAdmin
-      .from('approval_delegations')
-      .select('delegator_id')
-      .eq('delegate_id', userId)
-      .eq('is_active', true)
-      .eq('status', 'approved')
-      .lte('starts_at', now)
-      .or(`ends_at.is.null,ends_at.gte.${now}`);
-
-    const delegatorIds = (activeDelegations || []).map(d => d.delegator_id);
-
-    // Fetch pending approvals (own + delegated)
-    const approverIds = [userId, ...delegatorIds];
+    // Fetch pending approvals for current user
     const { data: pendingSteps, error: stepsError } = await supabaseAdmin
       .from('request_steps')
       .select('request_id, approver_user_id')
-      .in('approver_user_id', approverIds)
+      .eq('approver_user_id', userId)
       .eq('status', 'pending');
 
     let pendingApprovals: any[] = [];
@@ -155,7 +139,7 @@ export const getServerSideProps: GetServerSideProps<ApprovalsPageProps> = async 
       if (!fetchError && pendingData) {
         pendingApprovals = pendingData.filter((req: any) => {
           const userStep = req.request_steps?.find(
-            (step: any) => approverIds.includes(step.approver_user_id) && step.status === 'pending'
+            (step: any) => step.approver_user_id === userId && step.status === 'pending'
           );
           return !!userStep;
         });
@@ -280,7 +264,6 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
   const { data: session, status } = useSession();
   const router = useRouter();
   const { pendingApprovals, watchingRequests, historyRequests, loading, watchingLoading, historyLoading, error } = useApprovals();
-  const { isSuperAdmin, isSystemAdmin } = useRBAC();
   const [activeTab, setActiveTab] = useState<TabType>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -436,18 +419,6 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
     },
   ];
 
-  if (isSuperAdmin || isSystemAdmin) {
-    tabs.push({
-      id: 'admin',
-      label: 'Admin Approvals',
-      icon: (
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-        </svg>
-      ),
-    });
-  }
 
   const getTabDescription = () => {
     switch (activeTab) {
@@ -516,14 +487,8 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
           </div>
         </div>
 
-        {activeTab === 'admin' ? (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-            <DelegationConfig />
-          </div>
-        ) : (
-          <>
-            {/* Error State */}
-            {error && (
+        {/* Error State */}
+        {error && (
           <Card className="bg-red-50 border-red-200 mb-6">
             <div className="flex items-center gap-3">
               <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -894,8 +859,6 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
               })}
             </div>
           )}
-          </>
-        )}
       </div>
     </AppLayout>
   );

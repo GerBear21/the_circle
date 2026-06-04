@@ -435,7 +435,7 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
                   <ReadOnlyRow label="Business unit" value={businessUnitName || 'Not assigned'} />
                   <ReadOnlyRow label="Email" value={email} />
                 </div>
-                <p className="mt-3 text-xs text-text-muted">Personal details are sourced from HRIMS and can't be edited here.</p>
+                <p className="mt-3 text-xs text-text-muted">Personal details are sourced from HRIMS and can&apos;t be edited here.</p>
               </Card>
             </div>
           </div>

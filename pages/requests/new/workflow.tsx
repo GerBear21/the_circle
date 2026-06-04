@@ -52,7 +52,6 @@ interface StepCondition {
 
 interface StepSettings {
   requireComment: boolean;
-  allowDelegation: boolean;
   escalation: { enabled: boolean; hours: number; escalateTo: string };
   notifications: { onAssignment: boolean; onApproval: boolean; onRejection: boolean };
 }
@@ -84,7 +83,6 @@ interface SavedWorkflow {
 
 const defaultStepSettings = (): StepSettings => ({
   requireComment: false,
-  allowDelegation: true,
   escalation: { enabled: false, hours: 24, escalateTo: '' },
   notifications: { onAssignment: true, onApproval: true, onRejection: true },
 });
@@ -579,7 +577,7 @@ export default function CustomizeWorkflowPage() {
                         >
                           <option value="">Select Level...</option>
                           <option value="1">Direct Manager (Level 1)</option>
-                          <option value="2">Manager's Manager (Level 2)</option>
+                          <option value="2">Manager&apos;s Manager (Level 2)</option>
                           <option value="3">Level 3 Manager</option>
                         </select>
                       )}
@@ -702,15 +700,6 @@ export default function CustomizeWorkflowPage() {
                       className="rounded border-gray-300 text-primary-600"
                     />
                     <span className="text-sm text-gray-700">Require Comment</span>
-                  </label>
-                  <label className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={step.settings.allowDelegation}
-                      onChange={(e) => updateStep(step.id, { settings: { ...step.settings, allowDelegation: e.target.checked } })}
-                      className="rounded border-gray-300 text-primary-600"
-                    />
-                    <span className="text-sm text-gray-700">Allow Delegation</span>
                   </label>
                 </div>
               </div>

@@ -346,23 +346,6 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
     const [allUsers, setAllUsers] = useState<Array<{ id: string; display_name: string; email: string; profile_picture_url?: string }>>([]);
     const [approverSearch, setApproverSearch] = useState('');
     const [showApproverDropdown, setShowApproverDropdown] = useState(false);
-    
-    // Delegation request state - tracks which approver the requestor wants to delegate
-    const [showDelegationModal, setShowDelegationModal] = useState(false);
-    const [delegationTargetApprover, setDelegationTargetApprover] = useState<{ id: string; name: string } | null>(null);
-    const [delegationUsers, setDelegationUsers] = useState<Array<{ id: string; display_name: string; email: string }>>([]);
-    const [delegationForm, setDelegationForm] = useState({ delegate_id: '', reason: '', starts_at: '', ends_at: '' });
-    const [delegationSubmitting, setDelegationSubmitting] = useState(false);
-    const [delegationFeedback, setDelegationFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-    
-    // Track delegation requests for approvers - fetched from server
-    const [approverDelegations, setApproverDelegations] = useState<Array<{
-        approverId: string;
-        delegateName: string;
-        status: 'pending' | 'approved' | 'rejected';
-        submittedAt: string;
-    }>>([]);
-    const [loadingDelegations, setLoadingDelegations] = useState(false);
 
     // Fetch all users for editing mode
     useEffect(() => {
@@ -373,74 +356,6 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
                 .catch(err => console.error('Error fetching users:', err));
         }
     }, [isEditing]);
-
-    // Fetch users for delegation modal - exclude current user and approvers already in timeline
-    useEffect(() => {
-        if (showDelegationModal && delegationUsers.length === 0) {
-            fetch('/api/users')
-                .then(res => res.json())
-                .then(data => {
-                    const approverIds = new Set(approvers.map(a => a.id));
-                    setDelegationUsers((data.users || []).filter((u: any) => 
-                        u.id !== currentUserId && 
-                        u.id !== delegationTargetApprover?.id &&
-                        !approverIds.has(u.id)
-                    ));
-                })
-                .catch(() => setDelegationUsers([]));
-        }
-    }, [showDelegationModal, currentUserId, delegationUsers.length, approvers, delegationTargetApprover]);
-
-    // Handle delegation request submission - requestor asks for someone to act on behalf of the current approver
-    const handleDelegationSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!delegationTargetApprover || !delegationForm.delegate_id) return;
-
-        setDelegationSubmitting(true);
-        setDelegationFeedback(null);
-        try {
-            const res = await fetch('/api/rbac/delegations', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    delegator_id: delegationTargetApprover.id, // The approver who will be delegated
-                    delegate_id: delegationForm.delegate_id,   // The person who will act on their behalf
-                    reason: delegationForm.reason || undefined,
-                    starts_at: delegationForm.starts_at ? new Date(delegationForm.starts_at).toISOString() : new Date().toISOString(),
-                    ends_at: delegationForm.ends_at ? new Date(delegationForm.ends_at).toISOString() : undefined,
-                    requested_by: currentUserId, // Track who requested this delegation
-                    request_id: request.id,      // Link to the specific request
-                }),
-            });
-            if (!res.ok) {
-                const data = await res.json();
-                throw new Error(data.error || 'Failed to submit delegation request');
-            }
-            setDelegationFeedback({ type: 'success', text: 'Delegation request submitted. An admin will review it shortly.' });
-            
-            // Add to local delegations list with pending status
-            const delegateUser = delegationUsers.find(u => u.id === delegationForm.delegate_id);
-            if (delegationTargetApprover) {
-                setApproverDelegations(prev => [...prev, {
-                    approverId: delegationTargetApprover.id,
-                    delegateName: delegateUser?.display_name || 'Unknown',
-                    status: 'pending',
-                    submittedAt: new Date().toISOString(),
-                }]);
-            }
-            
-            setDelegationForm({ delegate_id: '', reason: '', starts_at: '', ends_at: '' });
-            setTimeout(() => {
-                setShowDelegationModal(false);
-                setDelegationTargetApprover(null);
-                setDelegationFeedback(null);
-            }, 2000);
-        } catch (err: any) {
-            setDelegationFeedback({ type: 'error', text: err.message || 'Failed to submit delegation request.' });
-        } finally {
-            setDelegationSubmitting(false);
-        }
-    };
 
     useEffect(() => {
         async function fetchApprovers() {
@@ -522,36 +437,6 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
 
         fetchApprovers();
     }, [request]);
-
-    // Fetch delegation data for approvers from server
-    useEffect(() => {
-        async function fetchDelegations() {
-            if (approvers.length === 0) return;
-            
-            setLoadingDelegations(true);
-            try {
-                const approverIds = approvers.map(a => a.id).join(',');
-                const res = await fetch(`/api/rbac/delegations?user_ids=${approverIds}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    // Map delegations to approver IDs
-                    const mapped = data.map((d: any) => ({
-                        approverId: d.delegator_id,
-                        delegateName: d.delegate?.display_name || d.delegate?.email || 'Unknown',
-                        status: d.status,
-                        submittedAt: d.created_at,
-                    }));
-                    setApproverDelegations(mapped);
-                }
-            } catch (err) {
-                console.error('Error fetching delegations:', err);
-            } finally {
-                setLoadingDelegations(false);
-            }
-        }
-        
-        fetchDelegations();
-    }, [approvers.length]);
 
     const handleAddApprover = (userId: string) => {
         const user = allUsers.find(u => u.id === userId);
@@ -826,52 +711,6 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
                                                         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-primary-50 text-primary-700 border border-primary-100 animate-pulse">
                                                             Awaiting Action
                                                         </span>
-                                                        {/* Check if there's a delegation for this approver */}
-                                                        {(() => {
-                                                            const delegation = approverDelegations.find(d => d.approverId === approver.id);
-                                                            if (delegation) {
-                                                                if (delegation.status === 'approved') {
-                                                                    return (
-                                                                        <div className="flex flex-col items-end gap-1">
-                                                                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-green-50 text-green-700 border border-green-200">
-                                                                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7" />
-                                                                                </svg>
-                                                                                Delegated to {delegation.delegateName}
-                                                                            </span>
-                                                                        </div>
-                                                                    );
-                                                                }
-                                                                if (delegation.status === 'rejected') {
-                                                                    return (
-                                                                        <div className="flex flex-col items-end gap-1">
-                                                                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-200">
-                                                                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
-                                                                                </svg>
-                                                                                Delegation Rejected
-                                                                            </span>
-                                                                        </div>
-                                                                    );
-                                                                }
-                                                                // Pending status
-                                                                return (
-                                                                    <div className="flex flex-col items-end gap-1">
-                                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-[#F3EADC] text-[#5E4426] border border-[#C9B896]">
-                                                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                                            </svg>
-                                                                            Delegation Requested
-                                                                        </span>
-                                                                        <span className="text-xs text-gray-500">
-                                                                            Waiting for admin approval
-                                                                        </span>
-                                                                    </div>
-                                                                );
-                                                            }
-                                                            return null;
-                                                        })()}
-                                                        
                                                     </div>
                                                 ) : (
                                                     <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-gray-50 text-gray-500 border border-gray-100">
@@ -898,7 +737,7 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
                                     >
                                         <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-700 relative">
                                             <div className="absolute top-0 left-4 -mt-2 w-4 h-4 bg-gray-50 transform rotate-45 border-l border-t border-gray-100"></div>
-                                            <p className="italic">"{approver.comment}"</p>
+                                            <p className="italic">&ldquo;{approver.comment}&rdquo;</p>
                                         </div>
                                     </motion.div>
                                 )}
@@ -969,6 +808,7 @@ function WatchersCard({ watcherData }: { watcherData?: (string | WatcherData)[] 
         }
 
         fetchWatchers();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [JSON.stringify(normalizedWatchers)]);
 
     if (normalizedWatchers.length === 0) {
@@ -1313,6 +1153,7 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
         const isApprover = request?.request_steps?.some(s => s.approver?.id === currentUserId);
         if (!isApprover) return;
         fetch(`/api/requests/${id}/view`, { method: 'POST' }).catch(() => { /* silent */ });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id, currentUserId, request?.id]);
 
     // Travel authorisations and hotel bookings both require HRD cost allocation.
@@ -1868,6 +1709,7 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
         if (id && request) {
             fetchModifications();
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id, request]);
 
     // Handle approver metadata change
@@ -2090,6 +1932,7 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
         if (activeTab === 'documents' && id) {
             fetchDocuments();
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id, activeTab]);
 
     const handleDownloadPdf = () => {
@@ -3276,7 +3119,7 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                     title="Reject this request?"
                     message={
                         <span>
-                            Are you sure you want to reject "<span className="font-medium text-gray-900">{request?.title}</span>"?
+                            Are you sure you want to reject &ldquo;<span className="font-medium text-gray-900">{request?.title}</span>&rdquo;?
                             The requester will be notified and the workflow will not advance.
                         </span>
                     }
@@ -3307,7 +3150,7 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                 </div>
                             </div>
                             <p className="text-text-secondary mb-6">
-                                Are you sure you want to delete "<span className="font-medium text-text-primary">{request.title}</span>"?
+                                Are you sure you want to delete &ldquo;<span className="font-medium text-text-primary">{request.title}</span>&rdquo;?
                                 All associated data including documents and approval steps will be permanently removed.
                             </p>
                             <div className="flex gap-3 justify-end">

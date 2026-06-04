@@ -76,7 +76,7 @@ export default function Reports() {
                                 </span>
                             </h1>
                             <p className="text-[#F3EADC] text-lg sm:text-xl leading-relaxed mb-8">
-                                Comprehensive insights into your organization's performance.
+                                Comprehensive insights into your organization&apos;s performance.
                                 Generate, export, and analyze data with precision.
                             </p>
                             <div className="flex flex-wrap gap-4">

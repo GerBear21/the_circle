@@ -694,6 +694,11 @@ export default function InterUnitDebitNoteRequestPage() {
         }] : []),
     ];
 
+    const unsavedPrompt = useUnsavedChangesPrompt({
+        isDirty,
+        disabled: loading || savingDraft,
+    });
+
     if (status === 'loading' || loadingRequest) {
         return (
             <AppLayout title="Inter-Unit Debit Note" showBack onBack={() => router.back()}>
@@ -705,11 +710,6 @@ export default function InterUnitDebitNoteRequestPage() {
     }
 
     if (!session) return null;
-
-    const unsavedPrompt = useUnsavedChangesPrompt({
-        isDirty,
-        disabled: loading || savingDraft,
-    });
 
     const pageTitle = isApproverEditing
         ? 'Edit Inter-Unit Debit Note (Approver)'

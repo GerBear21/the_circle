@@ -943,7 +943,7 @@ function DeleteConfirmModal({
         </div>
         <h3 className="text-lg font-semibold text-gray-900 text-center mb-2">Delete Template</h3>
         <p className="text-gray-500 text-center mb-6">
-          Are you sure you want to delete "<span className="font-medium">{templateName}</span>"? This action cannot be undone.
+          Are you sure you want to delete &ldquo;<span className="font-medium">{templateName}</span>&rdquo;? This action cannot be undone.
         </p>
         <div className="flex items-center gap-3">
           <Button variant="secondary" onClick={onCancel} className="flex-1">

@@ -453,7 +453,7 @@ export default function AdminRolesPage() {
               <h3 className="font-medium text-[#3F2D19]">Understanding Roles & Permissions</h3>
               <p className="text-sm text-[#5E4426] mt-1">
                 Roles define what actions users can perform in the system. <strong>System roles</strong> are pre-configured and cannot be deleted, 
-                but you can create <strong>custom roles</strong> tailored to your organization's needs. 
+                but you can create <strong>custom roles</strong> tailored to your organization&apos;s needs.
                 The <strong>default role</strong> is automatically assigned to new users.
               </p>
               <div className="flex items-center gap-4 mt-3">

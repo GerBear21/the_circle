@@ -152,7 +152,7 @@ export default function RedirectApprovalModal({
                                         </p>
                                     )}
                                     <p className="text-xs text-amber-600 mt-2">
-                                        The new approver's signature will be prefixed with "pp" (per procurationem) on the final document.
+                                        The new approver&apos;s signature will be prefixed with &ldquo;pp&rdquo; (per procurationem) on the final document.
                                     </p>
                                 </div>
                             </div>
@@ -260,7 +260,7 @@ export default function RedirectApprovalModal({
                             onChange={(e) => setJobTitle(e.target.value)}
                         />
                         <p className="text-xs text-gray-500 mt-1">
-                            This title will appear on the PDF with "pp" prefix (e.g., "pp Finance Director")
+                            This title will appear on the PDF with &ldquo;pp&rdquo; prefix (e.g., &ldquo;pp Finance Director&rdquo;)
                         </p>
                     </div>
 

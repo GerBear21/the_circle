@@ -605,7 +605,7 @@ export default function CapexTrackerPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01M4.93 19h14.14a2 2 0 001.74-3L13.74 4a2 2 0 00-3.48 0L3.19 16a2 2 0 001.74 3z" />
               </svg>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-rose-800">Couldn't load CAPEX tracker</p>
+                <p className="text-sm font-semibold text-rose-800">Couldn&apos;t load CAPEX tracker</p>
                 <p className="mt-0.5 text-xs text-rose-700 break-words">{loadError}</p>
               </div>
               <button

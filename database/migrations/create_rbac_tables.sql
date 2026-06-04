@@ -54,22 +54,7 @@ CREATE TABLE IF NOT EXISTS user_roles (
     UNIQUE(user_id, role_id, department_id, business_unit_id)
 );
 
--- 5. Delegation table for approval delegation
-CREATE TABLE IF NOT EXISTS approval_delegations (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    delegator_id UUID NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
-    delegate_id UUID NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
-    reason TEXT,
-    department_id UUID,
-    business_unit_id UUID,
-    starts_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    ends_at TIMESTAMPTZ,
-    is_active BOOLEAN DEFAULT true,
-    created_by UUID REFERENCES app_users(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ DEFAULT now()
-);
-
--- 6. RBAC audit log
+-- 5. RBAC audit log
 CREATE TABLE IF NOT EXISTS rbac_audit_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     actor_id UUID REFERENCES app_users(id) ON DELETE SET NULL,
@@ -88,8 +73,6 @@ CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON user_roles(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_roles_role_id ON user_roles(role_id);
 CREATE INDEX IF NOT EXISTS idx_user_roles_department_id ON user_roles(department_id);
 CREATE INDEX IF NOT EXISTS idx_user_roles_business_unit_id ON user_roles(business_unit_id);
-CREATE INDEX IF NOT EXISTS idx_approval_delegations_delegator ON approval_delegations(delegator_id);
-CREATE INDEX IF NOT EXISTS idx_approval_delegations_delegate ON approval_delegations(delegate_id);
 CREATE INDEX IF NOT EXISTS idx_rbac_audit_log_actor ON rbac_audit_log(actor_id);
 CREATE INDEX IF NOT EXISTS idx_rbac_audit_log_action ON rbac_audit_log(action);
 CREATE INDEX IF NOT EXISTS idx_rbac_audit_log_created ON rbac_audit_log(created_at);
@@ -111,10 +94,8 @@ INSERT INTO permissions (code, name, description, category) VALUES
     ('approvals.view', 'View Approvals', 'See pending approval queue', 'approvals'),
     ('approvals.approve', 'Approve Requests', 'Approve assigned requests', 'approvals'),
     ('approvals.reject', 'Reject Requests', 'Reject assigned requests', 'approvals'),
-    ('approvals.delegate', 'Delegate Approvals', 'Delegate approvals to others', 'approvals'),
     ('approvals.override', 'Override Approvals', 'Override approval decisions', 'approvals'),
     ('approvals.reassign', 'Reassign Approvals', 'Reassign approvals to different users', 'approvals'),
-    ('approvals.configure_delegation', 'Configure Delegation', 'Set up approval delegation rules', 'approvals'),
     -- Users
     ('users.view', 'View Users', 'View user directory', 'users'),
     ('users.create', 'Create Users', 'Add new users to organization', 'users'),

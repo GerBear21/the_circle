@@ -10,7 +10,6 @@ export function WorkflowDefaultsConfig({ getSetting, queueChange }: ConfigTabPro
   const [withdraw, setWithdraw] = useState(getSetting('workflows', 'allow_withdraw', true));
   const [notifyEach, setNotifyEach] = useState(getSetting('workflows', 'notify_requester_on_each_step', true));
   const [reqComment, setReqComment] = useState(getSetting('workflows', 'default_require_comment', false));
-  const [allowDeleg, setAllowDeleg] = useState(getSetting('workflows', 'default_allow_delegation', true));
   const [requireAttachments, setRequireAttachments] = useState(getSetting('workflows', 'require_attachments', false));
   const expirationDays = getSetting('workflows', 'expiration_days', 30);
   const onExpiration = getSetting('workflows', 'on_expiration', 'escalate');
@@ -119,7 +118,6 @@ export function WorkflowDefaultsConfig({ getSetting, queueChange }: ConfigTabPro
         <p className="text-sm text-gray-500 mb-4">Defaults for each new approval step added to a workflow.</p>
         <div className="space-y-2">
           <ToggleSwitch checked={reqComment} onChange={(v) => { setReqComment(v); queueChange('workflows', 'default_require_comment', v); }} label="Require comment on approval/rejection" />
-          <ToggleSwitch checked={allowDeleg} onChange={(v) => { setAllowDeleg(v); queueChange('workflows', 'default_allow_delegation', v); }} label="Allow delegation per step" />
         </div>
       </Card>
 

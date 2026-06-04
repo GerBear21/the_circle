@@ -1098,6 +1098,11 @@ export default function VoucherRequestPage() {
         }
     };
 
+    const unsavedPrompt = useUnsavedChangesPrompt({
+        isDirty,
+        disabled: loading || savingDraft,
+    });
+
     if (status === 'loading' || loadingRequest) {
         return (
             <AppLayout title="Voucher Request" showBack onBack={() => router.back()}>
@@ -1109,11 +1114,6 @@ export default function VoucherRequestPage() {
     }
 
     if (!session) return null;
-
-    const unsavedPrompt = useUnsavedChangesPrompt({
-        isDirty,
-        disabled: loading || savingDraft,
-    });
 
     const pageTitle = isApproverEditing ? 'Edit Voucher Request (Approver)' : isEditMode ? 'Edit Voucher Request' : 'Voucher Request';
 
@@ -1251,7 +1251,7 @@ export default function VoucherRequestPage() {
                                         </div>
                                         <div className="md:col-span-3">
                                             <p className="text-xs text-gray-500 italic">
-                                                The voucher will be addressed as: "Dear {formData.guestTitle || '[Title]'} {formData.guestFirstName || '[Name]'}"
+                                                The voucher will be addressed as: &ldquo;Dear {formData.guestTitle || '[Title]'} {formData.guestFirstName || '[Name]'}&rdquo;
                                             </p>
                                         </div>
                                     </div>

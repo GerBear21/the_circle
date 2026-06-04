@@ -23,7 +23,6 @@ export interface WorkflowStep {
         condition: string;
         value: string;
     };
-    allowDelegation?: boolean;
     requireComment?: boolean;
     escalation?: {
         enabled: boolean;

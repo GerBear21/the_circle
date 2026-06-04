@@ -314,7 +314,7 @@ export default function AuditPage() {
                                                     <div className="flex items-center justify-between">
                                                         <div className="flex items-center gap-2">
                                                             {req.requester.avatar ? (
-                                                                <img src={req.requester.avatar} className="w-5 h-5 rounded-full bg-gray-200" />
+                                                                <img src={req.requester.avatar} alt={`${req.requester.name || 'Requester'} avatar`} className="w-5 h-5 rounded-full bg-gray-200" />
                                                             ) : (
                                                                 <div className="w-5 h-5 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-[9px] font-bold">
                                                                     {req.requester.name.charAt(0)}
@@ -483,7 +483,7 @@ export default function AuditPage() {
                                                             </div>
                                                         ) : (
                                                             <div className="text-sm text-gray-700 italic border-l-2 border-gray-300 pl-3">
-                                                                "{log.details.comment || 'No comment provided.'}"
+                                                                &ldquo;{log.details.comment || 'No comment provided.'}&rdquo;
                                                             </div>
                                                         )}
                                                     </div>

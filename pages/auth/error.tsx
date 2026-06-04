@@ -99,10 +99,10 @@ export default function AuthError() {
         {isClockSkew ? (
           <div className="text-left text-gray-700 mb-6 space-y-3 text-sm">
             <p>
-              Sign-in failed because this device's clock is off by about{" "}
+              Sign-in failed because this device&apos;s clock is off by about{" "}
               <strong>{formatSkew(clockSkewMs!)}</strong> compared to the server.
               Microsoft rejects sign-in tokens when the clock is more than a few
-              minutes off, so you'll keep getting this error until the time is
+              minutes off, so you&apos;ll keep getting this error until the time is
               fixed.
             </p>
             <p className="font-semibold text-gray-900">How to fix it:</p>
@@ -119,7 +119,7 @@ export default function AuthError() {
               </li>
             </ol>
             <p className="text-xs text-gray-500">
-              If you're on a managed device and these settings are locked, ask
+              If you&apos;re on a managed device and these settings are locked, ask
               your IT administrator to resync the system clock.
             </p>
           </div>
