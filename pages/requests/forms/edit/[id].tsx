@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../../components/layout';
 import { Card, Button, Modal } from '../../../../components/ui';
+import { formatDateTime } from '@/lib/formatDate';
 
 export default function EditFormTemplate() {
   const { data: session, status } = useSession();
@@ -115,7 +116,7 @@ export default function EditFormTemplate() {
             <div className="flex items-start gap-4">
               <div className="w-14 h-14 bg-primary-100 rounded-xl flex items-center justify-center">
                 <svg className="w-7 h-7 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={template.icon} />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={template.icon} />
                 </svg>
               </div>
               <div>
@@ -127,14 +128,14 @@ export default function EditFormTemplate() {
                   </span>
                   <span className="text-xs text-gray-400">•</span>
                   <span className="text-xs text-gray-400">
-                    {new Date(template.created_at).toLocaleDateString()}
+                    {new Date(template.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                   </span>
                 </div>
               </div>
             </div>
             <Button variant="primary" onClick={handleEdit}>
               <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
               </svg>
               Edit Form
             </Button>
@@ -146,7 +147,7 @@ export default function EditFormTemplate() {
               <p className="text-sm text-gray-600">
                 <span className="font-medium">Last edited by:</span> {template.last_editor?.display_name || 'Unknown'}
                 {' • '}
-                {new Date(template.last_edited_at).toLocaleString()}
+                {formatDateTime(template.last_edited_at)}
               </p>
               {template.edit_reason && (
                 <p className="text-sm text-gray-500 mt-1">
@@ -161,7 +162,7 @@ export default function EditFormTemplate() {
         <Card>
           <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
             <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
             Change History
           </h2>
@@ -180,7 +181,7 @@ export default function EditFormTemplate() {
                           {log.change_type === 'created' ? 'Form Created' : 'Form Updated'}
                         </p>
                         <p className="text-xs text-gray-500 mt-0.5">
-                          by {log.editor?.display_name || 'Unknown'} • {new Date(log.edited_at).toLocaleString()}
+                          by {log.editor?.display_name || 'Unknown'} • {formatDateTime(log.edited_at)}
                         </p>
                       </div>
                       {log.change_type === 'updated' && log.changes_made && (

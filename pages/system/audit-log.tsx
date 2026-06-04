@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import { AppLayout } from '@/components/layout';
+import { formatDateTime } from '@/lib/formatDate';
 import { Card, Input, Button } from '@/components/ui';
 
 import { AuditLogIllustration } from '@/components/illustrations/AuditLogIllustration';
@@ -79,7 +80,7 @@ export default function AuditLog() {
                             <div className="flex gap-3 pt-2">
                                 <Button variant="outline" className="gap-2">
                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                     </svg>
                                     Export Report
                                 </Button>
@@ -98,7 +99,7 @@ export default function AuditLog() {
                             <div className="relative">
                                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                     <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                                     </svg>
                                 </div>
                                 <input
@@ -160,7 +161,7 @@ export default function AuditLog() {
                                         paginatedLogs.map((log) => (
                                             <tr key={log.id} className="hover:bg-primary-50/30 transition-colors group">
                                                 <td className="py-4 px-6 text-sm text-text-secondary whitespace-nowrap font-mono">
-                                                    {new Date(log.timestamp).toLocaleString()}
+                                                    {formatDateTime(log.timestamp)}
                                                 </td>
                                                 <td className="py-4 px-6">
                                                     <div className="flex items-center gap-3">

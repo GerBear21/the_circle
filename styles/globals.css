@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -21,21 +21,21 @@
 }
 
 :root {
-  /* Primary - Electric Blue */
-  --primary: #2D9CDB;
-  --primary-hover: #1B73BA;
-  --primary-soft: #56CCF2;
-  /* Background */
-  --background: #F7F8FA;
+  /* Primary - Warm Brown (RTG) */
+  --primary: #9A7545;
+  --primary-hover: #7C5A33;
+  --primary-soft: #D4B483;
+  /* Background — soft neutral */
+  --background: #F6F5F2;
   /* Surface */
   --surface: #FFFFFF;
   /* Border */
-  --border: #E5E7EB;
+  --border: #ECEAE4;
   /* Text */
-  --text-primary: #1F2937;
-  --text-secondary: #6B7280;
-  /* Accent */
-  --accent: #A78BFA;
+  --text-primary: #1A1813;
+  --text-secondary: #8A857B;
+  /* Accent - soft cream/gold */
+  --accent: #C9A574;
   /* Status */
   --success: #22C55E;
   --danger: #EF4444;
@@ -52,9 +52,12 @@ html,
 body {
   max-width: 100vw;
   overflow-x: hidden;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
   background-color: var(--background);
   color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.006em;
 }
 
 @media (min-width: 1024px) {
@@ -74,7 +77,8 @@ h3,
 h4,
 h5,
 h6 {
-  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  letter-spacing: -0.02em;
 }
 
 /* Animated floating circles for hero banner */

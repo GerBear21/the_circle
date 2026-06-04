@@ -94,7 +94,7 @@ export function DelegationConfig() {
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '\u2014';
-    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    return new Date(dateStr).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
   };
   
   const getVisibleDelegations = () => {
@@ -176,7 +176,7 @@ export function DelegationConfig() {
                 <p className="text-xs text-brand-600 uppercase tracking-wider font-bold mb-1">From (Delegator)</p>
                 <p className="font-semibold text-gray-900 text-sm truncate">{delegatorName || d.delegator_id}</p>
               </div>
-              <svg className="w-6 h-6 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
+              <svg className="w-6 h-6 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
               <div className="flex-1 p-3 bg-brand-50 rounded-lg border border-brand-100 text-right">
                 <p className="text-xs text-brand-600 uppercase tracking-wider font-bold mb-1">To (Delegate)</p>
                 <p className="font-semibold text-gray-900 text-sm truncate">{delegateName || d.delegate_id}</p>
@@ -192,7 +192,7 @@ export function DelegationConfig() {
 
             <div className="flex flex-wrap items-center gap-3 mt-4 text-xs">
               <div className="flex items-center gap-1.5 bg-[#F3EADC] text-[#5E4426] px-2.5 py-1 rounded-md font-medium">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                 {formatDate(d.starts_at)} &mdash; {d.ends_at ? formatDate(d.ends_at) : 'Indefinite'}
               </div>
               {d.department?.name && <span className="bg-gray-100 text-gray-600 px-2.5 py-1 rounded-md font-medium">{d.department.name}</span>}
@@ -375,7 +375,7 @@ export function DelegationConfig() {
       ) : visibleDelegations.length === 0 ? (
         <Card className="!p-16 text-center bg-gray-50/50 border-dashed">
           <div className="mx-auto w-16 h-16 bg-white rounded-full flex items-center justify-center mb-4 shadow-sm border border-gray-100">
-            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
           </div>
           <p className="text-gray-500 font-medium text-lg">
             {activeTab === 'pending' ? 'No delegation requests awaiting approval.' :
@@ -413,7 +413,7 @@ export function DelegationConfig() {
             <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white/95 backdrop-blur-sm z-10">
               <h3 className="text-xl font-bold font-heading text-gray-900 flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-brand-50 flex items-center justify-center">
-                  <svg className="w-5 h-5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                  <svg className="w-5 h-5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                 </div>
                 Delegation Details
                 <span className={`px-3 py-1 text-xs font-bold rounded-full ${statusBadge[selectedHistory.status]?.bg} ${statusBadge[selectedHistory.status]?.text}`}>
@@ -421,7 +421,7 @@ export function DelegationConfig() {
                 </span>
               </h3>
               <button onClick={() => setSelectedHistory(null)} className="text-gray-400 hover:text-gray-700 bg-gray-50 hover:bg-gray-200 p-2.5 rounded-full transition-colors">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
             
@@ -434,7 +434,7 @@ export function DelegationConfig() {
                     {Array.isArray(selectedHistory.initiator) ? selectedHistory.initiator[0]?.display_name : selectedHistory.initiator?.display_name || 'System'}
                   </p>
                   <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
-                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                      Requested on {formatDate(selectedHistory.created_at)}
                   </p>
                 </div>
@@ -445,7 +445,7 @@ export function DelegationConfig() {
                   </p>
                   {selectedHistory.reviewed_at && (
                      <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
-                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                        Reviewed on {formatDate(selectedHistory.reviewed_at)}
                      </p>
                   )}
@@ -462,7 +462,7 @@ export function DelegationConfig() {
                   </p>
                 </div>
                 <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm relative z-10">
-                  <svg className="w-5 h-5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
+                  <svg className="w-5 h-5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
                 </div>
                 <div className="flex-1 text-right relative z-10">
                   <p className="text-xs text-brand-600 uppercase tracking-wider font-bold mb-1">To (Delegate)</p>
@@ -476,7 +476,7 @@ export function DelegationConfig() {
               <div className="space-y-4">
                 <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm hover:border-gray-300 transition-colors">
                   <h4 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2">
-                     <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                     <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                      Duration
                   </h4>
                   <div className="inline-flex items-center gap-2 font-medium text-brand-700 bg-brand-50 px-4 py-2.5 rounded-xl border border-brand-100">
@@ -486,7 +486,7 @@ export function DelegationConfig() {
 
                 <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm hover:border-gray-300 transition-colors">
                   <h4 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2">
-                     <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                     <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                      Reason for Request
                   </h4>
                   <p className="text-sm text-gray-700 bg-gray-50 p-4 rounded-xl border border-gray-100 leading-relaxed">
@@ -497,7 +497,7 @@ export function DelegationConfig() {
                 {selectedHistory.review_comment && (
                   <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm hover:border-gray-300 transition-colors">
                     <h4 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2">
-                       <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" /></svg>
+                       <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" /></svg>
                        Reviewer Notes
                     </h4>
                     <p className="text-sm text-gray-800 bg-amber-50 p-4 rounded-xl border border-amber-100 border-l-4 border-l-amber-400 leading-relaxed">

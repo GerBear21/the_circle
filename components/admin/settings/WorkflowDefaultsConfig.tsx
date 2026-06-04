@@ -115,7 +115,7 @@ export function WorkflowDefaultsConfig({ getSetting, queueChange }: ConfigTabPro
       </Card>
 
       <Card className="!p-6">
-        <CardHeading icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /></svg>} iconBg="bg-gray-100" iconColor="text-gray-600" title="Default Step Settings" />
+        <CardHeading icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /></svg>} iconBg="bg-gray-100" iconColor="text-gray-600" title="Default Step Settings" />
         <p className="text-sm text-gray-500 mb-4">Defaults for each new approval step added to a workflow.</p>
         <div className="space-y-2">
           <ToggleSwitch checked={reqComment} onChange={(v) => { setReqComment(v); queueChange('workflows', 'default_require_comment', v); }} label="Require comment on approval/rejection" />
@@ -133,7 +133,7 @@ export function WorkflowDefaultsConfig({ getSetting, queueChange }: ConfigTabPro
               <input type="text" value={role.label} onChange={(e) => updateCapexRole(index, 'label', e.target.value)} className="flex-1 px-3 py-1.5 text-sm rounded-lg border border-gray-300 focus:ring-2 focus:ring-brand-500" />
               <input type="text" value={role.description} onChange={(e) => updateCapexRole(index, 'description', e.target.value)} className="w-40 px-3 py-1.5 text-sm rounded-lg border border-gray-300 focus:ring-2 focus:ring-brand-500" placeholder="Description" />
               <button onClick={() => removeCapexRole(index)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Remove">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
           ))}
@@ -153,7 +153,7 @@ export function WorkflowDefaultsConfig({ getSetting, queueChange }: ConfigTabPro
               <input type="text" value={role.label} onChange={(e) => updateTravelRole(index, 'label', e.target.value)} className="flex-1 px-3 py-1.5 text-sm rounded-lg border border-gray-300 focus:ring-2 focus:ring-brand-500" />
               <input type="text" value={role.description} onChange={(e) => updateTravelRole(index, 'description', e.target.value)} className="w-40 px-3 py-1.5 text-sm rounded-lg border border-gray-300 focus:ring-2 focus:ring-brand-500" placeholder="Description" />
               <button onClick={() => removeTravelRole(index)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Remove">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
           ))}

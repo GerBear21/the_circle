@@ -68,7 +68,7 @@ export const SignatureField = ({ label, sublabel, required, signatureData: initi
                             className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
                         >
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                             </svg>
                             Clear Signature
                         </button>
@@ -130,7 +130,7 @@ const SignatureModal = ({ onSave, onClose }: SignatureModalProps) => {
                     <h3 className="text-lg font-semibold text-gray-900">Add Signature</h3>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                         </svg>
                     </button>
                 </div>
@@ -145,7 +145,7 @@ const SignatureModal = ({ onSave, onClose }: SignatureModalProps) => {
                         <div className="mb-4 p-4 bg-primary-50 border border-primary-200 rounded-lg">
                             <div className="flex items-center gap-2 mb-3">
                                 <svg className="w-5 h-5 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
                                 <span className="text-sm font-medium text-gray-900">Your Saved Signature</span>
                             </div>
@@ -189,7 +189,7 @@ const SignatureModal = ({ onSave, onClose }: SignatureModalProps) => {
                     <div className="text-center py-6">
                         <div className="mb-4 p-3 bg-amber-50 rounded-full w-16 h-16 mx-auto flex items-center justify-center">
                             <svg className="w-8 h-8 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                             </svg>
                         </div>
                         <h4 className="text-lg font-semibold text-gray-900 mb-2">No Signature Found</h4>

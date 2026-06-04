@@ -94,7 +94,9 @@
       "Bash(NODE_PATH=\"C:\\\\Users\\\\Admin\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\" node generate_srs2.js)",
       "Bash(rm generate_srs2.js)",
       "Bash(npx tsc *)",
-      "Bash(rm -f \"C:/Users/Admin/the_circle/_ts.log\")"
+      "Bash(rm -f \"C:/Users/Admin/the_circle/_ts.log\")",
+      "Bash(sed -n '1,8p' pages/api/requests/[id]/pdf.ts)",
+      "Bash(sed -n '1,6p' pages/finance/capex-tracker.tsx)"
     ]
   }
 }

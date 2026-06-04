@@ -153,11 +153,7 @@ function generateVoucherHtml(request: any): string {
   const approvalDate = lastApproval?.signed_at ? new Date(lastApproval.signed_at) : new Date(request.updated_at);
   
   const formatDate = (date: Date) => {
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
+    return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
   };
 
   // Calculate expiry date (3 months from approval)

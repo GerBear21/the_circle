@@ -29,7 +29,7 @@ function getTimeAgo(dateString: string): string {
   if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
   if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
   if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d ago`;
-  return date.toLocaleDateString('en-US');
+  return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 function TimeAgo({ dateString }: { dateString: string }) {
@@ -277,7 +277,7 @@ export default function Dashboard({
             <div className="relative z-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
               <div className="space-y-3 flex-1">
                 <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#9A7545]">
-                  {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                  {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                 </p>
                 <h1 className="text-2xl sm:text-3xl lg:text-4xl font-semibold tracking-tight text-[#3F2D19]">
                   {getGreeting()},{' '}
@@ -333,8 +333,8 @@ export default function Dashboard({
                 className="group relative bg-white rounded-xl p-5 border border-[#C9B896] hover:border-[#9A7545] hover:shadow-sm transition-all"
               >
                 <div className="flex items-start justify-between mb-4">
-                  <div className="w-9 h-9 rounded-lg bg-[#F3EADC] text-[#9A7545] flex items-center justify-center">
-                    <Icon strokeWidth={1.75} size={18} />
+                  <div className="text-neutral-700 flex items-center justify-center">
+                    <Icon strokeWidth={1.5} size={20} />
                   </div>
                 </div>
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</p>
@@ -413,11 +413,11 @@ export default function Dashboard({
               <section className="bg-white rounded-xl border border-[#C9B896] p-6">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-[#9A7545]" strokeWidth={1.75} />
+                    <TrendingUp className="w-4 h-4 text-neutral-700" strokeWidth={1.5} />
                     <h3 className="text-sm font-semibold text-gray-900">This Month</h3>
                   </div>
                   <span className="text-[11px] text-gray-400 uppercase tracking-wide">
-                    {new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                    {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                   </span>
                 </div>
                 <div className="mb-5">
@@ -441,7 +441,7 @@ export default function Dashboard({
               {/* Signature */}
               <section className="bg-white rounded-xl border border-[#C9B896] p-6">
                 <div className="flex items-center gap-2 mb-4">
-                  <PenLine className="w-4 h-4 text-[#9A7545]" strokeWidth={1.75} />
+                  <PenLine className="w-4 h-4 text-neutral-700" strokeWidth={1.5} />
                   <h3 className="text-sm font-semibold text-gray-900">Digital Signature</h3>
                 </div>
                 {signatureUrl ? (
@@ -451,8 +451,8 @@ export default function Dashboard({
                   </div>
                 ) : (
                   <div className="flex items-start gap-3">
-                    <div className="p-1.5 bg-amber-50 border border-amber-100 rounded-md text-amber-600">
-                      <AlertTriangle className="w-4 h-4" strokeWidth={1.75} />
+                    <div className="p-1.5 bg-neutral-100 border border-neutral-200 rounded-md text-neutral-700">
+                      <AlertTriangle className="w-4 h-4" strokeWidth={1.5} />
                     </div>
                     <div className="flex-1">
                       <p className="text-sm font-medium text-gray-900">Signature not set</p>

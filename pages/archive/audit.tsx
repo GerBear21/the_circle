@@ -156,7 +156,7 @@ export default function AuditPage() {
         downloadCSV(csv, `audit_log_${selectedRequest.reference_number}.csv`);
     };
 
-    const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const formatDate = (d: string) => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
     const formatTime = (d: string) => new Date(d).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
     if (status === 'loading') return <AppLayout title="Audit Trail"><div className="p-10 text-center">Loading...</div></AppLayout>;
@@ -213,7 +213,7 @@ export default function AuditPage() {
                         {/* Toolbar */}
                         <div className="p-4 border-b border-gray-100 space-y-3 bg-white">
                             <div className="relative">
-                                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                                 <input
                                     type="text"
                                     placeholder="Search requests..."
@@ -240,7 +240,7 @@ export default function AuditPage() {
                                     title={sortOrder === 'asc' ? 'Oldest first' : 'Newest first'}
                                 >
                                     <svg className={`w-4 h-4 transform transition-transform ${sortOrder === 'asc' ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
                                     </svg>
                                 </button>
                             </div>
@@ -345,7 +345,7 @@ export default function AuditPage() {
                                         onClick={() => setSelectedRequest(null)}
                                         className="lg:hidden flex items-center gap-2 text-gray-500 mb-4 font-medium"
                                     >
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19l-7-7 7-7" /></svg>
                                         Back to List
                                     </button>
 

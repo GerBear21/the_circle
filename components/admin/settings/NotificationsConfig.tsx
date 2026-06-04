@@ -22,7 +22,7 @@ export function NotificationsConfig({ getSetting, queueChange }: ConfigTabProps)
       <SectionHeading title="Notification Settings" subtitle="Configure which events trigger notifications and how they are delivered." />
 
       <Card className="!p-6">
-        <CardHeading icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>} iconBg="bg-[#F3EADC]" iconColor="text-[#9A7545]" title="Email Notification Triggers" />
+        <CardHeading icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>} iconBg="bg-[#F3EADC]" iconColor="text-[#9A7545]" title="Email Notification Triggers" />
         <p className="text-sm text-gray-500 mb-4">Select which workflow events send email notifications.</p>
         <div className="space-y-1">
           <ToggleSwitch checked={emailOnSubmit} onChange={(v) => { setEmailOnSubmit(v); queueChange('notifications', 'email_on_submit', v); }} label="Request submitted" description="Notify approvers when a new request is submitted" />
@@ -58,7 +58,7 @@ export function NotificationsConfig({ getSetting, queueChange }: ConfigTabProps)
       </Card>
 
       <Card className="!p-6">
-        <CardHeading icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>} iconBg="bg-gray-100" iconColor="text-gray-600" title="Email Template Settings" />
+        <CardHeading icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>} iconBg="bg-gray-100" iconColor="text-gray-600" title="Email Template Settings" />
         <div className="space-y-4">
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-700">Email Footer Text</label>

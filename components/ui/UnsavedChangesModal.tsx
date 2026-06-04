@@ -31,7 +31,7 @@ export default function UnsavedChangesModal({
                         <div className="flex items-start gap-4">
                             <div className="w-11 h-11 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center flex-shrink-0">
                                 <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M4.93 4.93a10 10 0 1014.14 0M12 3v6" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01M4.93 4.93a10 10 0 1014.14 0M12 3v6" />
                                 </svg>
                             </div>
                             <div className="flex-1">

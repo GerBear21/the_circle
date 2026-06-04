@@ -237,7 +237,7 @@ export function formatFieldValue(value: any, field: FieldConfig): string {
     switch (field.type) {
         case 'date':
             try {
-                return new Date(value).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+                return new Date(value).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
             } catch {
                 return value;
             }

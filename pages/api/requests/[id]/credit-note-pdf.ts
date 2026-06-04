@@ -148,7 +148,7 @@ function generateCreditNoteHtml(request: any): string {
     const name = getApproverField(step, 'display_name') || fallbackName || '—';
     const signature = step?.resolved_signature_url || getApproverField(step, 'signature_url');
     const decision = step?.approvals?.[0];
-    const signedAt = decision?.signed_at ? new Date(decision.signed_at).toLocaleDateString() : '';
+    const signedAt = decision?.signed_at ? new Date(decision.signed_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
     const isApproved = step?.status === 'approved';
 
     return `

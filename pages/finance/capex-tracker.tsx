@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AppLayout } from '../../components/layout';
 import { Card, Button } from '../../components/ui';
 import { useRBAC } from '../../contexts/RBACContext';
+import { formatDateTime } from '@/lib/formatDate';
 import { useToast } from '../../components/ui/ToastProvider';
 import { CAPEX_STATUSES, CapexTrackerStatus } from '../../lib/capexTrackerHooks';
 
@@ -125,7 +126,7 @@ function formatDate(d: string): string {
   if (!d) return '—';
   const dt = new Date(d);
   if (isNaN(dt.getTime())) return d;
-  return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return dt.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 const FUNDING_STATUSES: CapexTrackerStatus[] = [
@@ -523,7 +524,7 @@ export default function CapexTrackerPage() {
         <img id="rtg-logo" src="${logoUrl}" alt="RTG" />
       </div>
       <h1>CAPEX Tracker</h1>
-      <div class="meta">Generated ${new Date().toLocaleString()} · ${rows.length - 1} entries</div>
+      <div class="meta">Generated ${formatDateTime(new Date())} · ${rows.length - 1} entries</div>
       <table><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table>
       <script>
         (function(){
@@ -578,19 +579,19 @@ export default function CapexTrackerPage() {
           <div className="flex flex-wrap items-center gap-2">
             <Button type="button" variant="secondary" onClick={exportCsv}>
               <svg className="mr-1.5 inline h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
               </svg>
               CSV
             </Button>
             <Button type="button" variant="secondary" onClick={exportExcel}>
               <svg className="mr-1.5 inline h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2a2 2 0 012-2h2a2 2 0 012 2v2M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2a2 2 0 012-2h2a2 2 0 012 2v2M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
               Excel
             </Button>
             <Button type="button" variant="secondary" onClick={exportPdf}>
               <svg className="mr-1.5 inline h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
               PDF
             </Button>
@@ -601,7 +602,7 @@ export default function CapexTrackerPage() {
           <Card padding="md" className="border-rose-200 bg-rose-50">
             <div className="flex items-start gap-3">
               <svg className="h-5 w-5 flex-shrink-0 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M4.93 19h14.14a2 2 0 001.74-3L13.74 4a2 2 0 00-3.48 0L3.19 16a2 2 0 001.74 3z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01M4.93 19h14.14a2 2 0 001.74-3L13.74 4a2 2 0 00-3.48 0L3.19 16a2 2 0 001.74 3z" />
               </svg>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-rose-800">Couldn't load CAPEX tracker</p>
