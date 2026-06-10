@@ -1,6 +1,15 @@
 import NextAuth, { NextAuthOptions } from "next-auth";
 import AzureADProvider from "next-auth/providers/azure-ad";
+import CredentialsProvider from "next-auth/providers/credentials";
+import argon2 from "argon2";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
+
+// DEMO MODE — staging only. When DEMO_MODE=true (set ONLY on the staging
+// deployment, never in production) we additionally enable an email/password
+// "Credentials" provider so controlled, non-Microsoft demo accounts can sign
+// in. In production DEMO_MODE is unset, so this provider is never registered
+// and Azure AD remains the sole authentication path.
+const DEMO_MODE = process.env.DEMO_MODE === "true";
 
 // Validate required environment variables at startup
 const requiredEnvVars = {
@@ -18,20 +27,92 @@ if (missingVars.length > 0) {
   console.error(`Missing required environment variables: ${missingVars.join(", ")}`);
 }
 
-export const authOptions: NextAuthOptions = {
-  providers: [
-    AzureADProvider({
-      clientId: process.env.AZURE_CLIENT_ID || "",
-      clientSecret: process.env.AZURE_CLIENT_SECRET || "",
-      tenantId: process.env.AZURE_TENANT || "common",
-      authorization: {
-        params: {
-          scope: "openid profile email offline_access User.Read Mail.Send",
-          prompt: "select_account",
-        },
+const providers: NextAuthOptions["providers"] = [
+  AzureADProvider({
+    clientId: process.env.AZURE_CLIENT_ID || "",
+    clientSecret: process.env.AZURE_CLIENT_SECRET || "",
+    tenantId: process.env.AZURE_TENANT || "common",
+    authorization: {
+      params: {
+        scope: "openid profile email offline_access User.Read Mail.Send",
+        prompt: "select_account",
       },
-    }),
-  ],
+    },
+  }),
+];
+
+// Staging-only demo login. Validates an email/password against the `demo_users`
+// table (which lives only in the staging Supabase project) and then links the
+// session to the matching `app_users` row so HRIMS auto-detection and approver
+// resolution work exactly as they do for a real Microsoft sign-in.
+if (DEMO_MODE) {
+  providers.push(
+    CredentialsProvider({
+      id: "credentials",
+      name: "Demo Account",
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" },
+      },
+      async authorize(credentials) {
+        // Defence in depth: never authorize via credentials outside demo mode.
+        if (process.env.DEMO_MODE !== "true") return null;
+        if (!supabaseAdmin) {
+          console.error("Demo authorize: supabaseAdmin not initialized");
+          return null;
+        }
+        const email = credentials?.email?.trim();
+        const password = credentials?.password;
+        if (!email || !password) return null;
+
+        // 1. Look up the controlled demo account (staging-only table)
+        const { data: demo, error: demoErr } = await supabaseAdmin
+          .from("demo_users")
+          .select("email, password_hash, display_name, is_active")
+          .ilike("email", email)
+          .limit(1)
+          .single();
+
+        if (demoErr || !demo || demo.is_active === false) return null;
+
+        // 2. Verify the password against the stored argon2 hash
+        let valid = false;
+        try {
+          valid = await argon2.verify(demo.password_hash, password);
+        } catch (err) {
+          console.error("Demo authorize: argon2 verify failed", err);
+          valid = false;
+        }
+        if (!valid) return null;
+
+        // 3. Link to the app_users row (seeded with a matching email). This row
+        //    supplies the org/role and is what the rest of the app keys on.
+        const { data: appUser } = await supabaseAdmin
+          .from("app_users")
+          .select("id, organization_id, role, display_name, email")
+          .ilike("email", demo.email)
+          .limit(1)
+          .single();
+
+        if (!appUser) {
+          console.error(`Demo authorize: no app_users row for ${demo.email}`);
+          return null;
+        }
+
+        return {
+          id: appUser.id,
+          email: appUser.email,
+          name: appUser.display_name || demo.display_name || appUser.email,
+          org_id: appUser.organization_id,
+          role: appUser.role || "requester",
+        } as any;
+      },
+    })
+  );
+}
+
+export const authOptions: NextAuthOptions = {
+  providers,
   secret: process.env.NEXTAUTH_SECRET || "fallback-secret-for-build-only",
   debug: true, // Enable debug mode to see errors in logs
   session: {
@@ -64,6 +145,12 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async signIn({ user, account, profile }) {
       try {
+        // Demo credentials are already validated in `authorize` against the
+        // controlled demo_users table; skip the Azure tenant registration check.
+        if (account?.provider === "credentials") {
+          return DEMO_MODE;
+        }
+
         if (!supabaseAdmin) {
           console.error("supabaseAdmin not initialized - check SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY");
           return false;
@@ -103,6 +190,18 @@ export const authOptions: NextAuthOptions = {
 
     async jwt({ token, user, account, profile }) {
       try {
+        // Demo credentials sign-in: the authorize() callback already resolved
+        // the app_users row, so copy its identity onto the token and skip all
+        // Azure/Graph-specific logic (there is no MS access token here).
+        if (account?.provider === "credentials" && user) {
+          const u = user as any;
+          token.user_id = u.id;
+          token.org_id = u.org_id;
+          token.role = u.role;
+          token.email = u.email;
+          return token;
+        }
+
         // On first sign in, capture Microsoft Graph tokens for downstream
         // delegated calls (e.g. /me/sendMail used by the e-sign invite flow).
         if (account?.access_token) {

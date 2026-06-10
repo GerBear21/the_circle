@@ -1,6 +1,14 @@
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Construct the client lazily — `new Resend(undefined)` throws, which would
+// crash any API route that merely imports this module when RESEND_API_KEY is
+// unset (e.g. local dev). Build it on first use only when a key is present.
+let resendClient: Resend | null = null;
+function getResend(): Resend | null {
+  if (!process.env.RESEND_API_KEY) return null;
+  if (!resendClient) resendClient = new Resend(process.env.RESEND_API_KEY);
+  return resendClient;
+}
 
 interface SendEmailOptions {
   to: string;
@@ -10,7 +18,8 @@ interface SendEmailOptions {
 }
 
 export async function sendEmail({ to, subject, html, text }: SendEmailOptions) {
-  if (!process.env.RESEND_API_KEY) {
+  const resend = getResend();
+  if (!resend) {
     console.warn('RESEND_API_KEY not configured. Email not sent.');
     return { success: false, error: 'Email service not configured' };
   }

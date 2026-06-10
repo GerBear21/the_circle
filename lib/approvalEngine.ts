@@ -12,6 +12,7 @@
 
 import { supabaseAdmin } from './supabaseAdmin';
 import { generateAndStoreArchive } from '@/pages/api/archives/generate-pdf';
+import { uploadApprovedPdfToMicrosoft } from '@/lib/graphDocumentUpload';
 import {
   resolveApprovalChainFromOrganogram,
   findEmployeeByPositionTitle,
@@ -742,10 +743,12 @@ export class ApprovalEngine {
           // Travel-auth: prompt requester to optionally process a petty cash voucher.
           await this.maybeNotifyPettyCashCta(requestId, request, requestType);
 
-          // Auto-generate and store PDF archive
+          // Auto-generate and store PDF archive, then push it to Microsoft 365
+          // (Teams channel + SharePoint). Both are best-effort.
           try {
-            await generateAndStoreArchive(requestId, request.organization_id, approverId);
+            const archiveResult = await generateAndStoreArchive(requestId, request.organization_id, approverId);
             console.log(`Archive generated for request ${requestId}`);
+            await this.pushApprovedPdfToMicrosoft(requestId, request, archiveResult);
           } catch (archiveError) {
             console.error('Failed to generate archive:', archiveError);
           }
@@ -872,10 +875,12 @@ export class ApprovalEngine {
         // Travel-auth: prompt requester to optionally process a petty cash voucher.
         await this.maybeNotifyPettyCashCta(requestId, request, requestType);
 
-        // Auto-generate and store PDF archive
+        // Auto-generate and store PDF archive, then push it to Microsoft 365
+        // (Teams channel + SharePoint). Both are best-effort.
         try {
-          await generateAndStoreArchive(requestId, request.organization_id, approverId);
+          const archiveResult = await generateAndStoreArchive(requestId, request.organization_id, approverId);
           console.log(`Archive generated for request ${requestId}`);
+          await this.pushApprovedPdfToMicrosoft(requestId, request, archiveResult);
         } catch (archiveError) {
           console.error('Failed to generate archive:', archiveError);
         }
@@ -1198,6 +1203,32 @@ export class ApprovalEngine {
         });
     } catch (error) {
       console.error('Failed to send petty cash CTA notification:', error);
+    }
+  }
+
+  /**
+   * Push the freshly-generated approved PDF to Microsoft 365 (Teams channel +
+   * SharePoint). Best-effort and fully guarded — a failure here must never
+   * affect the approval outcome. No-ops unless the GRAPH_* targets are set.
+   */
+  private static async pushApprovedPdfToMicrosoft(
+    requestId: string,
+    request: { title?: string; metadata?: any },
+    archiveResult?: { success: boolean; archive?: any }
+  ): Promise<void> {
+    try {
+      const storagePath = archiveResult?.archive?.storage_path;
+      if (!archiveResult?.success || !storagePath) return;
+      const res = await uploadApprovedPdfToMicrosoft({
+        storagePath,
+        referenceCode: request.metadata?.referenceCode || null,
+        title: request.title || null,
+      });
+      if (res.teams || res.sharepoint) {
+        console.log(`Approved PDF uploaded for ${requestId} → teams:${res.teams} sharepoint:${res.sharepoint}`);
+      }
+    } catch (e) {
+      console.error('pushApprovedPdfToMicrosoft failed (non-fatal):', e);
     }
   }
 }

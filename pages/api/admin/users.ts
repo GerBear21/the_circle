@@ -28,9 +28,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     try {
-      const { search, status, role_id } = req.query;
+      const { search, role_id } = req.query;
 
-      // Fetch users with department and business unit
+      // NOTE: department / business_unit master data lives in the separate HRIMS
+      // project, not the app database — so there are no `departments` /
+      // `business_units` tables to embed here. `is_active` / `last_sign_in_at`
+      // are also not columns on app_users. We therefore select only native
+      // app_users columns and treat every user as active.
       let query = supabaseAdmin
         .from('app_users')
         .select(`
@@ -40,13 +44,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           role,
           job_title,
           profile_picture_url,
-          is_active,
           created_at,
-          last_sign_in_at,
           department_id,
-          business_unit_id,
-          department:departments(id, name),
-          business_unit:business_units(id, name)
+          business_unit_id
         `)
         .eq('organization_id', orgId)
         .order('display_name', { ascending: true });
@@ -55,13 +55,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (search) {
         const s = search as string;
         query = query.or(`display_name.ilike.%${s}%,email.ilike.%${s}%,job_title.ilike.%${s}%`);
-      }
-
-      // Status filter
-      if (status === 'active') {
-        query = query.eq('is_active', true);
-      } else if (status === 'inactive') {
-        query = query.eq('is_active', false);
       }
 
       const { data: users, error: usersError } = await query;
@@ -103,6 +96,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // If filtering by role_id, keep only users who have that role
       let enrichedUsers = (users || []).map((user: any) => ({
         ...user,
+        is_active: true,        // app_users has no is_active column — treat as active
+        department: null,       // department names come from HRIMS, not the app DB
+        business_unit: null,
         roles: rolesByUser[user.id] || [],
         primary_role: (rolesByUser[user.id] || []).sort((a: any, b: any) => b.priority - a.priority)[0] || null,
       }));
@@ -116,8 +112,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Stats
       const stats = {
         total: enrichedUsers.length,
-        active: enrichedUsers.filter((u: any) => u.is_active !== false).length,
-        inactive: enrichedUsers.filter((u: any) => u.is_active === false).length,
+        active: enrichedUsers.length,
+        inactive: 0,
       };
 
       return res.status(200).json({ users: enrichedUsers, stats });
@@ -138,14 +134,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     try {
-      const { user_id, is_active, department_id, business_unit_id, job_title } = req.body;
+      const { user_id, department_id, business_unit_id, job_title } = req.body;
 
       if (!user_id) {
         return res.status(400).json({ error: 'user_id is required' });
       }
 
+      // NOTE: `is_active` is intentionally ignored — app_users has no such column.
       const updatePayload: Record<string, any> = {};
-      if (is_active !== undefined) updatePayload.is_active = is_active;
       if (department_id !== undefined) updatePayload.department_id = department_id;
       if (business_unit_id !== undefined) updatePayload.business_unit_id = business_unit_id;
       if (job_title !== undefined) updatePayload.job_title = job_title;

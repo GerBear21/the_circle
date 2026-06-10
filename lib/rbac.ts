@@ -46,9 +46,11 @@ export interface UserRole {
 
 export interface UserRBACProfile {
   roles: RoleWithPermissions[];
-  permissions: string[];  // flat array of permission codes
+  permissions: string[];  // flat array of permission codes (role grants + user overrides)
   scoped_roles: UserRole[];
   is_super_admin: boolean;
+  /** Per-user overrides applied on top of role permissions (grant adds, deny removes). */
+  overrides?: { code: string; granted: boolean }[];
 }
 
 // ============================================================
@@ -143,15 +145,11 @@ export async function getUserRBACProfile(userId: string): Promise<UserRBACProfil
     return { roles: [], permissions: [], scoped_roles: [], is_super_admin: false };
   }
 
-  if (!userRoles || userRoles.length === 0) {
-    return { roles: [], permissions: [], scoped_roles: [], is_super_admin: false };
-  }
-
   const rolesMap = new Map<string, RoleWithPermissions>();
   const allPermissions = new Set<string>();
   let isSuperAdmin = false;
 
-  for (const ur of userRoles) {
+  for (const ur of userRoles || []) {
     const role = ur.role as any;
     if (!role) continue;
 
@@ -174,11 +172,36 @@ export async function getUserRBACProfile(userId: string): Promise<UserRBACProfil
     }
   }
 
+  // Per-user overrides: grant adds the permission even if no role has it,
+  // deny removes it even if a role grants it. (Super admins bypass all
+  // checks in hasPermission, so denies never lock them out.)
+  const overrides: { code: string; granted: boolean }[] = [];
+  const { data: overrideRows, error: ovError } = await supabaseAdmin
+    .from('user_permission_overrides')
+    .select('granted, permission:permissions ( code )')
+    .eq('user_id', userId);
+
+  if (ovError) {
+    console.error('Error fetching user permission overrides:', ovError);
+  } else {
+    for (const row of overrideRows || []) {
+      const code = (row as any).permission?.code;
+      if (!code) continue;
+      overrides.push({ code, granted: (row as any).granted });
+      if ((row as any).granted) {
+        allPermissions.add(code);
+      } else {
+        allPermissions.delete(code);
+      }
+    }
+  }
+
   return {
     roles: Array.from(rolesMap.values()),
     permissions: Array.from(allPermissions),
-    scoped_roles: userRoles as UserRole[],
+    scoped_roles: (userRoles || []) as UserRole[],
     is_super_admin: isSuperAdmin,
+    overrides,
   };
 }
 

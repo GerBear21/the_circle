@@ -96,7 +96,11 @@
       "Bash(npx tsc *)",
       "Bash(rm -f \"C:/Users/Admin/the_circle/_ts.log\")",
       "Bash(sed -n '1,8p' pages/api/requests/[id]/pdf.ts)",
-      "Bash(sed -n '1,6p' pages/finance/capex-tracker.tsx)"
+      "Bash(sed -n '1,6p' pages/finance/capex-tracker.tsx)",
+      "mcp__861faebf-71a3-42b9-aade-8f0f23fed2e0__execute_sql",
+      "mcp__861faebf-71a3-42b9-aade-8f0f23fed2e0__apply_migration",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" --max-time 90 \"http://localhost:3001/api/requests/23f429e2-6844-4235-b0ce-ed63362b4e87/cash-receipt\")",
+      "PowerShell(npx tsc --noEmit 2>&1)"
     ]
   }
 }

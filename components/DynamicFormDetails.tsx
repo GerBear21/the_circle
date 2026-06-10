@@ -430,6 +430,62 @@ export default function DynamicFormDetails({ metadata, requestType, description 
                 );
             })}
 
+            {/* Quotations & Supplier Selection — capex carries an array of
+                uploaded quotations, each with a supplier, the selected-supplier
+                flag and (for the chosen one) the selection reason. The generic
+                section renderer can't express this, so render it explicitly so
+                approvers see every supplier and justification. */}
+            {Array.isArray(metadata.quotations) && metadata.quotations.length > 0 && (
+                <Card className="!p-0 overflow-hidden border-gray-200 shadow-sm">
+                    <div className="bg-gray-50/50 px-6 py-4 border-b border-gray-100">
+                        <h3 className="font-semibold text-text-primary font-heading flex items-center gap-2">
+                            {SectionIcons.document}
+                            Quotations & Supplier Selection
+                        </h3>
+                    </div>
+                    <div className="p-6 space-y-3">
+                        {metadata.quotations.map((q: any, idx: number) => (
+                            <div
+                                key={idx}
+                                className={`p-4 rounded-xl border ${q.isSelectedSupplier ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-gray-200'}`}
+                            >
+                                <div className="flex items-center justify-between gap-2 flex-wrap">
+                                    <p className="font-semibold text-gray-900">
+                                        {q.supplierName || q.name || `Quotation ${idx + 1}`}
+                                    </p>
+                                    {q.isSelectedSupplier && (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">
+                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7" />
+                                            </svg>
+                                            Selected Supplier
+                                        </span>
+                                    )}
+                                </div>
+                                {q.description && (
+                                    <p className="text-sm text-gray-600 mt-1">{q.description}</p>
+                                )}
+                                {q.name && q.supplierName && (
+                                    <p className="text-xs text-gray-400 mt-1">File: {q.name}</p>
+                                )}
+                                {q.isSelectedSupplier && q.selectionReason && (
+                                    <div className="mt-2">
+                                        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider block">Why this supplier was selected</span>
+                                        <p className="text-sm text-gray-800 mt-0.5 whitespace-pre-wrap">{q.selectionReason}</p>
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                        {metadata.quotationReason === 'other' && metadata.quotationJustification && (
+                            <div className="p-4 rounded-xl border border-amber-200 bg-amber-50">
+                                <span className="text-xs font-semibold text-amber-800 uppercase tracking-wider block">MD Pre-Approval Reason</span>
+                                <p className="text-sm text-amber-900 mt-0.5 whitespace-pre-wrap">{metadata.quotationJustification}</p>
+                            </div>
+                        )}
+                    </div>
+                </Card>
+            )}
+
             {/* Justification Card */}
             {(metadata.justification || description) && (
                 <Card className="!p-0 overflow-hidden border-gray-200 shadow-sm">

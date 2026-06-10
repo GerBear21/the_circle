@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { requireAnyPermission } from '../../../../lib/rbac';
+import { getUserAccessScope, rowVisibleInScope, scopeForResponse } from '../../../../lib/accessScope';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -30,11 +31,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(405).json({ error: 'Method not allowed' });
     }
 
+    let accessScope;
     try {
-      const { allowed } = await requireAnyPermission(userId, ['finance.view_tracker']);
+      // The tracker dataset backs several finance pages (tracker, supplier
+      // records, exception reports, financial reports) — any of those view
+      // permissions grants read access to the underlying data.
+      const { allowed, profile } = await requireAnyPermission(userId, [
+        'finance.view_tracker',
+        'finance.view_suppliers',
+        'finance.view_exceptions',
+        'finance.view_reports',
+      ]);
       if (!allowed) {
         return res.status(403).json({ error: 'You do not have permission to view the CAPEX tracker.' });
       }
+      // Data scope: how much of the tracker this user may see (own / dept / BU / org)
+      accessScope = await getUserAccessScope(userId, profile);
     } catch (permErr: any) {
       console.error('capex-tracker permission check threw:', permErr);
       return res.status(500).json({ error: `Permission check failed: ${permErr?.message || permErr}` });
@@ -61,8 +73,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         champion_user_id,
         status_update,
         department,
+        business_unit,
         financial_year,
         is_budgeted,
+        created_by,
         created_at,
         last_updated_at,
         last_updated_by
@@ -114,7 +128,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(500).json({ error: `Tracker query threw: ${queryThrow?.message || queryThrow}` });
     }
 
-    const entries = data || [];
+    // Enforce the user's data-access scope server-side. Owner (champion or
+    // creator) always sees their own rows; otherwise the row's business unit
+    // must fall inside the allowed scope.
+    const entries = (data || []).filter((e: any) =>
+      rowVisibleInScope(e, accessScope, userId, {
+        businessUnit: 'business_unit',
+        department: 'department',
+        owners: ['champion_user_id', 'created_by'],
+      })
+    );
 
     // Enrich each entry with approval-step info so the UI can derive
     // "who's left to sign" without an extra round-trip per row.
@@ -218,7 +241,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       };
     });
 
-    return res.status(200).json({ entries: enriched });
+    return res.status(200).json({ entries: enriched, scope: scopeForResponse(accessScope) });
   } catch (error: any) {
     console.error('capex-tracker outer catch:', {
       message: error?.message,

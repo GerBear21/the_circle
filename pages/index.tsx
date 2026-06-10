@@ -2,7 +2,7 @@ import { signIn, useSession } from "next-auth/react";
 import Head from "next/head";
 import { GetServerSideProps } from "next";
 import { useRouter } from "next/router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Loader from "../components/Loader";
 
@@ -315,6 +315,33 @@ export default function Home() {
   const [mounted, setMounted] = useState(false);
   const { output, done } = useTypewriter(HEADLINE);
 
+  // Staging-only demo login. NEXT_PUBLIC_DEMO_MODE is set only on the staging
+  // deployment, so this form (and the credentials provider behind it) never
+  // appears in production.
+  const demoEnabled = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+  const [demoEmail, setDemoEmail] = useState("");
+  const [demoPassword, setDemoPassword] = useState("");
+  const [demoError, setDemoError] = useState("");
+  const [demoLoading, setDemoLoading] = useState(false);
+
+  const handleDemoLogin = async (e: FormEvent) => {
+    e.preventDefault();
+    setDemoError("");
+    setDemoLoading(true);
+    sessionStorage.setItem("the_circle_active_session", "1");
+    const res = await signIn("credentials", {
+      email: demoEmail,
+      password: demoPassword,
+      redirect: false,
+    });
+    if (res?.ok) {
+      router.replace("/dashboard");
+    } else {
+      setDemoError("Invalid demo credentials");
+      setDemoLoading(false);
+    }
+  };
+
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -432,6 +459,46 @@ export default function Home() {
               <a href="#" className="text-[#9A7545] hover:underline">Terms</a> and{" "}
               <a href="#" className="text-[#9A7545] hover:underline">Privacy Policy</a>.
             </p>
+
+            {demoEnabled && (
+              <div className="mt-6 w-full">
+                <div className="flex items-center gap-3 text-[11px] uppercase tracking-wider text-gray-400">
+                  <span className="h-px flex-1 bg-gray-200" />
+                  <span>Demo access</span>
+                  <span className="h-px flex-1 bg-gray-200" />
+                </div>
+                <form onSubmit={handleDemoLogin} className="mt-4 flex flex-col gap-3">
+                  <input
+                    type="email"
+                    required
+                    autoComplete="username"
+                    placeholder="Demo email"
+                    value={demoEmail}
+                    onChange={(e) => setDemoEmail(e.target.value)}
+                    className="w-full rounded-lg border border-gray-200 bg-white/80 px-4 py-3 text-sm text-gray-900 outline-none focus:border-[#9A7545] focus:ring-2 focus:ring-[#9A7545]/30"
+                  />
+                  <input
+                    type="password"
+                    required
+                    autoComplete="current-password"
+                    placeholder="Password"
+                    value={demoPassword}
+                    onChange={(e) => setDemoPassword(e.target.value)}
+                    className="w-full rounded-lg border border-gray-200 bg-white/80 px-4 py-3 text-sm text-gray-900 outline-none focus:border-[#9A7545] focus:ring-2 focus:ring-[#9A7545]/30"
+                  />
+                  {demoError && (
+                    <p className="text-center text-[12px] text-red-500">{demoError}</p>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={demoLoading}
+                    className="w-full rounded-xl border border-[#9A7545]/40 bg-white px-6 py-3 text-sm font-semibold text-[#9A7545] transition-all hover:bg-[#9A7545]/5 active:scale-[0.985] disabled:opacity-60"
+                  >
+                    {demoLoading ? "Signing in…" : "Sign in to demo"}
+                  </button>
+                </form>
+              </div>
+            )}
           </motion.div>
         </section>
 

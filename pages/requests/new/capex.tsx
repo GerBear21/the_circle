@@ -74,22 +74,28 @@ export default function NewCapexRequestPage() {
   const [quotationDocuments, setQuotationDocuments] = useState<DocumentMetadata[]>([]);
   const [quotationJustification, setQuotationJustification] = useState('');
   const [quotationReason, setQuotationReason] = useState<string>('');
-  const [cooApproverId, setCooApproverId] = useState<string>('');
-  const [cooSearch, setCooSearch] = useState('');
-  const [showCooDropdown, setShowCooDropdown] = useState(false);
   const [supportingDocuments, setSupportingDocuments] = useState<DocumentMetadata[]>([]);
 
+  // Supplier directory (auto-populated from prior CAPEX requests) powering the
+  // supplier-name autocomplete on each quotation. activeSupplierField tracks
+  // which quotation row's dropdown is currently open.
+  const [supplierSuggestions, setSupplierSuggestions] = useState<Array<{ id: string; name: string; products: string | null; currency: string }>>([]);
+  const [activeSupplierField, setActiveSupplierField] = useState<number | null>(null);
+
   const QUOTATION_REASONS: Array<{ value: string; label: string }> = [
-    { value: 'sole_supplier', label: 'Sole supplier — no alternatives available' },
-    { value: 'emergency', label: 'Emergency / urgent requirement' },
-    { value: 'specialized', label: 'Specialized service requiring specific expertise' },
     { value: 'existing_supplier', label: 'Existing supplier — continuity required' },
-    { value: 'confidentiality', label: 'Confidentiality requirements' },
-    { value: 'time_constraints', label: 'Time constraints' },
-    { value: 'other', label: 'Other (requires COO pre-approval)' },
+    { value: 'sole_supplier', label: 'Sole supplier — no alternatives available' },
+    { value: 'specialized', label: 'Specialized service requiring specific expertise' },
+    { value: 'other', label: 'Other reason — requires MD pre-approval first' },
   ];
 
-  const requiresCooApproval = quotationReason === 'other';
+  const requiresMdApproval = quotationReason === 'other';
+
+  // When "Other" is chosen the Managing Director must pre-approve. The MD is
+  // taken straight from the HRIMS-resolved approval chain (managing_director
+  // role) — there is no manual picker. They are prepended to the approval
+  // trail so the request can't proceed until the MD signs off.
+  const mdApproverId = selectedApprovers.managing_director || '';
 
   // Edit mode state
   const { edit: editRequestId, approver: isApproverEdit } = router.query;
@@ -133,7 +139,11 @@ export default function NewCapexRequestPage() {
 
   const unsavedPrompt = useUnsavedChangesPrompt({
     isDirty,
-    disabled: loading || savingDraft,
+    // Suppress the "discard changes?" prompt while we are actively
+    // submitting, saving a draft, or publishing — in all of these cases the
+    // handler performs its own navigation and the changes are being saved,
+    // so the user must not be asked to discard them.
+    disabled: loading || savingDraft || publishing,
   });
 
   const handleQuotationUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -356,11 +366,7 @@ export default function NewCapexRequestPage() {
         if (reasonData) {
           setQuotationReason(reasonData);
         }
-        const cooApproverData = metadata.cooApproverId || capexData.cooApproverId;
-        if (cooApproverData) {
-          setCooApproverId(cooApproverData);
-        }
-        
+
         // Also check for documents from the documents table (actual uploaded files)
         // and match them with metadata if metadata is missing
         if (request.documents && Array.isArray(request.documents) && request.documents.length > 0) {
@@ -460,10 +466,23 @@ export default function NewCapexRequestPage() {
       }
     };
 
+    const fetchSuppliers = async () => {
+      try {
+        const response = await fetch('/api/finance/suppliers');
+        if (response.ok) {
+          const data = await response.json();
+          setSupplierSuggestions(data.suppliers || []);
+        }
+      } catch (err) {
+        console.error('Failed to fetch suppliers:', err);
+      }
+    };
+
     if (status === 'authenticated') {
       fetchBusinessUnits();
       fetchDepartments();
       fetchUsers();
+      fetchSuppliers();
     }
   }, [status]);
 
@@ -538,10 +557,6 @@ export default function NewCapexRequestPage() {
       : '—';
 
     const approvalColWidth = `${(100 / approvalRoles.length).toFixed(4)}%`;
-    const pageBreakStyle: React.CSSProperties = {
-      pageBreakBefore: 'always',
-      breakBefore: 'page',
-    };
 
     const headerSection: PreviewSection = {
       content: (
@@ -664,15 +679,10 @@ export default function NewCapexRequestPage() {
               <tr>
                 <td style={{ ...labelCellStyle, width: '22%' }} colSpan={1}>Reason (&lt; 3 quotations)</td>
                 <td style={cellStyle} colSpan={4}>
+                  {/* The free-text MD pre-approval reason is deliberately NOT
+                      rendered here — it is shared with the MD for pre-approval
+                      but must not appear on the printed request form. */}
                   {QUOTATION_REASONS.find(r => r.value === quotationReason)?.label || quotationReason}
-                  {requiresCooApproval && (
-                    <>
-                      <br />
-                      <em>Details: </em>{quotationJustification || '—'}
-                      <br />
-                      <strong>COO pre-approver:</strong> {users.find(u => u.id === cooApproverId)?.display_name || '—'}
-                    </>
-                  )}
                 </td>
               </tr>
             )}
@@ -686,88 +696,6 @@ export default function NewCapexRequestPage() {
         </table>
       ),
     };
-
-    // Quotation attachment pages — one per uploaded quotation, each on its own A4 page
-    const allQuotations: Array<{
-      supplierName?: string;
-      description?: string;
-      isSelectedSupplier?: boolean;
-      selectionReason?: string;
-      fileName?: string;
-      fileUrl?: string;
-    }> = [
-      ...existingQuotations.map((q: any) => ({
-        supplierName: q.supplierName,
-        description: q.description,
-        isSelectedSupplier: q.isSelectedSupplier,
-        selectionReason: q.selectionReason,
-        fileName: q.fileName || q.name,
-        fileUrl: q.fileUrl || q.url,
-      })),
-      ...quotationDocuments.map(q => ({
-        supplierName: q.supplierName,
-        description: q.description,
-        isSelectedSupplier: q.isSelectedSupplier,
-        selectionReason: q.selectionReason,
-        fileName: q.file?.name,
-        fileUrl: undefined,
-      })),
-    ];
-
-    const quotationPageSections: PreviewSection[] = allQuotations.map((q, idx) => ({
-      content: (
-        <div className="page-break" style={{ ...pageBreakStyle, paddingTop: 12 }}>
-          <h2
-            style={{
-              fontSize: 12,
-              textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-              color: '#5E4426',
-              borderBottom: '1px solid #C9B896',
-              paddingBottom: 4,
-              margin: '0 0 10px',
-            }}
-          >
-            Attached Quotation {idx + 1} of {allQuotations.length}
-          </h2>
-          <table className="doc-grid" style={tableStyle}>
-            <tbody>
-              <tr>
-                <td style={labelCellStyle}>Supplier</td>
-                <td style={cellStyle}>{q.supplierName || '—'}</td>
-                <td style={labelCellStyle}>Selected Supplier</td>
-                <td style={cellStyle}>{q.isSelectedSupplier ? 'Yes' : 'No'}</td>
-              </tr>
-              <tr>
-                <td style={labelCellStyle}>Quotation Description</td>
-                <td style={cellStyle} colSpan={3}>{q.description || '—'}</td>
-              </tr>
-              <tr>
-                <td style={labelCellStyle}>File</td>
-                <td style={cellStyle} colSpan={3}>
-                  {q.fileUrl ? (
-                    <a href={q.fileUrl} target="_blank" rel="noreferrer" style={{ color: '#5E4426', textDecoration: 'underline' }}>
-                      {q.fileName || 'View attachment'}
-                    </a>
-                  ) : (
-                    q.fileName || '—'
-                  )}
-                </td>
-              </tr>
-              {q.isSelectedSupplier && (
-                <tr>
-                  <td style={labelCellStyle}>Selection Reason</td>
-                  <td style={cellStyle} colSpan={3}>{q.selectionReason || '—'}</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-          <p style={{ marginTop: 14, fontSize: 10, fontStyle: 'italic', color: '#666' }}>
-            The original quotation document is attached to this request.
-          </p>
-        </div>
-      ),
-    }));
 
     // Approval section — horizontal row; column width adjusted for however many roles we have
     const approvalSection: PreviewSection = {
@@ -844,7 +772,6 @@ export default function NewCapexRequestPage() {
       justificationSection,
       quotationSummarySection,
       approvalSection,
-      ...quotationPageSections,
     ];
   };
 
@@ -911,6 +838,13 @@ export default function NewCapexRequestPage() {
         setLoading(false);
         return;
       }
+      // Every newly-uploaded quotation must name its supplier.
+      const missingSupplier = quotationDocuments.findIndex(d => !d.supplierName.trim());
+      if (missingSupplier !== -1) {
+        setError(`Please enter the supplier name for quotation ${missingSupplier + 1}.`);
+        setLoading(false);
+        return;
+      }
       if (totalQuotations < 3) {
         if (!quotationReason) {
           setError('Please select a reason for uploading fewer than 3 quotations.');
@@ -923,8 +857,8 @@ export default function NewCapexRequestPage() {
             setLoading(false);
             return;
           }
-          if (!cooApproverId) {
-            setError('Selecting "Other" requires the COO to pre-approve. Please select the COO before submitting.');
+          if (!mdApproverId) {
+            setError('Selecting "Other" requires the Managing Director to pre-approve, but no MD could be resolved from HRIMS for your approval chain. Please contact an administrator.');
             setLoading(false);
             return;
           }
@@ -1004,8 +938,8 @@ export default function NewCapexRequestPage() {
             selectedApprovers.finance_director,
             selectedApprovers.ceo,
           ].filter(Boolean);
-          const approversArray = (requiresCooApproval && cooApproverId)
-            ? [cooApproverId, ...baseApproversForEdit.filter(id => id !== cooApproverId)]
+          const approversArray = (requiresMdApproval && mdApproverId)
+            ? [mdApproverId, ...baseApproversForEdit.filter(id => id !== mdApproverId)]
             : baseApproversForEdit;
 
           const updatePayload = {
@@ -1070,8 +1004,8 @@ export default function NewCapexRequestPage() {
               ],
               quotationJustification: quotationJustification || null,
               quotationReason: quotationReason || null,
-              cooApprovalRequired: requiresCooApproval,
-              cooApproverId: requiresCooApproval ? (cooApproverId || null) : null,
+              cooApprovalRequired: requiresMdApproval,
+              mdApproverId: requiresMdApproval ? (mdApproverId || null) : null,
             },
           };
 
@@ -1175,8 +1109,8 @@ export default function NewCapexRequestPage() {
         selectedApprovers.finance_director,
         selectedApprovers.ceo,
       ].filter(Boolean);
-      const approversArray = (requiresCooApproval && cooApproverId)
-        ? [cooApproverId, ...baseApprovers.filter(id => id !== cooApproverId)]
+      const approversArray = (requiresMdApproval && mdApproverId)
+        ? [mdApproverId, ...baseApprovers.filter(id => id !== mdApproverId)]
         : baseApprovers;
 
       const response = await fetch('/api/requests', {
@@ -1242,8 +1176,8 @@ export default function NewCapexRequestPage() {
             })),
             quotationJustification: quotationJustification || null,
             quotationReason: quotationReason || null,
-            cooApprovalRequired: requiresCooApproval,
-            cooApproverId: requiresCooApproval ? (cooApproverId || null) : null,
+            cooApprovalRequired: requiresMdApproval,
+            mdApproverId: requiresMdApproval ? (mdApproverId || null) : null,
           },
         }),
       });
@@ -1372,8 +1306,8 @@ export default function NewCapexRequestPage() {
         selectedApprovers.finance_director,
         selectedApprovers.ceo,
       ].filter(Boolean);
-      const approversArray = (requiresCooApproval && cooApproverId)
-        ? [cooApproverId, ...basePublishApprovers.filter(id => id !== cooApproverId)]
+      const approversArray = (requiresMdApproval && mdApproverId)
+        ? [mdApproverId, ...basePublishApprovers.filter(id => id !== mdApproverId)]
         : basePublishApprovers;
 
       // Update the request with current form data before publishing
@@ -1441,8 +1375,8 @@ export default function NewCapexRequestPage() {
             ],
             quotationJustification: quotationJustification || null,
             quotationReason: quotationReason || null,
-            cooApprovalRequired: requiresCooApproval,
-            cooApproverId: requiresCooApproval ? (cooApproverId || null) : null,
+            cooApprovalRequired: requiresMdApproval,
+            mdApproverId: requiresMdApproval ? (mdApproverId || null) : null,
           },
         }),
       });
@@ -1523,18 +1457,16 @@ export default function NewCapexRequestPage() {
   return (
     <AppLayout title={isEditMode ? "Edit CAPEX Request" : "CAPEX Request"} showBack onBack={() => router.back()} hideNav>
       <form onSubmit={handleSubmit} onChange={() => setIsDirty(true)} className="p-4 sm:p-6 space-y-6 max-w-5xl mx-auto pb-28">
-        <div className="mb-2">
-          <h1 className="text-2xl font-bold text-text-primary font-heading">
-            {isEditMode ? 'Edit Capex Request' : 'New Capex Request'}
-          </h1>
-          <p className="text-text-secondary mt-1">
+        <div className="mb-6 text-center">
+          <h1 className="text-2xl font-bold text-text-primary font-heading uppercase tracking-wide">
             {isApproverEditing
-              ? 'Edit this request as an approver. Your changes will be tracked and visible to others.'
+              ? 'Edit Capex Request'
               : isEditMode
-                ? 'Update the details of this capital expenditure request'
-                : 'Submit a capital expenditure request for approval'}
-          </p>
-          <div className="mt-4 max-w-lg">
+                ? 'Edit Capex Request'
+                : 'Capital Expenditure Request'}
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">DOC NO. FIN 101 — DEPARTMENT: FINANCE</p>
+          <div className="mt-4 max-w-lg mx-auto">
             <ReferenceCodeBanner
               requestType="capex"
               existingCode={existingReferenceCode}
@@ -1542,16 +1474,11 @@ export default function NewCapexRequestPage() {
             />
           </div>
           {isApproverEditing && (
-            <div className="mt-3 p-3 bg-primary-50 border border-primary-200 rounded-xl flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
-                <svg className="w-4 h-4 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                </svg>
-              </div>
-              <div>
-                <p className="font-medium text-primary-800 text-sm">Editing as Approver</p>
-                <p className="text-xs text-primary-600">All changes you make will be recorded and visible to the requester and other viewers.</p>
-              </div>
+            <div className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-primary-50 border border-primary-200 rounded-xl">
+              <svg className="w-4 h-4 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
+              <span className="text-sm font-medium text-primary-700">Editing as Approver — Changes will be tracked</span>
             </div>
           )}
         </div>
@@ -1657,15 +1584,6 @@ export default function NewCapexRequestPage() {
                 <option value="non-budget">Non-Budgeted</option>
                 <option value="emergency">Emergency</option>
               </select>
-              <label className="mt-2 flex items-start gap-2 text-sm text-gray-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                  checked={!formData.isBudgeted}
-                  onChange={(e) => setFormData({ ...formData, isBudgeted: !e.target.checked })}
-                />
-                <span>This CAPEX is not part of the approved annual budget</span>
-              </label>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1938,6 +1856,54 @@ export default function NewCapexRequestPage() {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="relative">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Supplier Name <span className="text-danger-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        autoComplete="off"
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                        placeholder="e.g., ABC Suppliers Ltd"
+                        value={doc.supplierName}
+                        onChange={(e) => handleUpdateQuotationMetadata(index, 'supplierName', e.target.value)}
+                        onFocus={() => setActiveSupplierField(index)}
+                        onBlur={() => setActiveSupplierField(null)}
+                        required
+                      />
+                      {/* Suggested suppliers from the directory */}
+                      {activeSupplierField === index && (() => {
+                        const term = doc.supplierName.trim().toLowerCase();
+                        const matches = supplierSuggestions
+                          .filter(s => s.name && s.name.toLowerCase() !== term &&
+                            (term === '' || s.name.toLowerCase().includes(term)))
+                          .slice(0, 8);
+                        if (matches.length === 0) return null;
+                        return (
+                          <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+                            {matches.map(s => (
+                              <button
+                                key={s.id}
+                                type="button"
+                                onMouseDown={(e) => {
+                                  // onMouseDown (not onClick) so the field's blur
+                                  // doesn't close the dropdown before selection.
+                                  e.preventDefault();
+                                  handleUpdateQuotationMetadata(index, 'supplierName', s.name);
+                                  setActiveSupplierField(null);
+                                }}
+                                className="w-full px-3 py-2 text-left hover:bg-primary-50 transition-colors border-b border-gray-100 last:border-b-0"
+                              >
+                                <p className="text-sm font-medium text-gray-900 truncate">{s.name}</p>
+                                {s.products && (
+                                  <p className="text-xs text-gray-500 truncate">{s.products} · {s.currency}</p>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">
                         Quotation Description
@@ -1948,18 +1914,6 @@ export default function NewCapexRequestPage() {
                         placeholder="e.g., Quotation for office equipment"
                         value={doc.description}
                         onChange={(e) => handleUpdateQuotationMetadata(index, 'description', e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
-                        Supplier Name
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
-                        placeholder="e.g., ABC Suppliers Ltd"
-                        value={doc.supplierName}
-                        onChange={(e) => handleUpdateQuotationMetadata(index, 'supplierName', e.target.value)}
                       />
                     </div>
                   </div>
@@ -2024,10 +1978,7 @@ export default function NewCapexRequestPage() {
                     const v = e.target.value;
                     setQuotationReason(v);
                     if (v !== 'other') {
-                      // Clear the COO selector + free-text when leaving "Other"
-                      setCooApproverId('');
-                      setCooSearch('');
-                      setShowCooDropdown(false);
+                      // Clear the MD pre-approval free-text when leaving "Other"
                       setQuotationJustification('');
                     }
                   }}
@@ -2040,132 +1991,74 @@ export default function NewCapexRequestPage() {
                 </select>
               </div>
 
-              {requiresCooApproval && (
+              {requiresMdApproval && (
                 <div className="space-y-3 rounded-xl border border-danger-200 bg-danger-50/40 p-3">
                   <div className="flex items-start gap-2">
                     <svg className="w-5 h-5 text-danger-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01M4.93 19h14.14a2 2 0 001.74-3L13.74 4a2 2 0 00-3.48 0L3.19 16a2 2 0 001.74 3z" />
                     </svg>
                     <div className="flex-1">
-                      <h4 className="text-sm font-semibold text-danger-800">COO Pre-Approval Required</h4>
+                      <h4 className="text-sm font-semibold text-danger-800">MD Pre-Approval Required</h4>
                       <p className="text-xs text-danger-700 mt-1">
                         Because you selected &ldquo;Other&rdquo;, this CAPEX cannot enter the official approval trail until the
-                        COO has reviewed and approved it. Please describe the reason and select the COO below.
+                        Managing Director has reviewed and approved it. The MD is taken automatically from HRIMS.
                       </p>
                     </div>
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-danger-800 mb-1">
-                      Describe your reason <span className="text-danger-500">*</span>
+                      Reason for MD pre-approval <span className="text-danger-500">*</span>
                     </label>
                     <textarea
                       className="w-full px-4 py-3 min-h-[80px] rounded-xl border border-danger-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-danger-500 focus:border-transparent resize-none transition-all"
                       placeholder="Explain your reason for fewer than 3 quotations…"
                       value={quotationJustification}
                       onChange={(e) => setQuotationJustification(e.target.value)}
-                      required={requiresCooApproval}
+                      required={requiresMdApproval}
                     />
+                    <p className="text-[11px] text-danger-700 mt-1">
+                      This reason is shared with the MD for pre-approval and is not printed on the request form.
+                    </p>
                   </div>
 
-                  <div className="relative">
+                  <div>
                     <label className="block text-xs font-semibold text-danger-800 mb-1">
-                      COO (Pre-Approver) <span className="text-danger-500">*</span>
+                      Managing Director (Pre-Approver)
                     </label>
                     {(() => {
-                      const cooUser = users.find(u => u.id === cooApproverId);
-                      if (cooUser) {
+                      const mdUser = users.find(u => u.id === mdApproverId);
+                      if (mdUser) {
                         return (
                           <div className="flex items-center gap-3 p-3 bg-white border border-danger-200 rounded-xl">
                             <div className="w-8 h-8 rounded-full bg-danger-100 flex items-center justify-center flex-shrink-0">
                               <span className="text-sm font-medium text-danger-600">
-                                {cooUser.display_name?.charAt(0)?.toUpperCase() || '?'}
+                                {mdUser.display_name?.charAt(0)?.toUpperCase() || '?'}
                               </span>
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-gray-900 truncate">{cooUser.display_name}</p>
-                              <p className="text-xs text-gray-500 truncate">{cooUser.email}</p>
+                              <p className="text-sm font-medium text-gray-900 truncate">{mdUser.display_name}</p>
+                              <p className="text-xs text-gray-500 truncate">{mdUser.email}</p>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => { setCooApproverId(''); setCooSearch(''); }}
-                              className="p-1.5 rounded-lg hover:bg-danger-50 text-gray-400 hover:text-danger-500 transition-colors"
-                              title="Remove COO"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7" />
                               </svg>
-                            </button>
+                              Auto from HRIMS
+                            </span>
                           </div>
                         );
                       }
-                      const cooMatches = users.filter(u => {
-                        const term = (cooSearch || '').toLowerCase();
-                        if (!term) return true;
-                        return (
-                          (u.display_name || '').toLowerCase().includes(term) ||
-                          (u.email || '').toLowerCase().includes(term) ||
-                          (u.job_title || '').toLowerCase().includes(term)
-                        );
-                      });
                       return (
-                        <div className="relative">
-                          <input
-                            type="text"
-                            className="w-full px-4 py-2 min-h-[44px] rounded-xl border border-danger-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-danger-500 focus:border-transparent transition-all text-sm"
-                            placeholder="Search for the COO by name, email or job title…"
-                            value={cooSearch}
-                            onChange={(e) => { setCooSearch(e.target.value); setShowCooDropdown(true); }}
-                            onFocus={() => setShowCooDropdown(true)}
-                          />
-                          {showCooDropdown && (
-                            <>
-                              <div
-                                className="fixed inset-0 z-10"
-                                onClick={() => setShowCooDropdown(false)}
-                              />
-                              <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
-                                {loadingUsers ? (
-                                  <div className="flex items-center justify-center py-4">
-                                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary-500" />
-                                  </div>
-                                ) : cooMatches.length === 0 ? (
-                                  <div className="px-4 py-3 text-sm text-gray-500">No users found</div>
-                                ) : (
-                                  cooMatches.slice(0, 10).map(u => (
-                                    <button
-                                      key={u.id}
-                                      type="button"
-                                      onClick={() => {
-                                        setCooApproverId(u.id);
-                                        setCooSearch('');
-                                        setShowCooDropdown(false);
-                                      }}
-                                      className="w-full px-4 py-2 text-left hover:bg-danger-50 transition-colors flex items-center gap-3 border-b border-gray-100 last:border-b-0"
-                                    >
-                                      <div className="w-7 h-7 rounded-full bg-danger-100 flex items-center justify-center flex-shrink-0">
-                                        <span className="text-xs font-medium text-danger-600">
-                                          {u.display_name?.charAt(0)?.toUpperCase() || '?'}
-                                        </span>
-                                      </div>
-                                      <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-medium text-gray-900 truncate">{u.display_name}</p>
-                                        <p className="text-xs text-gray-500 truncate">
-                                          {u.email}{u.job_title ? ` · ${u.job_title}` : ''}
-                                        </p>
-                                      </div>
-                                    </button>
-                                  ))
-                                )}
-                              </div>
-                            </>
-                          )}
+                        <div className="p-3 bg-white border border-danger-200 rounded-xl text-xs text-danger-700">
+                          No Managing Director could be resolved from HRIMS for your approval chain.
+                          Please contact an administrator before submitting.
                         </div>
                       );
                     })()}
                     <p className="text-[11px] text-danger-700 mt-1">
-                      The COO will be added as the first signatory. The official approval trail will only begin
-                      after the COO approves.
+                      The MD is added as the first signatory. The official approval trail will only begin
+                      after the MD approves.
                     </p>
                   </div>
                 </div>
@@ -2636,8 +2529,9 @@ export default function NewCapexRequestPage() {
                 !formData.priority ||
                 (!isApproverEditing && Object.values(selectedApprovers).filter(Boolean).length < 8) ||
                 ((existingQuotations.length + quotationDocuments.length) < 1) ||
+                quotationDocuments.some(d => !d.supplierName.trim()) ||
                 ((existingQuotations.length + quotationDocuments.length) < 3 && !quotationReason) ||
-                (requiresCooApproval && (!quotationJustification.trim() || !cooApproverId)) ||
+                (requiresMdApproval && (!quotationJustification.trim() || !mdApproverId)) ||
                 savingDraft
               }
             >
