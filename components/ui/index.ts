@@ -5,4 +5,6 @@ export { default as Modal } from './Modal';
 export { default as RequestPreviewModal, RequestPreviewDocument, printPreviewDocument } from './RequestPreviewModal';
 export { default as UnsavedChangesModal } from './UnsavedChangesModal';
 export { default as ReferenceCodeBanner } from './ReferenceCodeBanner';
+export { default as ScopeBanner } from './ScopeBanner';
+export type { ResponseScope } from './ScopeBanner';
 export type { PreviewSection, PreviewField, DocumentHeader } from './RequestPreviewModal';

@@ -6,6 +6,7 @@ import { ApprovalEngine } from '@/lib/approvalEngine';
 import { getApprovalRisk, authForRisk, satisfiesAuth, type AuthenticationMethod } from '@/lib/approvalRisk';
 import { verifyStepUpForApproval } from '@/lib/stepUpToken';
 import { verifyElevationCookie, clearElevationCookie } from '@/lib/elevatedSession';
+import { audit } from '@/lib/auditLog';
 
 /**
  * POST /api/approvals/action
@@ -296,6 +297,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         deviceInfo: sanitizeDeviceInfo(deviceInfo, req),
       }
     );
+
+    await audit(req, session.user, {
+      category: 'transaction',
+      action: action === 'approve' ? 'request.approved' : 'request.rejected',
+      severity: action === 'approve' ? 'info' : 'notice',
+      outcome: result.success ? 'success' : 'failure',
+      targetType: 'request',
+      targetId: requestId,
+      requestId,
+      details: {
+        stepId,
+        comment: comment || null,
+        risk: riskEval.risk,
+        authenticationMethod: effectiveAuth,
+        ...(result.success ? {} : { error: result.error }),
+      },
+    });
 
     if (!result.success) {
       return res.status(400).json({ error: result.error });

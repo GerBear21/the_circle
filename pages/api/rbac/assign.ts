@@ -10,6 +10,7 @@ import {
   PERMISSIONS,
   ROLE_SLUGS,
 } from '@/lib/rbac';
+import { audit } from '@/lib/auditLog';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const session = await getServerSession(req, res, authOptions);
@@ -46,6 +47,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         departmentId: department_id,
         businessUnitId: business_unit_id,
         expiresAt: expires_at,
+      });
+
+      await audit(req, session.user, {
+        category: 'security',
+        action: 'rbac.role_assigned',
+        severity: targetRole?.slug === ROLE_SLUGS.SUPER_ADMIN ? 'critical' : 'notice',
+        outcome: result.success ? 'success' : 'failure',
+        targetType: 'user',
+        targetId: user_id,
+        details: { role_id, role_slug: targetRole?.slug, department_id, business_unit_id, expires_at },
       });
 
       if (!result.success) {
@@ -91,6 +102,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         department_id,
         business_unit_id
       );
+
+      await audit(req, session.user, {
+        category: 'security',
+        action: 'rbac.role_revoked',
+        severity: 'notice',
+        outcome: result.success ? 'success' : 'failure',
+        targetType: 'user',
+        targetId: user_id,
+        details: { role_id, role_slug: targetRole?.slug, department_id, business_unit_id },
+      });
 
       if (!result.success) {
         return res.status(400).json({ error: result.error });

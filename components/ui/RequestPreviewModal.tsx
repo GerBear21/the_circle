@@ -182,7 +182,23 @@ export function printPreviewDocument(node: HTMLElement | null, title: string) {
             .field.full { grid-column: 1 / -1; }
             .label { font-weight: 600; color: #555; margin-bottom: 2px; text-transform: uppercase; font-size: 10px; }
             .value { color: #111; white-space: pre-wrap; }
-            @media print { @page { margin: 14mm; } body { padding: 0; } }
+            /* The CAPEX approval row carries up to 8 signatory columns and is
+               given a wide min-width for on-screen horizontal scrolling. On
+               paper there is nothing to scroll into, so the last columns (FD,
+               CEO) get clipped. Force the table to fit the printable width. */
+            table.approval-row { table-layout: fixed !important; width: 100% !important; min-width: 0 !important; }
+            table.approval-row th, table.approval-row td {
+                padding: 4px 3px !important; font-size: 8px !important;
+                word-break: break-word; overflow-wrap: anywhere;
+            }
+            table.approval-row .sig-line { height: 22px !important; }
+            /* Neutralise the on-screen horizontal scroll wrapper so it cannot clip. */
+            table.approval-row { display: table; }
+            @media print {
+                @page { margin: 14mm; }
+                body { padding: 0; }
+                table.approval-row { table-layout: fixed !important; width: 100% !important; min-width: 0 !important; }
+            }
         </style></head><body>${html}
         <div class="footer">Generated ${new Date().toLocaleString()}</div>
         <script>window.onload = () => { setTimeout(() => window.print(), 250); };</script>

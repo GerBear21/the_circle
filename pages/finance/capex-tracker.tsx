@@ -2,7 +2,8 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import { useEffect, useMemo, useState } from 'react';
 import { AppLayout } from '../../components/layout';
-import { Card, Button } from '../../components/ui';
+import { Card, Button, ScopeBanner } from '../../components/ui';
+import type { ResponseScope } from '../../components/ui';
 import { useRBAC } from '../../contexts/RBACContext';
 import { formatDateTime } from '@/lib/formatDate';
 import { useToast } from '../../components/ui/ToastProvider';
@@ -35,6 +36,7 @@ interface TrackerEntry {
   champion_user_id: string | null;
   status_update: CapexTrackerStatus;
   department: string | null;
+  business_unit: string | null;
   financial_year: number;
   is_budgeted: boolean;
   champion: ApproverRef | null;
@@ -173,6 +175,59 @@ const APPROVAL_STAGE_OPTIONS: Array<{ value: ApprovalStage; label: string }> = [
   { value: 'rejected',          label: 'Rejected' },
 ];
 
+// Period filter — relative to "now", matched against an entry's capex_date.
+const PERIOD_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '',             label: 'All time' },
+  { value: 'week',         label: 'This week' },
+  { value: 'last_week',    label: 'Last week' },
+  { value: 'month',        label: 'This month' },
+  { value: 'last_month',   label: 'Last month' },
+  { value: 'quarter',      label: 'This quarter' },
+  { value: 'last_quarter', label: 'Last quarter' },
+  { value: 'year',         label: 'This year' },
+  { value: 'last_year',    label: 'Last year' },
+];
+
+function startOfWeek(d: Date): Date {
+  // Week starts Monday.
+  const x = new Date(d);
+  const day = (x.getDay() + 6) % 7;
+  x.setHours(0, 0, 0, 0);
+  x.setDate(x.getDate() - day);
+  return x;
+}
+
+function periodRange(period: string): { start: Date; end: Date } | null {
+  if (!period) return null;
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const q = Math.floor(m / 3);
+  const endOfDay = (d: Date) => { const x = new Date(d); x.setHours(23, 59, 59, 999); return x; };
+  switch (period) {
+    case 'week': {
+      const s = startOfWeek(now);
+      return { start: s, end: endOfDay(new Date(s.getFullYear(), s.getMonth(), s.getDate() + 6)) };
+    }
+    case 'last_week': {
+      const s = startOfWeek(now); s.setDate(s.getDate() - 7);
+      return { start: s, end: endOfDay(new Date(s.getFullYear(), s.getMonth(), s.getDate() + 6)) };
+    }
+    case 'month':       return { start: new Date(y, m, 1), end: endOfDay(new Date(y, m + 1, 0)) };
+    case 'last_month':  return { start: new Date(y, m - 1, 1), end: endOfDay(new Date(y, m, 0)) };
+    case 'quarter':     return { start: new Date(y, q * 3, 1), end: endOfDay(new Date(y, q * 3 + 3, 0)) };
+    case 'last_quarter': {
+      const lq = q - 1;
+      const yy = lq < 0 ? y - 1 : y;
+      const qq = (lq + 4) % 4;
+      return { start: new Date(yy, qq * 3, 1), end: endOfDay(new Date(yy, qq * 3 + 3, 0)) };
+    }
+    case 'year':        return { start: new Date(y, 0, 1), end: endOfDay(new Date(y, 11, 31)) };
+    case 'last_year':   return { start: new Date(y - 1, 0, 1), end: endOfDay(new Date(y - 1, 11, 31)) };
+    default:            return null;
+  }
+}
+
 function priorityRank(entry: TrackerEntry): number {
   // Numeric rank so "Priority" can be sorted naturally (Critical = highest).
   const p = (entry.request_priority || '').toLowerCase();
@@ -209,14 +264,17 @@ export default function CapexTrackerPage() {
   const { addToast } = useToast();
 
   const [entries, setEntries] = useState<TrackerEntry[]>([]);
+  const [dataScope, setDataScope] = useState<ResponseScope | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [departmentFilter, setDepartmentFilter] = useState<string>('');
+  const [businessUnitFilter, setBusinessUnitFilter] = useState<string>('');
   const [priorityFilter, setPriorityFilter] = useState<string>('');
   const [stageFilter, setStageFilter] = useState<ApprovalStage>('');
   const [yearFilter, setYearFilter] = useState<string>('');
+  const [periodFilter, setPeriodFilter] = useState<string>('');
   const [minCost, setMinCost] = useState<string>('');
   const [maxCost, setMaxCost] = useState<string>('');
   const [sortBy, setSortBy] = useState<SortKey>('priority');
@@ -245,6 +303,7 @@ export default function CapexTrackerPage() {
       }
       const data = await res.json();
       setEntries(data.entries || []);
+      setDataScope(data.scope || null);
     } catch (e: any) {
       const msg = e?.message || 'Failed to load tracker';
       setLoadError(msg);
@@ -267,6 +326,12 @@ export default function CapexTrackerPage() {
     return Array.from(s).sort();
   }, [entries]);
 
+  const businessUnits = useMemo(() => {
+    const s = new Set<string>();
+    entries.forEach(e => { if (e.business_unit) s.add(e.business_unit); });
+    return Array.from(s).sort();
+  }, [entries]);
+
   const financialYears = useMemo(() => {
     const s = new Set<number>();
     entries.forEach(e => { if (Number.isFinite(e.financial_year)) s.add(e.financial_year); });
@@ -277,12 +342,18 @@ export default function CapexTrackerPage() {
     const term = search.trim().toLowerCase();
     const minN = minCost.trim() === '' ? -Infinity : Number(minCost);
     const maxN = maxCost.trim() === '' ? Infinity : Number(maxCost);
+    const range = periodRange(periodFilter);
     return entries.filter(e => {
       if (statusFilter && e.status_update !== statusFilter) return false;
       if (departmentFilter && e.department !== departmentFilter) return false;
+      if (businessUnitFilter && e.business_unit !== businessUnitFilter) return false;
       if (priorityFilter && (e.request_priority || '').toLowerCase() !== priorityFilter) return false;
       if (stageFilter && approvalStage(e) !== stageFilter) return false;
       if (yearFilter && String(e.financial_year) !== yearFilter) return false;
+      if (range) {
+        const d = new Date(e.capex_date);
+        if (isNaN(d.getTime()) || d < range.start || d > range.end) return false;
+      }
       const cost = Number(e.cost || 0);
       if (Number.isFinite(minN) && cost < minN) return false;
       if (Number.isFinite(maxN) && cost > maxN) return false;
@@ -293,7 +364,7 @@ export default function CapexTrackerPage() {
       ].filter(Boolean).join(' ').toLowerCase();
       return hay.includes(term);
     });
-  }, [entries, search, statusFilter, departmentFilter, priorityFilter, stageFilter, yearFilter, minCost, maxCost]);
+  }, [entries, search, statusFilter, departmentFilter, businessUnitFilter, priorityFilter, stageFilter, yearFilter, periodFilter, minCost, maxCost]);
 
   const sortedEntries = useMemo(() => {
     const dirMul = sortDir === 'asc' ? 1 : -1;
@@ -332,16 +403,18 @@ export default function CapexTrackerPage() {
     setSearch('');
     setStatusFilter('');
     setDepartmentFilter('');
+    setBusinessUnitFilter('');
     setPriorityFilter('');
     setStageFilter('');
     setYearFilter('');
+    setPeriodFilter('');
     setMinCost('');
     setMaxCost('');
   };
 
   const activeFilterCount = [
     search.trim(),
-    statusFilter, departmentFilter, priorityFilter, stageFilter, yearFilter,
+    statusFilter, departmentFilter, businessUnitFilter, priorityFilter, stageFilter, yearFilter, periodFilter,
     minCost.trim(), maxCost.trim(),
   ].filter(Boolean).length;
 
@@ -598,6 +671,9 @@ export default function CapexTrackerPage() {
           </div>
         </div>
 
+        {/* Data-visibility banner — what slice of the org this user can see */}
+        <ScopeBanner scope={dataScope} />
+
         {loadError && (
           <Card padding="md" className="border-rose-200 bg-rose-50">
             <div className="flex items-start gap-3">
@@ -695,6 +771,21 @@ export default function CapexTrackerPage() {
               </select>
             </div>
             <div>
+              <label className="mb-1 block text-xs font-medium text-gray-600">Business unit</label>
+              <select
+                className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                value={businessUnitFilter}
+                onChange={e => setBusinessUnitFilter(e.target.value)}
+              >
+                <option value="">
+                  {dataScope && !dataScope.isOrgWide ? `All my units (${businessUnits.length})` : 'All business units'}
+                </option>
+                {businessUnits.map(b => (
+                  <option key={b} value={b}>{b}</option>
+                ))}
+              </select>
+            </div>
+            <div>
               <label className="mb-1 block text-xs font-medium text-gray-600">Department</label>
               <select
                 className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
@@ -704,6 +795,18 @@ export default function CapexTrackerPage() {
                 <option value="">All departments</option>
                 {departments.map(d => (
                   <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-600">Period</label>
+              <select
+                className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                value={periodFilter}
+                onChange={e => setPeriodFilter(e.target.value)}
+              >
+                {PERIOD_OPTIONS.map(o => (
+                  <option key={o.value || 'all'} value={o.value}>{o.label}</option>
                 ))}
               </select>
             </div>
@@ -811,8 +914,10 @@ export default function CapexTrackerPage() {
                         <td className="px-4 py-3 font-medium text-gray-900">{entry.supplier || '—'}</td>
                         <td className="px-4 py-3 text-gray-700 max-w-xs">
                           <div className="line-clamp-2">{entry.description}</div>
-                          {entry.department && (
-                            <div className="text-xs text-gray-500 mt-0.5">{entry.department}</div>
+                          {(entry.department || entry.business_unit) && (
+                            <div className="text-xs text-gray-500 mt-0.5">
+                              {[entry.business_unit, entry.department].filter(Boolean).join(' · ')}
+                            </div>
                           )}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap text-gray-700">{formatDate(entry.capex_date)}</td>

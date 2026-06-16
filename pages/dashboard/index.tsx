@@ -228,11 +228,33 @@ export default function Dashboard({
   const router = useRouter();
   const { signatureUrl, hasSignature } = useSignatureCheck();
 
-  // Use SSR data directly - no loading state needed for initial render
-  const stats = initialStats;
+  // Seed from SSR for an instant first paint, then keep the cards live by
+  // refetching whenever the dashboard mounts or the tab regains focus — so the
+  // counts reflect the latest approvals/submissions instead of a stale snapshot.
+  const [stats, setStats] = useState<DashboardStats>(initialStats);
+  const [pendingForUser, setPendingForUser] = useState<number>(initialPendingForUser);
   const recentActivity = initialRecentActivity;
-  const pendingForUser = initialPendingForUser;
   const statsLoading = false;
+
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const res = await fetch('/api/dashboard/stats');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        if (data.stats) setStats(data.stats);
+        if (typeof data.pendingForUser === 'number') setPendingForUser(data.pendingForUser);
+      } catch {
+        /* keep SSR values on failure */
+      }
+    };
+    refresh();
+    const onFocus = () => refresh();
+    window.addEventListener('focus', onFocus);
+    return () => { cancelled = true; window.removeEventListener('focus', onFocus); };
+  }, []);
 
   const firstName = userName?.split(' ')[0] || 'User';
 

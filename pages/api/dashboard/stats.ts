@@ -26,18 +26,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Fetch all requests for the organization
     const { data: requests, error: requestsError } = await supabaseAdmin
       .from('requests')
-      .select('id, status, created_at')
+      .select('id, status, created_at, creator_id')
       .eq('organization_id', organizationId);
 
     if (requestsError) throw requestsError;
 
-    const allRequests = requests || [];
-    
-    // Calculate stats
-    const pending = allRequests.filter(r => r.status === 'pending' || r.status === 'draft').length;
+    // Other users' drafts are private — exclude them so the counts match the
+    // SSR computation on the dashboard page exactly.
+    const allRequests = (requests || []).filter(r => (r.status === 'draft' ? r.creator_id === userId : true));
+
+    // Calculate stats (drafts are tracked separately, not as pending or total)
+    const pending = allRequests.filter(r => r.status === 'pending').length;
     const approved = allRequests.filter(r => r.status === 'approved').length;
     const rejected = allRequests.filter(r => r.status === 'rejected').length;
-    const total = allRequests.length;
+    const total = allRequests.filter(r => r.status !== 'draft').length;
 
     // This month's requests
     const startOfMonth = new Date();

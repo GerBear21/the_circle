@@ -1038,13 +1038,14 @@ export default function PettyCashRequestPage() {
                             required
                         />
                         <div className="mt-4">
-                            <Input
-                                type="date"
-                                label="Date"
-                                value={formData.receiptDate}
-                                onChange={(e) => setFormData({ ...formData, receiptDate: e.target.value })}
-                                required
-                            />
+                            <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Date</label>
+                            {/* Auto-generated and locked — the receipt date is always the
+                                day the voucher is raised and cannot be back- or forward-dated. */}
+                            <div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600">
+                                {formData.receiptDate
+                                    ? new Date(formData.receiptDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                                    : today}
+                            </div>
                         </div>
                     </Card>
 

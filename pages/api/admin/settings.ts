@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { requirePermission, logRBACAction, PERMISSIONS } from '@/lib/rbac';
+import { audit } from '@/lib/auditLog';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const session = await getServerSession(req, res, authOptions);
@@ -97,6 +98,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       await logRBACAction(session.user.id, 'settings_updated', 'system_settings', undefined, {
         categories: [...new Set(items.map((i: any) => i.category))],
         keys: items.map((i: any) => `${i.category}.${i.key}`),
+      });
+
+      await audit(req, session.user, {
+        category: 'system',
+        action: 'settings.updated',
+        severity: 'notice',
+        targetType: 'setting',
+        targetLabel: items.map((i: any) => `${i.category}.${i.key}`).join(', '),
+        details: {
+          changes: items.map((i: any) => ({ category: i.category, key: i.key, value: i.value })),
+        },
       });
 
       return res.status(200).json({ success: true, data });
