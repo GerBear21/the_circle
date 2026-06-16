@@ -64,12 +64,22 @@ export async function getAppToken(): Promise<string | null> {
   return cached.token;
 }
 
+export interface AppMailAttachment {
+  /** File name as it should appear in the email. */
+  name: string;
+  contentType: string;
+  /** Raw file bytes. */
+  content: Buffer;
+}
+
 export interface SendAppMailOptions {
   to: string;
   subject: string;
   html: string;
   /** Override the sender mailbox (defaults to GRAPH_MAIL_SENDER). */
   sender?: string;
+  /** Optional file attachments (e.g. the approved request PDF). */
+  attachments?: AppMailAttachment[];
 }
 
 export async function sendAppGraphMail(
@@ -84,11 +94,20 @@ export async function sendAppGraphMail(
   const token = await getAppToken();
   if (!token) return { success: false, error: 'Could not acquire Graph app token' };
 
-  const message = {
+  const message: Record<string, any> = {
     subject: opts.subject,
     body: { contentType: 'HTML', content: opts.html },
     toRecipients: [{ emailAddress: { address: opts.to } }],
   };
+
+  if (opts.attachments?.length) {
+    message.attachments = opts.attachments.map((a) => ({
+      '@odata.type': '#microsoft.graph.fileAttachment',
+      name: a.name,
+      contentType: a.contentType,
+      contentBytes: a.content.toString('base64'),
+    }));
+  }
 
   const resp = await fetch(
     `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`,

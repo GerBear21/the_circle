@@ -5,6 +5,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import PDFDocument from 'pdfkit';
 import path from 'path';
 import fs from 'fs';
+import { audit } from '@/lib/auditLog';
 
 // This API generates and stores a PDF archive for a fully approved request
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -34,13 +35,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Generate and store the archive
     const result = await generateAndStoreArchive(requestId, organizationId, user.id, !!force);
 
+    await audit(req, user, {
+      category: 'activity',
+      action: 'archive.pdf_generated',
+      outcome: result.success ? 'success' : 'failure',
+      targetType: 'request',
+      targetId: requestId,
+      requestId,
+      details: result.success
+        ? { filename: result.archive?.filename, forced: !!force }
+        : { error: result.error },
+    });
+
     if (!result.success) {
       return res.status(400).json({ error: result.error });
     }
 
-    return res.status(200).json({ 
-      success: true, 
-      archive: result.archive 
+    return res.status(200).json({
+      success: true,
+      archive: result.archive
     });
   } catch (error: any) {
     console.error('Archive generation error:', error);

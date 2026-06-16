@@ -100,7 +100,8 @@
       "mcp__861faebf-71a3-42b9-aade-8f0f23fed2e0__execute_sql",
       "mcp__861faebf-71a3-42b9-aade-8f0f23fed2e0__apply_migration",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" --max-time 90 \"http://localhost:3001/api/requests/23f429e2-6844-4235-b0ce-ed63362b4e87/cash-receipt\")",
-      "PowerShell(npx tsc --noEmit 2>&1)"
+      "PowerShell(npx tsc --noEmit 2>&1)",
+      "Bash(python \"C:\\\\Users\\\\Admin\\\\AppData\\\\Roaming\\\\Claude\\\\local-agent-mode-sessions\\\\skills-plugin\\\\2ab1d8be-e308-4482-bd7e-dd18095926e1\\\\19ce60e0-ad43-46a5-a68d-4074be65af44\\\\skills\\\\docx\\\\scripts\\\\office\\\\validate.py\" \"C:\\\\Users\\\\Admin\\\\the_circle\\\\docs\\\\The_Circle_Business_Case_v1.0.docx\")"
     ]
   }
 }

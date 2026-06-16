@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireAnyPermission, PERMISSIONS } from '@/lib/rbac';
+import { audit } from '@/lib/auditLog';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const session = await getServerSession(req, res, authOptions);
@@ -162,6 +163,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         console.error('Error updating user:', error);
         return res.status(400).json({ error: error.message });
       }
+
+      await audit(req, session.user, {
+        category: 'security',
+        action: 'user.updated',
+        severity: 'notice',
+        targetType: 'user',
+        targetId: user_id,
+        targetLabel: data?.display_name || data?.email || null,
+        details: { changes: updatePayload },
+      });
 
       return res.status(200).json({ success: true, user: data });
     } catch (err) {

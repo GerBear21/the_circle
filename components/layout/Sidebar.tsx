@@ -16,9 +16,13 @@ import {
   Wallet,
   Coins,
   BarChart3,
-  Archive,
   ClipboardList,
   ShieldCheck,
+  ShieldAlert,
+  ScrollText,
+  ServerCog,
+  MousePointerClick,
+  Gauge,
   Timer,
   FormInput,
   GitBranch,
@@ -76,7 +80,7 @@ const navSections: NavSection[] = [
       },
       {
         href: '/requests/history',
-        label: 'Request History',
+        label: 'History & Archives',
         icon: <History {...iconProps} />,
       },
       {
@@ -142,20 +146,56 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    title: 'Reporting and Archives',
+    title: 'Audit',
     items: [
       {
-        href: '/archive',
-        label: 'Archives',
-        requiredPermissions: ['archives.view_own', 'archives.view_all'],
+        href: '/audit',
+        label: 'Audit Dashboard',
+        requiredPermissions: ['audit.view_dashboard', 'admin.audit_logs'],
         requireAny: true,
-        icon: <Archive {...iconProps} />,
+        icon: <Gauge {...iconProps} />,
       },
       {
-        href: '/archive/audit',
-        label: 'Audit Trail and Compliance',
-        requiredPermissions: ['admin.audit_logs'],
+        href: '/audit/logs',
+        label: 'Immutable Logs',
+        requiredPermissions: ['audit.view_logs', 'admin.audit_logs'],
+        requireAny: true,
+        icon: <ScrollText {...iconProps} />,
+      },
+      {
+        href: '/audit/security',
+        label: 'Security Events',
+        requiredPermissions: ['audit.view_logs', 'admin.audit_logs'],
+        requireAny: true,
+        icon: <ShieldAlert {...iconProps} />,
+      },
+      {
+        href: '/audit/system',
+        label: 'System Events',
+        requiredPermissions: ['audit.view_logs', 'admin.audit_logs'],
+        requireAny: true,
+        icon: <ServerCog {...iconProps} />,
+      },
+      {
+        href: '/audit/activity',
+        label: 'User Activity',
+        requiredPermissions: ['audit.view_logs', 'admin.audit_logs'],
+        requireAny: true,
+        icon: <MousePointerClick {...iconProps} />,
+      },
+      {
+        href: '/audit/transactions',
+        label: 'Transactions & Workflows',
+        requiredPermissions: ['audit.view_logs', 'admin.audit_logs'],
+        requireAny: true,
         icon: <ClipboardList {...iconProps} />,
+      },
+      {
+        href: '/audit/reports',
+        label: 'Audit Reports',
+        requiredPermissions: ['audit.export', 'admin.audit_logs'],
+        requireAny: true,
+        icon: <BarChart3 {...iconProps} />,
       },
     ],
   },
@@ -211,7 +251,7 @@ interface SidebarProps {
 export default function Sidebar({ isOpen, onClose, collapsed = false, onToggleCollapse }: SidebarProps) {
   const router = useRouter();
   const { hasPermission, hasAnyPermission, hasAllPermissions, loading: rbacLoading } = useRBAC();
-  const [expandedSections, setExpandedSections] = useState<string[]>(['Requests', 'Finance', 'Reporting and Archives', 'Administrator']);
+  const [expandedSections, setExpandedSections] = useState<string[]>(['Requests', 'Finance', 'Audit', 'Administrator']);
   const navRef = useRef<HTMLElement>(null);
 
   // Preserve the nav scroll position across page navigations. The sidebar

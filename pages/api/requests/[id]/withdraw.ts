@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]';
 import { ApprovalEngine } from '@/lib/approvalEngine';
+import { audit } from '@/lib/auditLog';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -23,6 +24,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const result = await ApprovalEngine.withdrawRequest(id, userId);
+
+    await audit(req, session.user, {
+      category: 'workflow',
+      action: 'request.withdrawn',
+      severity: 'notice',
+      outcome: result.success ? 'success' : 'failure',
+      targetType: 'request',
+      targetId: id,
+      requestId: id,
+      details: result.success ? {} : { error: result.error },
+    });
 
     if (!result.success) {
       return res.status(400).json({ error: result.error });

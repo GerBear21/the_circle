@@ -6,6 +6,7 @@ import { generateReferenceCode } from '@/lib/requestCode';
 import { createCapexTrackerRow } from '@/lib/capexTrackerHooks';
 import { getUserRBACProfile, hasPermission } from '@/lib/rbac';
 import { getUserAccessScope, scopeForResponse, AccessScope } from '@/lib/accessScope';
+import { audit } from '@/lib/auditLog';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -417,6 +418,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           console.error('Failed to create watcher notifications:', notifError);
         }
       }
+
+      await audit(req, session.user, {
+        category: 'transaction',
+        action: 'request.created',
+        targetType: 'request',
+        targetId: data.id,
+        targetLabel: title,
+        requestId: data.id,
+        details: { requestType: requestType || null, status: data.status },
+      });
 
       return res.status(201).json({ request: data });
     }

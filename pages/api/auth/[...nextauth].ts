@@ -3,6 +3,7 @@ import AzureADProvider from "next-auth/providers/azure-ad";
 import CredentialsProvider from "next-auth/providers/credentials";
 import argon2 from "argon2";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
+import { recordAuditEvent } from "../../../lib/auditLog";
 
 // DEMO MODE — staging only. When DEMO_MODE=true (set ONLY on the staging
 // deployment, never in production) we additionally enable an email/password
@@ -394,6 +395,31 @@ export const authOptions: NextAuthOptions = {
         return baseUrl + '/dashboard';
       }
       return url;
+    },
+  },
+
+  // Immutable security audit trail for authentication lifecycle events.
+  events: {
+    async signIn({ user, account }) {
+      await recordAuditEvent({
+        category: "security",
+        action: "auth.login",
+        severity: "notice",
+        actor: { email: user?.email || null, name: user?.name || null },
+        details: { provider: account?.provider || "unknown" },
+      });
+    },
+    async signOut({ token }) {
+      await recordAuditEvent({
+        category: "security",
+        action: "auth.logout",
+        organizationId: (token as any)?.org_id || null,
+        actor: {
+          id: (token as any)?.user_id || null,
+          email: (token as any)?.email || null,
+          name: (token as any)?.name || null,
+        },
+      });
     },
   },
 };
