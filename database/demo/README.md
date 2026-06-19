@@ -97,8 +97,8 @@ update demo_users set is_active = true  where email = 'fm@rtg.demo';  -- re-enab
 
 ### Change a password
 ```bash
-# from the repo root — generates an argon2 hash
-node -e "require('argon2').hash(process.argv[1]).then(h=>console.log(h))" 'NewPassword123!'
+# from the repo root — generates a scrypt hash (same format as lib/demoPassword.ts)
+node -e "const c=require('crypto');const s=c.randomBytes(16);const k=c.scryptSync(process.argv[1],s,32,{N:16384,r:8,p:1});console.log('scrypt\$16384\$8\$1\$'+s.toString('base64')+'\$'+k.toString('base64'))" 'NewPassword123!'
 ```
 ```sql
 -- on The Circle staging, paste the hash
@@ -151,7 +151,7 @@ on conflict (organization_id, azure_oid) do nothing;
 
 **Step 3 — Add the login** (project `kidreqxqapouxndqomdp`):
 ```bash
-node -e "require('argon2').hash(process.argv[1]).then(h=>console.log(h))" 'Demo@2026!'
+node -e "const c=require('crypto');const s=c.randomBytes(16);const k=c.scryptSync(process.argv[1],s,32,{N:16384,r:8,p:1});console.log('scrypt\$16384\$8\$1\$'+s.toString('base64')+'\$'+k.toString('base64'))" 'Demo@2026!'
 ```
 ```sql
 insert into public.demo_users (email, password_hash, display_name)

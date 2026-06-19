@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
-import argon2 from 'argon2';
+import { hashDemoPassword } from '@/lib/demoPassword';
 import { authOptions } from '../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { hrimsClient } from '@/lib/hrimsClient';
@@ -195,7 +195,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // ---- 4. demo_users login ------------------------------------------------
-    const passwordHash = await argon2.hash(password);
+    const passwordHash = await hashDemoPassword(password);
     const { error: duErr } = await supabaseAdmin
       .from('demo_users')
       .upsert(
