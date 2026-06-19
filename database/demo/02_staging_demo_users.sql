@@ -12,10 +12,16 @@
 --   * revoke an account: update demo_users set is_active = false where ...
 --   * change a password: update demo_users set password_hash = '...' where ...
 --
--- The seeded password for every account below is:  Demo@2026!
--- (Node scrypt hash; change it before any real audience sees this. We use scrypt
---  rather than argon2 because argon2's native build is not bundled by Vercel's
---  serverless runtime — see lib/demoPassword.ts.)
+-- The password hash below corresponds to:  Demo@2026!
+-- (Node scrypt hash. We use scrypt rather than argon2 because argon2's native
+--  build is not bundled by Vercel's serverless runtime — see lib/demoPassword.ts.)
+--
+-- ⚠ SECURITY: this repo is PUBLIC, so the password above must be treated as
+-- compromised. The LIVE staging accounts have been rotated to a secret password
+-- that is NOT stored in this repo. Do NOT re-run this seed against live staging
+-- (or CI's shared staging) without first replacing the hash, or you will reset
+-- every account back to the public Demo@2026!. For CI/CD, generate the hash from
+-- a password held in a CI secret (see README "Change a password").
 -- ============================================================================
 
 create table if not exists public.demo_users (

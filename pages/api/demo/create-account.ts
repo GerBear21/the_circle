@@ -4,7 +4,7 @@ import { hashDemoPassword } from '@/lib/demoPassword';
 import { authOptions } from '../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { hrimsClient } from '@/lib/hrimsClient';
-import { assignRoleToUser } from '@/lib/rbac';
+import { assignRoleToUser, getUserRBACProfile, hasPermission, PERMISSIONS } from '@/lib/rbac';
 
 const DEMO_MODE = process.env.DEMO_MODE === 'true';
 const DEMO_EMAIL_DOMAIN = 'rtg.demo';
@@ -14,10 +14,13 @@ const DEFAULT_PASSWORD = 'Demo@2026!';
  * DEMO-ONLY endpoint. Creates a complete demo persona in one shot:
  *   1. HRIMS employee + organogram position (so the CAPEX form auto-detects them)
  *   2. app_users row (identity + assignable approver)
- *   3. demo_users login (email + argon2 password)
+ *   3. demo_users login (email + scrypt password)
  *   4. (optional) an RBAC role assignment
  *
- * Hard-gated by DEMO_MODE so it cannot run in production.
+ * Hard-gated by DEMO_MODE so it cannot run in production. Additionally gated by
+ * RBAC: the caller must hold users.create (and users.assign_roles to assign a
+ * role), so a signed-in low-privilege demo user cannot self-provision a new —
+ * potentially privileged — account through this endpoint.
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!DEMO_MODE) {
@@ -56,6 +59,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (!firstName || !lastName || !jobTitle) {
       return res.status(400).json({ error: 'First name, last name and position title are required.' });
+    }
+
+    // Privilege gate (defence in depth, on top of DEMO_MODE). Provisioning a
+    // demo persona creates a real, loginable account; assigning a role can grant
+    // elevated permissions. Restrict both to callers who already hold those
+    // permissions (super admins pass automatically via hasPermission).
+    const rbac = await getUserRBACProfile(session.user.id);
+    if (!hasPermission(rbac, PERMISSIONS.USERS_CREATE)) {
+      return res.status(403).json({ error: 'You do not have permission to create demo accounts.' });
+    }
+    if (appRoleId && !hasPermission(rbac, PERMISSIONS.USERS_ASSIGN_ROLES)) {
+      return res.status(403).json({ error: 'You do not have permission to assign roles to demo accounts.' });
     }
 
     // Derive email + password (admin can override email)
