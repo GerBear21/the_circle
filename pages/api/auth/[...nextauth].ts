@@ -1,7 +1,7 @@
 import NextAuth, { NextAuthOptions } from "next-auth";
 import AzureADProvider from "next-auth/providers/azure-ad";
 import CredentialsProvider from "next-auth/providers/credentials";
-import argon2 from "argon2";
+import { verifyDemoPassword } from "../../../lib/demoPassword";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { recordAuditEvent } from "../../../lib/auditLog";
 
@@ -76,14 +76,8 @@ if (DEMO_MODE) {
 
         if (demoErr || !demo || demo.is_active === false) return null;
 
-        // 2. Verify the password against the stored argon2 hash
-        let valid = false;
-        try {
-          valid = await argon2.verify(demo.password_hash, password);
-        } catch (err) {
-          console.error("Demo authorize: argon2 verify failed", err);
-          valid = false;
-        }
+        // 2. Verify the password against the stored scrypt hash
+        const valid = await verifyDemoPassword(demo.password_hash, password);
         if (!valid) return null;
 
         // 3. Link to the app_users row (seeded with a matching email). This row

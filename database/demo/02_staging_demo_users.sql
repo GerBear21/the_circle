@@ -8,12 +8,14 @@
 -- in staging; production never has this table and never registers the provider.
 --
 -- You control access entirely by editing rows here (no redeploy needed):
---   * add an account:    insert a row (hash a password with argon2 — see README)
+--   * add an account:    insert a row (hash a password with scrypt — see README)
 --   * revoke an account: update demo_users set is_active = false where ...
 --   * change a password: update demo_users set password_hash = '...' where ...
 --
 -- The seeded password for every account below is:  Demo@2026!
--- (argon2id hash; change it before any real audience sees this.)
+-- (Node scrypt hash; change it before any real audience sees this. We use scrypt
+--  rather than argon2 because argon2's native build is not bundled by Vercel's
+--  serverless runtime — see lib/demoPassword.ts.)
 -- ============================================================================
 
 create table if not exists public.demo_users (
@@ -30,15 +32,15 @@ create table if not exists public.demo_users (
 alter table public.demo_users enable row level security;
 
 insert into public.demo_users (email, password_hash, display_name) values
-  ('ceo@rtg.demo',          '$argon2id$v=19$m=65536,t=3,p=4$YJHnPSbAW/UP5feMTkB+6Q$sixkIpBLESTk2sXPZJwfHqr7GRF86WhygQsuBk4MugM', 'Tendai Chikwava'),
-  ('md@rtg.demo',           '$argon2id$v=19$m=65536,t=3,p=4$YJHnPSbAW/UP5feMTkB+6Q$sixkIpBLESTk2sXPZJwfHqr7GRF86WhygQsuBk4MugM', 'Rumbidzai Madziva'),
-  ('fd@rtg.demo',           '$argon2id$v=19$m=65536,t=3,p=4$YJHnPSbAW/UP5feMTkB+6Q$sixkIpBLESTk2sXPZJwfHqr7GRF86WhygQsuBk4MugM', 'Farai Moyo'),
-  ('fm@rtg.demo',           '$argon2id$v=19$m=65536,t=3,p=4$YJHnPSbAW/UP5feMTkB+6Q$sixkIpBLESTk2sXPZJwfHqr7GRF86WhygQsuBk4MugM', 'Chipo Dube'),
-  ('proc@rtg.demo',  '$argon2id$v=19$m=65536,t=3,p=4$YJHnPSbAW/UP5feMTkB+6Q$sixkIpBLESTk2sXPZJwfHqr7GRF86WhygQsuBk4MugM', 'Tatenda Sibanda'),
-  ('proj@rtg.demo',     '$argon2id$v=19$m=65536,t=3,p=4$YJHnPSbAW/UP5feMTkB+6Q$sixkIpBLESTk2sXPZJwfHqr7GRF86WhygQsuBk4MugM', 'Kudakwashe Nyathi'),
-  ('chod@rtg.demo', '$argon2id$v=19$m=65536,t=3,p=4$YJHnPSbAW/UP5feMTkB+6Q$sixkIpBLESTk2sXPZJwfHqr7GRF86WhygQsuBk4MugM', 'Nomsa Khumalo'),
-  ('it@rtg.demo',    '$argon2id$v=19$m=65536,t=3,p=4$YJHnPSbAW/UP5feMTkB+6Q$sixkIpBLESTk2sXPZJwfHqr7GRF86WhygQsuBk4MugM', 'Brian Chari'),
-  ('rudo@rtg.demo',    '$argon2id$v=19$m=65536,t=3,p=4$YJHnPSbAW/UP5feMTkB+6Q$sixkIpBLESTk2sXPZJwfHqr7GRF86WhygQsuBk4MugM', 'Rudo Chasi')
+  ('ceo@rtg.demo',          'scrypt$16384$8$1$NE75SyOvapxcqISr9vjOPg==$p8h6A/5S7Tj4Ol+L+Q885JhvrfNMwHVvmkGVrHKsHoA=', 'Tendai Chikwava'),
+  ('md@rtg.demo',           'scrypt$16384$8$1$NE75SyOvapxcqISr9vjOPg==$p8h6A/5S7Tj4Ol+L+Q885JhvrfNMwHVvmkGVrHKsHoA=', 'Rumbidzai Madziva'),
+  ('fd@rtg.demo',           'scrypt$16384$8$1$NE75SyOvapxcqISr9vjOPg==$p8h6A/5S7Tj4Ol+L+Q885JhvrfNMwHVvmkGVrHKsHoA=', 'Farai Moyo'),
+  ('fm@rtg.demo',           'scrypt$16384$8$1$NE75SyOvapxcqISr9vjOPg==$p8h6A/5S7Tj4Ol+L+Q885JhvrfNMwHVvmkGVrHKsHoA=', 'Chipo Dube'),
+  ('proc@rtg.demo',  'scrypt$16384$8$1$NE75SyOvapxcqISr9vjOPg==$p8h6A/5S7Tj4Ol+L+Q885JhvrfNMwHVvmkGVrHKsHoA=', 'Tatenda Sibanda'),
+  ('proj@rtg.demo',     'scrypt$16384$8$1$NE75SyOvapxcqISr9vjOPg==$p8h6A/5S7Tj4Ol+L+Q885JhvrfNMwHVvmkGVrHKsHoA=', 'Kudakwashe Nyathi'),
+  ('chod@rtg.demo', 'scrypt$16384$8$1$NE75SyOvapxcqISr9vjOPg==$p8h6A/5S7Tj4Ol+L+Q885JhvrfNMwHVvmkGVrHKsHoA=', 'Nomsa Khumalo'),
+  ('it@rtg.demo',    'scrypt$16384$8$1$NE75SyOvapxcqISr9vjOPg==$p8h6A/5S7Tj4Ol+L+Q885JhvrfNMwHVvmkGVrHKsHoA=', 'Brian Chari'),
+  ('rudo@rtg.demo',    'scrypt$16384$8$1$NE75SyOvapxcqISr9vjOPg==$p8h6A/5S7Tj4Ol+L+Q885JhvrfNMwHVvmkGVrHKsHoA=', 'Rudo Chasi')
 on conflict (email) do update
   set password_hash = excluded.password_hash,
       display_name  = excluded.display_name,
