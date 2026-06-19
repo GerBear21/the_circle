@@ -122,13 +122,43 @@ jobs:
           HRIMS_SUPABASE_URL: https://placeholder.supabase.co
           HRIMS_SUPABASE_SERVICE_ROLE_KEY: placeholder
 
-  # ─────────────────────────────────────────────────────────────
-  # Deployment is intentionally NOT done here. Vercel's Git
-  # integration deploys automatically on push:
-  #   • develop → staging (preview env vars, DEMO_MODE on)
-  #   • main    → production
-  # To gate deploys on these CI checks instead, you would move
-  # deployment back into this workflow (amondnet/vercel-action with
-  # VERCEL_TOKEN / VERCEL_ORG_ID / VERCEL_PROJECT_ID secrets) AND
-  # turn off Vercel's auto-deploy to avoid double deployments.
-  # ─────────────────────────────────────────────────────────────
+  # ═══════════════════════════════════════════════════════════
+  # JOB 5 — Deploy to PRODUCTION (gated)
+  # Runs only on push to main, AFTER build passes, and pauses for
+  # manual approval via the GitHub "production" environment
+  # (configure Required reviewers on that environment).
+  #
+  # Vercel's native auto-deploy for main is disabled in vercel.json
+  # (git.deploymentEnabled.main = false), so this is the ONLY path
+  # to production — no double deploys. Staging still auto-deploys
+  # from develop via Vercel's Git integration (not gated here).
+  # ═══════════════════════════════════════════════════════════
+  deploy-production:
+    name: Deploy → Production
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: production
+      url: https://the-circle-approvals.vercel.app  # update when custom domain is ready
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Vercel CLI
+        run: npm i -g vercel@latest
+
+      - name: Pull Vercel production environment
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build (production)
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy prebuilt to production
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
