@@ -6,7 +6,7 @@ import { generateReferenceCode } from '@/lib/requestCode';
 import { createCapexTrackerRow } from '@/lib/capexTrackerHooks';
 import { getUserRBACProfile, hasPermission, PERMISSIONS } from '@/lib/rbac';
 import { getUserAccessScope, scopeForResponse, AccessScope } from '@/lib/accessScope';
-import { audit } from '@/lib/auditLog';
+import { audit, auditApiError } from '@/lib/auditLog';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -449,6 +449,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error: any) {
     console.error('Requests API error:', error);
+    await auditApiError(req, 'system.error.requests_api', error);
     return res.status(500).json({ error: error.message || 'Failed to process request' });
   }
 }

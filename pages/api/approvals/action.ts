@@ -6,7 +6,7 @@ import { ApprovalEngine } from '@/lib/approvalEngine';
 import { getApprovalRisk, authForRisk, satisfiesAuth, type AuthenticationMethod } from '@/lib/approvalRisk';
 import { verifyStepUpForApproval } from '@/lib/stepUpToken';
 import { verifyElevationCookie, clearElevationCookie } from '@/lib/elevatedSession';
-import { audit } from '@/lib/auditLog';
+import { audit, auditApiError } from '@/lib/auditLog';
 
 /**
  * POST /api/approvals/action
@@ -328,6 +328,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   } catch (error: any) {
     console.error('Approval action error:', error);
+    await auditApiError(req, 'system.error.approval_action', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 }

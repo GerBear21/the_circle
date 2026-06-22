@@ -10,6 +10,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { audit } from '@/lib/auditLog';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const session = await getServerSession(req, res, authOptions);
@@ -34,6 +35,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       console.error('Failed to delete credential:', error);
       return res.status(500).json({ error: 'Failed to delete credential' });
     }
+    await audit(req, session.user, {
+      category: 'security',
+      action: 'security.device_removed',
+      severity: 'notice',
+      targetType: 'user',
+      targetId: userId,
+      details: { credentialId: id },
+    });
     return res.status(200).json({ success: true });
   }
 

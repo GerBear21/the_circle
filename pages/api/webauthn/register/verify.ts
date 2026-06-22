@@ -12,6 +12,7 @@ import { verifyRegistrationResponse } from '@simplewebauthn/server';
 import { authOptions } from '../../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { getRpConfig, consumeChallenge } from '@/lib/webauthn';
+import { audit } from '@/lib/auditLog';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -90,6 +91,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.error('Failed to persist biometric credential:', insertError);
     return res.status(500).json({ error: 'Failed to save credential' });
   }
+
+  // Audit: a new device/passkey was registered for this user (security event).
+  await audit(req, session.user, {
+    category: 'security',
+    action: 'security.device_registered',
+    severity: 'notice',
+    targetType: 'user',
+    targetId: userId,
+    details: {
+      deviceName: deviceName || defaultDeviceName(req),
+      deviceType: credentialDeviceType || null,
+      backedUp: credentialBackedUp || false,
+    },
+  });
 
   return res.status(200).json({ success: true });
 }
