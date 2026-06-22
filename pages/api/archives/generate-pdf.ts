@@ -136,6 +136,8 @@ export async function generateAndStoreArchive(
             approver_id,
             authentication_method,
             signature_type,
+            signature_url,
+            signature_reference,
             approver:app_users!approvals_approver_id_fkey (
               id,
               display_name,
@@ -215,9 +217,20 @@ export async function generateAndStoreArchive(
       }
     }
 
-    // Resolve signature URLs from storage for each approval
+    // Resolve the signature image to embed for each approval. A signature
+    // DRAWN at approval time is uploaded to a per-request path and stored on
+    // the approval row (signature_url / signature_reference) — that is the
+    // authoritative image and must win. Only when no drawn signature was
+    // recorded do we fall back to the approver's pre-registered (saved)
+    // signature image at signatures/<approverId>.png.
     for (const step of (request.request_steps || [])) {
       for (const approval of (step.approvals || [])) {
+        const drawn = approval.signature_url || approval.signature_reference;
+        if (typeof drawn === 'string' && drawn) {
+          approval.signature_url = drawn;
+          continue;
+        }
+        approval.signature_url = undefined;
         if (approval.approver_id) {
           const { data } = supabaseAdmin.storage.from('signatures').getPublicUrl(`${approval.approver_id}.png`);
           if (data?.publicUrl) {

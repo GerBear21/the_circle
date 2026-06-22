@@ -35,8 +35,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         const onlyApproved = req.query.onlyApproved !== 'false';
 
-        // Postgres JSONB filter — supabase-js exposes `->>` via the standard
-        // builder. We need a wildcard match on metadata.referenceCode.
+        // The user can paste either the reference code they see on the request
+        // (e.g. "CPX-…") or the request's full UUID (from the address bar).
+        // Resolve both:
+        //   - reference code -> prefix match on metadata.referenceCode
+        //   - full UUID      -> exact id match
+        const isFullUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(code);
+
         let query = supabaseAdmin
             .from('requests')
             .select(`
@@ -50,9 +55,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 creator:app_users!requests_creator_id_fkey ( id, display_name, email )
             `)
             .eq('organization_id', organizationId)
-            .ilike('metadata->>referenceCode', `${code}%`)
             .order('updated_at', { ascending: false })
             .limit(15);
+
+        if (isFullUuid) {
+            query = query.eq('id', code);
+        } else {
+            // Postgres JSONB filter — wildcard match on metadata.referenceCode.
+            query = query.ilike('metadata->>referenceCode', `${code}%`);
+        }
 
         if (onlyApproved) {
             query = query.eq('status', 'approved');

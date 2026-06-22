@@ -65,6 +65,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               decision,
               comment,
               signed_at,
+              signature_url,
+              signature_reference,
+              signature_type,
+              authentication_method,
               approver:app_users!approvals_approver_id_fkey (
                 id,
                 display_name,
