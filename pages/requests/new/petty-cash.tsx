@@ -1102,6 +1102,7 @@ export default function PettyCashRequestPage() {
                                                     onChange={(e) => updateLineItem(idx, 'description', e.target.value)}
                                                     placeholder="Describe the item"
                                                     readOnly={lineItemsLocked}
+                                                    required={!lineItemsLocked}
                                                     className={`w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm ${lineItemsLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                                                 />
                                             </td>
@@ -1109,11 +1110,12 @@ export default function PettyCashRequestPage() {
                                                 <input
                                                     type="number"
                                                     step="0.01"
-                                                    min="0"
+                                                    min="0.01"
                                                     value={row.amount}
                                                     onChange={(e) => updateLineItem(idx, 'amount', e.target.value)}
                                                     placeholder="0.00"
                                                     readOnly={lineItemsLocked}
+                                                    required={!lineItemsLocked}
                                                     className={`w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm text-right ${lineItemsLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                                                 />
                                             </td>

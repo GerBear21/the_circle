@@ -7,7 +7,7 @@ import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { sendAppGraphMail } from '../../../../lib/graphAppMail';
 import { sendGraphMail } from '../../../../lib/graphMail';
 
-const OTP_TTL_MINUTES = 5;
+const OTP_TTL_MINUTES = 10;
 const MAX_ATTEMPTS = 5;
 
 const hashOtp = (otp: string) => createHash('sha256').update(otp).digest('hex');
@@ -90,13 +90,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: 'The clerk must be a different person from the requestor.' });
       }
 
-      // Resolve the clerk to an in-app user (same org) for the in-app notification.
+      // Resolve the clerk to an in-app user (same org). The one-time code is
+      // delivered to the clerk's in-app notifications, so the clerk MUST be a
+      // registered system user — the UI presents a picker of existing users
+      // for exactly this reason. (Email is an optional extra channel below.)
       const { data: clerkUser } = await supabaseAdmin
         .from('app_users')
         .select('id, display_name, email')
         .eq('organization_id', organizationId)
         .ilike('email', clerkEmailRaw)
         .maybeSingle();
+
+      if (!clerkUser?.id) {
+        return res.status(400).json({
+          error: 'The accounts clerk must be a registered system user. Please pick them from the list of users.',
+        });
+      }
 
       const otp = String(randomInt(0, 1_000_000)).padStart(6, '0');
       const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60_000).toISOString();
@@ -172,28 +181,46 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         console.error('cash-receipt email failed:', e);
       }
 
-      // In-app notification to the clerk if they are a system user.
-      if (clerkUser?.id) {
-        try {
-          await supabaseAdmin.from('notifications').insert({
-            organization_id: organizationId,
-            recipient_id: clerkUser.id,
-            sender_id: userId,
-            type: 'info',
-            title: 'Petty Cash One-Time Code',
-            message: `${requestorName} is collecting ${amountLabel}. Your one-time code is ${otp}. Share it only when handing over the cash. Expires in ${OTP_TTL_MINUTES} min.`,
-            metadata: { request_id: requestId, request_type: 'petty_cash', cash_receipt_confirmation_id: created.id },
-            is_read: false,
-          });
-        } catch (e) {
-          console.error('cash-receipt in-app notification failed:', e);
-        }
+      // In-app notification to the clerk — this is the primary delivery
+      // channel. The clerk reads the code from their in-app notifications.
+      let inAppSent = false;
+      try {
+        const { error: notifErr } = await supabaseAdmin.from('notifications').insert({
+          organization_id: organizationId,
+          recipient_id: clerkUser.id,
+          sender_id: userId,
+          type: 'info',
+          title: 'Petty Cash One-Time Code',
+          message: `${requestorName} is collecting ${amountLabel}. Your one-time code is ${otp}. Share it only when handing over the cash. Expires in ${OTP_TTL_MINUTES} min.`,
+          metadata: { request_id: requestId, request_type: 'petty_cash', cash_receipt_confirmation_id: created.id },
+          is_read: false,
+        });
+        inAppSent = !notifErr;
+        if (notifErr) console.error('cash-receipt in-app notification failed:', notifErr);
+      } catch (e) {
+        console.error('cash-receipt in-app notification failed:', e);
+      }
+
+      // If the code could not be delivered by ANY channel, don't leave a live
+      // pending confirmation behind (that's what made the UI prompt the
+      // requestor to "Confirm cash received" after a delivery failure). Roll
+      // the record back and report the failure.
+      if (!inAppSent && !emailSent) {
+        await supabaseAdmin
+          .from('cash_receipt_confirmations')
+          .update({ status: 'cancelled' })
+          .eq('id', created.id);
+        return res.status(502).json({
+          error: `Could not deliver the one-time code to ${clerkUser.display_name || clerkEmailRaw}.${emailError ? ` (${emailError})` : ''} Please try again.`,
+        });
       }
 
       return res.status(201).json({
         confirmationId: created.id,
         clerkEmail: clerkEmailRaw,
-        clerkFound: !!clerkUser?.id,
+        clerkName: clerkUser.display_name || null,
+        clerkFound: true,
+        inAppSent,
         emailSent,
         emailError: emailSent ? undefined : emailError,
         expiresAt,
