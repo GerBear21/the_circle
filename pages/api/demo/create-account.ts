@@ -5,6 +5,7 @@ import { authOptions } from '../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { hrimsClient } from '@/lib/hrimsClient';
 import { assignRoleToUser, getUserRBACProfile, hasPermission, PERMISSIONS } from '@/lib/rbac';
+import { withRateLimit } from '@/lib/rateLimit';
 
 const DEMO_MODE = process.env.DEMO_MODE === 'true';
 const DEMO_EMAIL_DOMAIN = 'rtg.demo';
@@ -22,7 +23,7 @@ const DEFAULT_PASSWORD = 'Demo@2026!';
  * role), so a signed-in low-privilege demo user cannot self-provision a new —
  * potentially privileged — account through this endpoint.
  */
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!DEMO_MODE) {
     return res.status(403).json({ error: 'Demo mode is not enabled in this environment.' });
   }
@@ -240,3 +241,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ error: err.message || 'Failed to create demo account' });
   }
 }
+
+// Cap demo-account provisioning per client to prevent bulk abuse.
+export default withRateLimit(
+  { name: 'demo-create-account', max: 30, windowSeconds: 600 },
+  handler
+);

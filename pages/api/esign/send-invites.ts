@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "../auth/[...nextauth]";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { sendGraphMail, getSignInviteEmailHtml } from "../../../lib/graphMail";
+import { withRateLimit } from "../../../lib/rateLimit";
 
 export const config = {
   api: {
@@ -30,7 +31,7 @@ interface SendInvitesBody {
 
 const BUCKET = "esign-documents";
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
     return res.status(405).json({ message: "Method not allowed" });
   }
@@ -212,3 +213,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     sender: requesterEmail,
   });
 }
+
+// Cap outbound-invite sending to curb email-abuse from any single client.
+export default withRateLimit(
+  { name: "esign-invite", max: 20, windowSeconds: 600 },
+  handler
+);
