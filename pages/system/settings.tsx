@@ -3,7 +3,7 @@ import Head from 'next/head';
 import { GetServerSideProps } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../api/auth/[...nextauth]';
-import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { signatureExists, userSignaturePath, userSignatureProxyUrl } from '@/lib/signatureStorage';
 import { AppLayout } from '@/components/layout';
 import { Card, Button } from '@/components/ui';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
@@ -62,10 +62,9 @@ export const getServerSideProps: GetServerSideProps<SettingsProps> = async (cont
   let initialSignatureUrl: string | null = null;
 
   try {
-    if (userId) {
-      const { data } = supabaseAdmin.storage.from('signatures').getPublicUrl(`${userId}.png`);
-      const res = await fetch(data.publicUrl, { method: 'HEAD' });
-      if (res.ok) initialSignatureUrl = `${data.publicUrl}?t=${Date.now()}`;
+    if (userId && (await signatureExists(userSignaturePath(userId)))) {
+      // Private bucket: render through the authenticated proxy.
+      initialSignatureUrl = userSignatureProxyUrl(userId);
     }
   } catch (e) {
     // No signature found
@@ -163,31 +162,14 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
     setSaved(false);
   };
 
-  // Load profile picture
+  // Load profile picture from the user's stored URL (set on upload and on MS
+  // login). No storage probing — if there's no URL, there's no picture.
   useEffect(() => {
-    if (user?.id) {
-      if (user.profile_picture_url) {
-        const url = user.profile_picture_url;
-        setProfilePhoto(url.includes('?') ? url : `${url}?t=${Date.now()}`);
-      } else {
-        fetchProfilePictureFromStorage(user.id);
-      }
+    if (user?.id && user.profile_picture_url) {
+      const url = user.profile_picture_url;
+      setProfilePhoto(url.includes('?') ? url : `${url}?t=${Date.now()}`);
     }
   }, [user]);
-
-  const fetchProfilePictureFromStorage = async (userId: string) => {
-    try {
-      for (const ext of ['png', 'jpg', 'jpeg', 'webp']) {
-        const { data } = supabaseAdmin.storage.from('profile_pictures').getPublicUrl(`${userId}.${ext}`);
-        try {
-          const res = await fetch(data.publicUrl, { method: 'HEAD' });
-          if (res.ok) { setProfilePhoto(`${data.publicUrl}?t=${Date.now()}`); return; }
-        } catch {}
-      }
-    } catch (err) {
-      console.error('Error fetching profile picture from storage', err);
-    }
-  };
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

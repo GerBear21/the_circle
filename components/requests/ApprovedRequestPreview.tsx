@@ -100,9 +100,8 @@ function humaniseKey(key: string): string {
 // `request_steps` payload lands, no extra round-trip required.
 function savedSignatureUrlForApprover(approverId?: string | null): string | null {
     if (!approverId) return null;
-    const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    if (!base) return null;
-    return `${base.replace(/\/$/, '')}/storage/v1/object/public/signatures/${approverId}.png`;
+    // Private bucket: render the saved signature through the authenticated proxy.
+    return `/api/signature/view?userId=${encodeURIComponent(approverId)}`;
 }
 
 // Resolve the signature image to render for an approval. A signature that was

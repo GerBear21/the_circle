@@ -6,7 +6,29 @@ import { ApprovalEngine } from '@/lib/approvalEngine';
 import { getApprovalRisk, authForRisk, satisfiesAuth, type AuthenticationMethod } from '@/lib/approvalRisk';
 import { verifyStepUpForApproval } from '@/lib/stepUpToken';
 import { verifyElevationCookie, clearElevationCookie } from '@/lib/elevatedSession';
-import { audit, auditApiError } from '@/lib/auditLog';
+import { audit } from '@/lib/auditLog';
+import {
+  SIGNATURE_BUCKET,
+  signatureExists,
+  userSignaturePath,
+  userSignatureProxyUrl,
+  pathSignatureProxyUrl,
+} from '@/lib/signatureStorage';
+import { validateBody, z } from '@/lib/validate';
+
+const ActionSchema = z.object({
+  requestId: z.string().uuid(),
+  stepId: z.string().uuid(),
+  action: z.string().min(1).max(40),
+  comment: z.string().max(5000).optional().nullable(),
+  signatureType: z.enum(['saved', 'manual', 'typed']).optional(),
+  signatureData: z.string().max(2_000_000).optional().nullable(),
+  stepUpToken: z.string().max(4096).optional().nullable(),
+  authMethod: z.string().max(40).optional().nullable(),
+  deviceInfo: z.record(z.any()).optional().nullable(),
+  costAllocation: z.record(z.any()).optional().nullable(),
+  allocationType: z.string().max(60).optional().nullable(),
+}).strip();
 
 /**
  * POST /api/approvals/action
@@ -36,6 +58,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const userId = session.user.id as string;
+
+    const parsedBody = validateBody(req, res, ActionSchema);
+    if (!parsedBody) return;
     const {
       requestId,
       stepId,
@@ -49,7 +74,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       deviceInfo,            // { userAgent, platform, screen } — opaque JSONB
       costAllocation,        // HR Director travel_authorization cost allocation
       allocationType,        // HR Director comp-booking category (hotel bookings only)
-    } = req.body ?? {};
+    } = parsedBody;
 
     // Typed signatures are disallowed organisation-wide. Reject them at the
     // boundary so old clients that still send `typed` get a clear error
@@ -174,17 +199,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           signatureReference = uploaded;
         }
       } else {
-        // Default: use the user's saved signature from the signatures bucket.
-        const { data } = supabaseAdmin.storage.from('signatures').getPublicUrl(`${userId}.png`);
-        try {
-          const checkRes = await fetch(data.publicUrl, { method: 'HEAD' });
-          if (checkRes.ok) {
-            signatureUrl = data.publicUrl;
-            signatureReference = data.publicUrl;
-            resolvedSignatureType = resolvedSignatureType || 'saved';
-          }
-        } catch (err) {
-          console.warn('Could not verify saved signature exists:', err);
+        // Default: use the user's saved signature from the private bucket.
+        // Existence is checked via the service role; the persisted reference is
+        // the authenticated proxy URL (no public URLs).
+        if (await signatureExists(userSignaturePath(userId))) {
+          signatureUrl = userSignatureProxyUrl(userId);
+          signatureReference = signatureUrl;
+          resolvedSignatureType = resolvedSignatureType || 'saved';
         }
       }
     }
@@ -285,7 +306,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       stepId,
       userId,
       action,
-      comment,
+      comment ?? undefined,
       signatureUrl || undefined,
       {
         signatureType: resolvedSignatureType,
@@ -328,7 +349,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   } catch (error: any) {
     console.error('Approval action error:', error);
-    await auditApiError(req, 'system.error.approval_action', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 }
@@ -402,7 +422,7 @@ async function uploadManualSignature(
     const buffer = Buffer.from(match[2], 'base64');
     const path = `manual/${userId}/${requestId}/${stepId}.${ext === 'jpeg' ? 'jpg' : ext}`;
     const { error } = await supabaseAdmin.storage
-      .from('signatures')
+      .from(SIGNATURE_BUCKET)
       .upload(path, buffer, {
         contentType: `image/${ext}`,
         upsert: true,
@@ -411,8 +431,8 @@ async function uploadManualSignature(
       console.error('Failed to upload manual signature:', error);
       return null;
     }
-    const { data } = supabaseAdmin.storage.from('signatures').getPublicUrl(path);
-    return data.publicUrl;
+    // Private bucket: persist the authenticated proxy URL for this object path.
+    return pathSignatureProxyUrl(path);
   } catch (err) {
     console.error('uploadManualSignature error:', err);
     return null;
