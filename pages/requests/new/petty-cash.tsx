@@ -76,7 +76,7 @@ export default function PettyCashRequestPage() {
         dateOfIntendedTravel?: string;
     } | null>(null);
 
-    const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
     const todayISO = new Date().toISOString().split('T')[0];
 
     const [formData, setFormData] = useState({
@@ -914,6 +914,11 @@ export default function PettyCashRequestPage() {
         }] : []),
     ];
 
+    const unsavedPrompt = useUnsavedChangesPrompt({
+        isDirty,
+        disabled: loading || savingDraft,
+    });
+
     if (status === 'loading' || loadingRequest) {
         return (
             <AppLayout title="Petty Cash" showBack onBack={() => router.back()}>
@@ -925,11 +930,6 @@ export default function PettyCashRequestPage() {
     }
 
     if (!session) return null;
-
-    const unsavedPrompt = useUnsavedChangesPrompt({
-        isDirty,
-        disabled: loading || savingDraft,
-    });
 
     const pageTitle = isApproverEditing
         ? 'Edit Petty Cash Request (Approver)'
@@ -959,7 +959,7 @@ export default function PettyCashRequestPage() {
                     {isApproverEditing && (
                         <div className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-primary-50 border border-primary-200 rounded-xl">
                             <svg className="w-4 h-4 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                             </svg>
                             <span className="text-sm font-medium text-primary-700">Editing as Approver — Changes will be tracked</span>
                         </div>
@@ -978,7 +978,7 @@ export default function PettyCashRequestPage() {
                         <Card className="p-5 bg-emerald-50 border-emerald-200">
                             <div className="flex items-start gap-3">
                                 <svg className="w-5 h-5 text-emerald-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                                 </svg>
                                 <div className="flex-1 min-w-0">
                                     <h3 className="font-semibold text-emerald-900">Linked Travel Authorization</h3>
@@ -1038,13 +1038,14 @@ export default function PettyCashRequestPage() {
                             required
                         />
                         <div className="mt-4">
-                            <Input
-                                type="date"
-                                label="Date"
-                                value={formData.receiptDate}
-                                onChange={(e) => setFormData({ ...formData, receiptDate: e.target.value })}
-                                required
-                            />
+                            <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Date</label>
+                            {/* Auto-generated and locked — the receipt date is always the
+                                day the voucher is raised and cannot be back- or forward-dated. */}
+                            <div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600">
+                                {formData.receiptDate
+                                    ? new Date(formData.receiptDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                                    : today}
+                            </div>
                         </div>
                     </Card>
 
@@ -1056,7 +1057,7 @@ export default function PettyCashRequestPage() {
                                 {lineItemsLocked && (
                                     <span className="ml-2 inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded uppercase tracking-wide">
                                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                                         </svg>
                                         Locked from travel auth
                                     </span>
@@ -1069,7 +1070,7 @@ export default function PettyCashRequestPage() {
                                     className="inline-flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-700"
                                 >
                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
                                     </svg>
                                     Add Line
                                 </button>
@@ -1078,7 +1079,7 @@ export default function PettyCashRequestPage() {
                         {lineItemsLocked && (
                             <p className="text-xs text-gray-500 mb-3">
                                 Line items, amounts and cost allocation were carried over from the approved travel
-                                authorisation and the HR Director's cost allocation. They can't be changed here.
+                                authorisation and the HR Director&apos;s cost allocation. They can&apos;t be changed here.
                             </p>
                         )}
                         <div className="overflow-x-auto">
@@ -1101,6 +1102,7 @@ export default function PettyCashRequestPage() {
                                                     onChange={(e) => updateLineItem(idx, 'description', e.target.value)}
                                                     placeholder="Describe the item"
                                                     readOnly={lineItemsLocked}
+                                                    required={!lineItemsLocked}
                                                     className={`w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm ${lineItemsLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                                                 />
                                             </td>
@@ -1108,11 +1110,12 @@ export default function PettyCashRequestPage() {
                                                 <input
                                                     type="number"
                                                     step="0.01"
-                                                    min="0"
+                                                    min="0.01"
                                                     value={row.amount}
                                                     onChange={(e) => updateLineItem(idx, 'amount', e.target.value)}
                                                     placeholder="0.00"
                                                     readOnly={lineItemsLocked}
+                                                    required={!lineItemsLocked}
                                                     className={`w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm text-right ${lineItemsLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                                                 />
                                             </td>
@@ -1138,7 +1141,7 @@ export default function PettyCashRequestPage() {
                                                     title={lineItemsLocked ? 'Locked from travel auth' : (lineItems.length === 1 ? 'At least one line is required' : 'Remove line')}
                                                 >
                                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                                                     </svg>
                                                 </button>
                                             </td>
@@ -1241,7 +1244,7 @@ export default function PettyCashRequestPage() {
                                     className="inline-flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-700 cursor-pointer"
                                 >
                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
                                     </svg>
                                     Add File
                                 </label>
@@ -1256,7 +1259,7 @@ export default function PettyCashRequestPage() {
                                     <div key={`existing-${i}`} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-gray-200 bg-gray-50">
                                         <div className="flex items-center gap-3 min-w-0">
                                             <svg className="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                             </svg>
                                             <span className="text-sm text-gray-700 truncate">{doc.name || doc.label}</span>
                                         </div>
@@ -1273,7 +1276,7 @@ export default function PettyCashRequestPage() {
                                                 className="text-gray-400 hover:text-danger-500"
                                             >
                                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                                                 </svg>
                                             </button>
                                         </div>
@@ -1320,7 +1323,7 @@ export default function PettyCashRequestPage() {
                                                 </span>
                                                 <span className="text-xs uppercase tracking-wide text-emerald-700">{l.requestType.replace(/_/g, ' ')}</span>
                                                 {l.approvedAt && (
-                                                    <span className="text-[10px] text-emerald-600">Approved {new Date(l.approvedAt).toLocaleDateString()}</span>
+                                                    <span className="text-[10px] text-emerald-600">Approved {new Date(l.approvedAt).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
                                                 )}
                                             </div>
                                             <p className="text-sm text-gray-800 truncate mt-0.5">{l.title}</p>
@@ -1332,7 +1335,7 @@ export default function PettyCashRequestPage() {
                                             title="Remove link"
                                         >
                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                                             </svg>
                                         </button>
                                     </div>
@@ -1343,7 +1346,7 @@ export default function PettyCashRequestPage() {
                         <div className="relative">
                             <div className="relative">
                                 <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                                 </svg>
                                 <input
                                     type="text"
@@ -1382,7 +1385,7 @@ export default function PettyCashRequestPage() {
                                                     <p className="text-sm text-gray-800 truncate mt-0.5">{r.title}</p>
                                                 </div>
                                                 <svg className="w-4 h-4 text-gray-400 flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
                                                 </svg>
                                             </button>
                                         ))
@@ -1404,7 +1407,7 @@ export default function PettyCashRequestPage() {
                                     <span key={w.id} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary-50 text-primary-700 text-sm border border-primary-200">
                                         {w.display_name}
                                         <button type="button" onClick={() => handleRemoveWatcher(w.id)} className="hover:text-primary-900">
-                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" /></svg>
                                         </button>
                                     </span>
                                 ))}
@@ -1413,7 +1416,7 @@ export default function PettyCashRequestPage() {
                         <div className="relative">
                             {showWatcherDropdown && <div className="fixed inset-0 z-10" onClick={() => setShowWatcherDropdown(false)} />}
                             <div className="relative">
-                                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                                 <input
                                     type="text"
                                     className="w-full pl-10 pr-4 py-2 rounded-xl border border-gray-300 bg-white focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
@@ -1453,7 +1456,7 @@ export default function PettyCashRequestPage() {
                     {/* Approval Workflow */}
                     <Card className="p-6">
                         <h3 className="font-semibold text-text-primary mb-4 flex items-center gap-2 text-lg">
-                            <svg className="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            <svg className="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                             Approval Workflow <span className="text-danger-500">*</span>
                         </h3>
                         <p className="text-sm text-text-secondary mb-4">
@@ -1461,9 +1464,9 @@ export default function PettyCashRequestPage() {
                         </p>
 
                         {loadingApproverResolution && (
-                            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-2">
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500" />
-                                <span className="text-sm text-blue-700">Resolving approvers from HRIMS organogram...</span>
+                            <div className="mb-4 p-3 bg-primary-50 border border-primary-200 rounded-xl flex items-center gap-2">
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-500" />
+                                <span className="text-sm text-primary-700">Resolving approvers from HRIMS organogram...</span>
                             </div>
                         )}
 
@@ -1503,7 +1506,7 @@ export default function PettyCashRequestPage() {
                                                             className="p-1.5 rounded-lg hover:bg-danger-50 text-gray-400 hover:text-danger-500"
                                                             title="Change approver"
                                                         >
-                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" /></svg>
                                                         </button>
                                                     </div>
                                                 ) : (
@@ -1512,7 +1515,7 @@ export default function PettyCashRequestPage() {
                                                             <p className="text-xs text-amber-600 mb-1">No user found in HRIMS for this role. Please select manually.</p>
                                                         )}
                                                         <div className="relative">
-                                                            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                                                            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                                                             <input
                                                                 type="text"
                                                                 className="w-full pl-10 pr-4 py-2 min-h-[44px] rounded-xl border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"

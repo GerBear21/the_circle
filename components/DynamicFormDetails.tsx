@@ -25,27 +25,27 @@ interface DynamicFormDetailsProps {
 const SectionIcons: Record<string, JSX.Element> = {
     building: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
         </svg>
     ),
     document: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
         </svg>
     ),
     currency: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
     ),
     user: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
         </svg>
     ),
     calendar: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
         </svg>
     ),
 };
@@ -60,7 +60,7 @@ function renderFieldValue(value: any, field: FieldConfig, metadata: Record<strin
         case 'date':
             try {
                 const date = new Date(value);
-                return <span>{date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</span>;
+                return <span>{date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>;
             } catch {
                 return <span>{value}</span>;
             }
@@ -115,7 +115,7 @@ function renderTable(items: any[], fields: FieldConfig[]): JSX.Element {
                             {fields.map(f => (
                                 <td key={f.key} className="px-3 py-2 text-gray-900">
                                     {f.type === 'date' && item[f.key] 
-                                        ? new Date(item[f.key]).toLocaleDateString('en-GB')
+                                        ? new Date(item[f.key]).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
                                         : item[f.key] || '-'}
                                 </td>
                             ))}
@@ -197,7 +197,7 @@ function renderArrayItems(items: any[], fields: FieldConfig[], config: FormTypeC
                             {bookingMadeField && item.bookingMade && (
                                 <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
                                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7" />
                                     </svg>
                                     Booking Made
                                 </span>
@@ -215,7 +215,7 @@ function renderArrayItems(items: any[], fields: FieldConfig[], config: FormTypeC
                                             <span className="text-gray-500 block">{field.label}</span>
                                             <span className="font-medium text-gray-900">
                                                 {field.type === 'date' && value
-                                                    ? new Date(value).toLocaleDateString('en-GB')
+                                                    ? new Date(value).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
                                                     : field.type === 'select' && field.options
                                                         ? field.options[value] || value
                                                         : value}
@@ -429,6 +429,62 @@ export default function DynamicFormDetails({ metadata, requestType, description 
                     </Card>
                 );
             })}
+
+            {/* Quotations & Supplier Selection — capex carries an array of
+                uploaded quotations, each with a supplier, the selected-supplier
+                flag and (for the chosen one) the selection reason. The generic
+                section renderer can't express this, so render it explicitly so
+                approvers see every supplier and justification. */}
+            {Array.isArray(metadata.quotations) && metadata.quotations.length > 0 && (
+                <Card className="!p-0 overflow-hidden border-gray-200 shadow-sm">
+                    <div className="bg-gray-50/50 px-6 py-4 border-b border-gray-100">
+                        <h3 className="font-semibold text-text-primary font-heading flex items-center gap-2">
+                            {SectionIcons.document}
+                            Quotations & Supplier Selection
+                        </h3>
+                    </div>
+                    <div className="p-6 space-y-3">
+                        {metadata.quotations.map((q: any, idx: number) => (
+                            <div
+                                key={idx}
+                                className={`p-4 rounded-xl border ${q.isSelectedSupplier ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-gray-200'}`}
+                            >
+                                <div className="flex items-center justify-between gap-2 flex-wrap">
+                                    <p className="font-semibold text-gray-900">
+                                        {q.supplierName || q.name || `Quotation ${idx + 1}`}
+                                    </p>
+                                    {q.isSelectedSupplier && (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">
+                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7" />
+                                            </svg>
+                                            Selected Supplier
+                                        </span>
+                                    )}
+                                </div>
+                                {q.description && (
+                                    <p className="text-sm text-gray-600 mt-1">{q.description}</p>
+                                )}
+                                {q.name && q.supplierName && (
+                                    <p className="text-xs text-gray-400 mt-1">File: {q.name}</p>
+                                )}
+                                {q.isSelectedSupplier && q.selectionReason && (
+                                    <div className="mt-2">
+                                        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider block">Why this supplier was selected</span>
+                                        <p className="text-sm text-gray-800 mt-0.5 whitespace-pre-wrap">{q.selectionReason}</p>
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                        {metadata.quotationReason === 'other' && metadata.quotationJustification && (
+                            <div className="p-4 rounded-xl border border-amber-200 bg-amber-50">
+                                <span className="text-xs font-semibold text-amber-800 uppercase tracking-wider block">MD Pre-Approval Reason</span>
+                                <p className="text-sm text-amber-900 mt-0.5 whitespace-pre-wrap">{metadata.quotationJustification}</p>
+                            </div>
+                        )}
+                    </div>
+                </Card>
+            )}
 
             {/* Justification Card */}
             {(metadata.justification || description) && (

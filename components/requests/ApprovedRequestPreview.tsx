@@ -53,7 +53,7 @@ function formatDate(value: any): string {
     // Accept ISO or already-formatted strings; only re-format ISO-ish dates.
     if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
         try {
-            return new Date(s).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+            return new Date(s).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
         } catch {
             return s;
         }
@@ -98,11 +98,21 @@ function humaniseKey(key: string): string {
 // the URL on the client rather than waiting for the API to enrich the
 // approval row — that way the signature appears the moment a refreshed
 // `request_steps` payload lands, no extra round-trip required.
-function signatureUrlForApprover(approverId?: string | null): string | null {
+function savedSignatureUrlForApprover(approverId?: string | null): string | null {
     if (!approverId) return null;
-    const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    if (!base) return null;
-    return `${base.replace(/\/$/, '')}/storage/v1/object/public/signatures/${approverId}.png`;
+    // Private bucket: render the saved signature through the authenticated proxy.
+    return `/api/signature/view?userId=${encodeURIComponent(approverId)}`;
+}
+
+// Resolve the signature image to render for an approval. A signature that was
+// freshly DRAWN at approval time is uploaded to a per-request path and stored
+// on the approval row (signature_url / signature_reference) — that takes
+// precedence. Only when no per-approval signature was recorded do we fall back
+// to the approver's pre-registered (saved) signature image.
+function signatureUrlForApproval(approval: any, approverId?: string | null): string | null {
+    const drawn = approval?.signature_url || approval?.signature_reference;
+    if (typeof drawn === 'string' && drawn) return drawn;
+    return savedSignatureUrlForApprover(approverId);
 }
 
 function buildApprovalSignaturesSection(request: any): PreviewSection {
@@ -143,7 +153,7 @@ function buildApprovalSignaturesSection(request: any): PreviewSection {
                                 auth === 'session' ? 'Session' :
                                 approval?.signed_at ? 'Recorded' : '—';
                             const approverId = approval?.approver?.id || approval?.approver_id || step.approver?.id;
-                            const sigUrl = approval?.signed_at ? signatureUrlForApprover(approverId) : null;
+                            const sigUrl = approval?.signed_at ? signatureUrlForApproval(approval, approverId) : null;
                             return (
                                 <tr key={step.id || i}>
                                     <td style={cellStyle}>{i + 1}</td>
@@ -859,7 +869,7 @@ export function ApprovedRequestPreviewInline({ request, className }: InlineProps
                     className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-[#5E4426] bg-[#F3EADC] border border-[#C9B896] rounded-lg hover:bg-[#E9DCC3] transition"
                 >
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
                     </svg>
                     Print / Save as PDF
                 </button>

@@ -164,7 +164,7 @@ export default function TravelAuthPage() {
     // State to track if AA rates are locked (applied from calculator)
     const [aaRatesLocked, setAaRatesLocked] = useState(false);
 
-    const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
     const todayISO = new Date().toISOString().split('T')[0];
 
     const [travelData, setTravelData] = useState<TravelData>({
@@ -927,6 +927,11 @@ export default function TravelAuthPage() {
         }
     };
 
+    const unsavedPrompt = useUnsavedChangesPrompt({
+        isDirty,
+        disabled: loading || savingDraft,
+    });
+
     if (status === 'loading' || loadingRequest) {
         return (
             <AppLayout title="Travel Authorization" showBack onBack={() => router.back()}>
@@ -938,11 +943,6 @@ export default function TravelAuthPage() {
     }
 
     if (!session) return null;
-
-    const unsavedPrompt = useUnsavedChangesPrompt({
-        isDirty,
-        disabled: loading || savingDraft,
-    });
 
     const pageTitle = isApproverEditing ? `Edit ${formKindLabel} (Approver)` : isEditMode ? `Edit ${formKindLabel}` : formKindLabel;
 
@@ -964,7 +964,7 @@ export default function TravelAuthPage() {
                     {isApproverEditing && (
                         <div className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-primary-50 border border-primary-200 rounded-xl">
                             <svg className="w-4 h-4 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                             </svg>
                             <span className="text-sm font-medium text-primary-700">Editing as Approver - Changes will be tracked</span>
                         </div>
@@ -1076,7 +1076,7 @@ export default function TravelAuthPage() {
                         <Card className="p-6 bg-red-50 border-2 border-red-300">
                             <div className="flex items-start gap-3 mb-4">
                                 <svg className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                                 </svg>
                                 <div>
                                     <h4 className="font-bold text-red-800 uppercase text-sm">Emergency Travel Request Required</h4>
@@ -1136,7 +1136,7 @@ export default function TravelAuthPage() {
                         <div className="flex items-center justify-between mb-3">
                             <h4 className="font-semibold text-gray-700 uppercase text-sm">Travel Itinerary <span className="text-danger-500">*</span></h4>
                             <button type="button" onClick={addItineraryRow} className="text-sm text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1">
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>Add Row
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" /></svg>Add Row
                             </button>
                         </div>
                         <div className="overflow-x-auto">
@@ -1213,7 +1213,7 @@ export default function TravelAuthPage() {
                                                 <td className="px-2 py-2">
                                                     {travelData.itinerary.length > 1 && (
                                                         <button type="button" onClick={() => removeItineraryRow(index)} className="text-red-500 hover:text-red-700">
-                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" /></svg>
                                                         </button>
                                                     )}
                                                 </td>
@@ -1237,7 +1237,7 @@ export default function TravelAuthPage() {
                         <Card className="p-6 bg-[#F3EADC] border border-[#C9B896]">
                             <div className="flex items-center gap-2 mb-4">
                                 <svg className="w-5 h-5 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                                 </svg>
                                 <h4 className="font-semibold text-[#3F2D19] uppercase text-sm">Travel Cost Calculator</h4>
                             </div>
@@ -1329,7 +1329,7 @@ export default function TravelAuthPage() {
 
                                 <div className="flex justify-end mt-4">
                                     <button type="button" onClick={applyAARate} className="px-4 py-2 bg-[#9A7545] text-white rounded-lg hover:bg-[#5E4426] transition-colors font-medium text-sm flex items-center gap-2">
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7" /></svg>
                                         Apply to Budget
                                     </button>
                                 </div>
@@ -1400,12 +1400,12 @@ export default function TravelAuthPage() {
                                                                 onClick={autoCalculateTollgates}
                                                                 className="text-xs bg-orange-600 text-white hover:bg-orange-700 px-3 py-1.5 rounded-lg font-medium flex items-center gap-1 transition-colors"
                                                             >
-                                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
                                                                 Auto-Calculate from Itinerary
                                                             </button>
                                                         </div>
                                                         <button type="button" onClick={addTollgateRow} className="text-xs text-orange-600 hover:text-orange-700 font-medium flex items-center gap-1">
-                                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" /></svg>
                                                             Add Tollgate
                                                         </button>
                                                     </div>
@@ -1432,7 +1432,7 @@ export default function TravelAuthPage() {
                                                         <input type="number" value={toll.totalCost} readOnly className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm" placeholder="0.00" />
                                                         {(Array.isArray(travelData.budget.tollgates) ? travelData.budget.tollgates : []).length > 1 && (
                                                             <button type="button" onClick={() => removeTollgateRow(idx)} className="text-red-500 hover:text-red-700 p-1">
-                                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" /></svg>
                                                             </button>
                                                         )}
                                                     </td>
@@ -1458,15 +1458,15 @@ export default function TravelAuthPage() {
                     {/* Approval Section */}
                     <Card className="p-6">
                         <h3 className="font-semibold text-text-primary mb-4 flex items-center gap-2 text-lg">
-                            <svg className="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            <svg className="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                             Approval Workflow <span className="text-danger-500">*</span>
                         </h3>
                         <p className="text-sm text-text-secondary mb-4">Approvers are automatically assigned from the HRIMS organogram. If a role has no assigned user, you must manually select one.</p>
 
                         {loadingApproverResolution && (
-                            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-2">
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500" />
-                                <span className="text-sm text-blue-700">Resolving approvers from HRIMS organogram...</span>
+                            <div className="mb-4 p-3 bg-primary-50 border border-primary-200 rounded-xl flex items-center gap-2">
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-500" />
+                                <span className="text-sm text-primary-700">Resolving approvers from HRIMS organogram...</span>
                             </div>
                         )}
 
@@ -1493,7 +1493,7 @@ export default function TravelAuthPage() {
                                                             <p className="text-xs text-gray-500 truncate">{selectedUser.email}</p>
                                                             {isAutoResolved && <p className="text-xs text-green-600 mt-0.5">Auto-assigned from HRIMS</p>}
                                                         </div>
-                                                        <button type="button" onClick={() => { handleRemoveApprover(role.key); setAutoResolvedRoles(prev => ({ ...prev, [role.key]: false })); }} className="p-1.5 rounded-lg hover:bg-danger-50 text-gray-400 hover:text-danger-500 transition-colors" title="Change approver"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+                                                        <button type="button" onClick={() => { handleRemoveApprover(role.key); setAutoResolvedRoles(prev => ({ ...prev, [role.key]: false })); }} className="p-1.5 rounded-lg hover:bg-danger-50 text-gray-400 hover:text-danger-500 transition-colors" title="Change approver"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" /></svg></button>
                                                     </div>
                                                 ) : (
                                                     <div className="relative">
@@ -1501,7 +1501,7 @@ export default function TravelAuthPage() {
                                                             <p className="text-xs text-amber-600 mb-1">No user found in HRIMS for this role. Please select manually.</p>
                                                         )}
                                                         <div className="relative">
-                                                            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                                                            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                                                             <input type="text" className="w-full pl-10 pr-4 py-2 min-h-[44px] rounded-xl border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all" placeholder={`Search for ${role.label}...`} value={approverSearch[role.key]} onChange={(e) => { setApproverSearch(prev => ({ ...prev, [role.key]: e.target.value })); setShowApproverDropdown(role.key); }} onFocus={() => setShowApproverDropdown(role.key)} />
                                                         </div>
                                                         {showApproverDropdown === role.key && (

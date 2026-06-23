@@ -462,7 +462,7 @@ export default function FormTemplateFillPage() {
             <div className="flex items-center justify-between">
               <p className="text-danger-600 text-sm">{error}</p>
               <button type="button" onClick={() => setError(null)} className="text-danger-400 hover:text-danger-600">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
           </Card>
@@ -472,7 +472,7 @@ export default function FormTemplateFillPage() {
           <Card className="mb-4 bg-emerald-50 border-emerald-200">
             <div className="flex items-center gap-3">
               <svg className="w-6 h-6 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <p className="text-emerald-700 font-medium">{successMsg}</p>
             </div>
@@ -484,7 +484,7 @@ export default function FormTemplateFillPage() {
           <Card className="mb-4">
             <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
               <svg className="w-5 h-5 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
               </svg>
               Requestor Information
             </h2>
@@ -511,7 +511,7 @@ export default function FormTemplateFillPage() {
         <Card className="mb-4">
           <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
             <svg className="w-5 h-5 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
             Form Details
           </h2>
@@ -572,7 +572,7 @@ export default function FormTemplateFillPage() {
                 return (
                   <div key={field.id} className={`flex items-start gap-3 p-4 rounded-xl border ${typeStyles[infoType as keyof typeof typeStyles]}`}>
                     <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={iconPaths[infoType as keyof typeof iconPaths]} />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={iconPaths[infoType as keyof typeof iconPaths]} />
                     </svg>
                     <div className="flex-1">
                       {field.label && <p className="font-semibold mb-1">{field.label}</p>}
@@ -631,7 +631,7 @@ export default function FormTemplateFillPage() {
             <div className="text-center mb-6">
               <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <svg className="w-8 h-8 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                 </svg>
               </div>
               <h3 className="text-xl font-bold text-gray-900 mb-2">Sign This Form</h3>
@@ -657,7 +657,7 @@ export default function FormTemplateFillPage() {
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-6">
               <div className="flex gap-2">
                 <svg className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
                 </svg>
                 <p className="text-xs text-amber-800">
                   This action cannot be undone. Once signed, the form will be submitted and archived.

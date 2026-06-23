@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
+import { formatDateTime } from '../../../../lib/formatDate';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -138,13 +139,7 @@ function generatePdfHtml(request: any): string {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    return new Date(dateString).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
   };
 
   const formatFieldValue = (key: string, value: any): string => {
@@ -416,7 +411,7 @@ function generatePdfHtml(request: any): string {
   ` : ''}
 
   <div class="footer">
-    Generated on ${new Date().toLocaleString()} • The Circle Approval System
+    Generated on ${formatDateTime(new Date())} • The Circle Approval System
   </div>
 </body>
 </html>

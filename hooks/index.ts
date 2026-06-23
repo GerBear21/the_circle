@@ -9,5 +9,4 @@ export { useWorkflowDefinitions, useWorkflowDefinition } from './useWorkflowDefi
 export { useHrimsOrganogram, useHrimsEmployees, useHrimsBusinessUnits, useHrimsDepartments, useHrimsApprovalChain } from './useHrimsOrganogram';
 export { useFormTemplates, useFormTemplate } from './useFormTemplates';
 export { useRBACRoles } from './useRBACRoles';
-export { useDelegations } from './useDelegations';
 export { useUnsavedChangesPrompt } from './useUnsavedChangesPrompt';

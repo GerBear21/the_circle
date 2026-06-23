@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { ensureFormPermission, removeFormPermission } from '@/lib/formPermissions';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -115,6 +116,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         throw error;
       }
 
+      // Keep the per-form permission's display name in sync with renames.
+      if (name !== undefined && data?.id) {
+        await ensureFormPermission(data.id, name);
+      }
+
       return res.status(200).json({ template: data });
     }
 
@@ -126,6 +132,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .eq('organization_id', organizationId);
 
       if (error) throw error;
+
+      // Remove the form's dynamic permission (cascades out of role_permissions
+      // and user_permission_overrides via FK).
+      await removeFormPermission(id);
 
       return res.status(200).json({ success: true });
     }

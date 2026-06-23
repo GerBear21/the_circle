@@ -103,7 +103,7 @@ export default function BiometricSetupModal({ isOpen, onClose, onSuccess, requir
           <div className="px-6 pb-4 space-y-3">
             {!supported && (
               <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
-                Biometrics aren't supported in this browser. You'll be able to approve with Microsoft verification instead.
+                Biometrics aren&apos;t supported in this browser. You&apos;ll be able to approve with Microsoft verification instead.
               </div>
             )}
             {error && (

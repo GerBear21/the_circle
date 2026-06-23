@@ -99,7 +99,7 @@ export default function ComposeNotificationModal({ isOpen, onClose }: ComposeNot
                         </div>
                         <div className="ml-2 text-sm">
                             <label htmlFor="outlook" className="font-medium text-gray-900">Send via Outlook</label>
-                            <p className="text-gray-500 text-xs">A copy will be sent to the user's email address.</p>
+                            <p className="text-gray-500 text-xs">A copy will be sent to the user&apos;s email address.</p>
                         </div>
                     </div>
                 </div>

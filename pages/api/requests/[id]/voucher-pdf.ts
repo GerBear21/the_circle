@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
+import { signatureExists, userSignaturePath, userSignatureProxyUrl } from '../../../../lib/signatureStorage';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -113,20 +114,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(403).json({ error: 'You do not have permission to view this request' });
     }
 
-    // Resolve signature URLs from storage for each approval step
+    // Resolve signatures for each approval step. This HTML is rendered in the
+    // browser (authenticated session), so the private-bucket proxy URL is used.
     for (const step of (request.request_steps || [])) {
       if (step.approver_user_id) {
-        const { data } = supabaseAdmin.storage.from('signatures').getPublicUrl(`${step.approver_user_id}.png`);
-        if (data?.publicUrl) {
-          try {
-            const checkRes = await fetch(data.publicUrl, { method: 'HEAD' });
-            if (checkRes.ok) {
-              // Store signature URL on the step for easy access
-              (step as any).resolved_signature_url = data.publicUrl;
-            }
-          } catch {
-            // Signature file doesn't exist
-          }
+        if (await signatureExists(userSignaturePath(step.approver_user_id))) {
+          (step as any).resolved_signature_url = userSignatureProxyUrl(step.approver_user_id);
         }
       }
     }
@@ -153,11 +146,7 @@ function generateVoucherHtml(request: any): string {
   const approvalDate = lastApproval?.signed_at ? new Date(lastApproval.signed_at) : new Date(request.updated_at);
   
   const formatDate = (date: Date) => {
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
+    return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
   };
 
   // Calculate expiry date (3 months from approval)

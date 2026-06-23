@@ -5,7 +5,6 @@ import { AppLayout } from '../../components/layout';
 
 import { Card, Button } from '../../components/ui';
 import dynamic from 'next/dynamic';
-import { supabase, isSupabaseConfigured } from '../../lib/supabaseClient';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import { useUserHrimsProfile } from '../../hooks/useUserHrimsProfile';
 
@@ -30,43 +29,18 @@ export default function SettingsPage() {
   }, [userLoading, session, router]);
 
   useEffect(() => {
-    if (user?.id && isSupabaseConfigured) {
-      // Fetch signature
-      const { data } = supabase.storage.from('signatures').getPublicUrl(`${user.id}.png`);
-      checkSignature(data.publicUrl);
+    if (user?.id) {
+      // Private bucket: probe via the authenticated proxy (HEAD), then render it.
+      checkSignature(`/api/signature/view?userId=${user.id}`);
 
-      // Set profile picture from user data (already fetched via useCurrentUser)
+      // Profile picture from the user's stored URL (set on upload / MS login).
+      // No storage probing — if there's no URL, there's no picture.
       if (user.profile_picture_url) {
-        // Add cache-busting parameter to ensure fresh image
         const url = user.profile_picture_url;
         setProfilePictureUrl(url.includes('?') ? url : `${url}?t=${Date.now()}`);
-      } else {
-        // Fallback: check storage directly
-        fetchProfilePictureFromStorage(user.id);
       }
     }
   }, [user]);
-
-  const fetchProfilePictureFromStorage = async (userId: string) => {
-    if (!isSupabaseConfigured) return;
-    try {
-      const extensions = ['png', 'jpg', 'jpeg', 'webp'];
-      for (const ext of extensions) {
-        const { data } = supabase.storage.from('profile_pictures').getPublicUrl(`${userId}.${ext}`);
-        try {
-          const res = await fetch(data.publicUrl, { method: 'HEAD' });
-          if (res.ok) {
-            setProfilePictureUrl(`${data.publicUrl}?t=${Date.now()}`);
-            return;
-          }
-        } catch (e) {
-          // Continue to next extension
-        }
-      }
-    } catch (err) {
-      console.error("Error fetching profile picture from storage", err);
-    }
-  };
 
   const checkSignature = async (url: string) => {
     try {
@@ -168,8 +142,8 @@ export default function SettingsPage() {
                   <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
                 ) : (
                   <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
                 )}
               </button>
@@ -277,19 +251,19 @@ export default function SettingsPage() {
               <button className="w-full flex items-center justify-between py-3 px-1 text-left hover:bg-gray-50 rounded-lg transition-colors">
                 <span className="font-medium text-gray-900">Manage Users</span>
                 <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
                 </svg>
               </button>
               <button className="w-full flex items-center justify-between py-3 px-1 text-left hover:bg-gray-50 rounded-lg transition-colors">
                 <span className="font-medium text-gray-900">Workflow Templates</span>
                 <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
                 </svg>
               </button>
               <button className="w-full flex items-center justify-between py-3 px-1 text-left hover:bg-gray-50 rounded-lg transition-colors">
                 <span className="font-medium text-gray-900">Audit Logs</span>
                 <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
                 </svg>
               </button>
             </div>

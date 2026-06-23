@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
+import { signatureExists, userSignaturePath, userSignatureProxyUrl } from '../../../../lib/signatureStorage';
 
 const UNIT_LABELS: Record<string, string> = {
   CORP: 'Corporate (CORP)',
@@ -87,17 +88,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(403).json({ error: 'You do not have permission to view this credit note' });
     }
 
-    // Resolve signature URLs from storage for each approval step.
+    // Resolve signatures for each approval step (HTML rendered in the browser,
+    // so the private-bucket proxy URL is used).
     for (const step of (request.request_steps || [])) {
       if (step.approver_user_id) {
-        const { data } = supabaseAdmin.storage.from('signatures').getPublicUrl(`${step.approver_user_id}.png`);
-        if (data?.publicUrl) {
-          try {
-            const checkRes = await fetch(data.publicUrl, { method: 'HEAD' });
-            if (checkRes.ok) (step as any).resolved_signature_url = data.publicUrl;
-          } catch {
-            // Signature file missing — that's fine, we just won't render it.
-          }
+        if (await signatureExists(userSignaturePath(step.approver_user_id))) {
+          (step as any).resolved_signature_url = userSignatureProxyUrl(step.approver_user_id);
         }
       }
     }
@@ -148,7 +144,7 @@ function generateCreditNoteHtml(request: any): string {
     const name = getApproverField(step, 'display_name') || fallbackName || '—';
     const signature = step?.resolved_signature_url || getApproverField(step, 'signature_url');
     const decision = step?.approvals?.[0];
-    const signedAt = decision?.signed_at ? new Date(decision.signed_at).toLocaleDateString() : '';
+    const signedAt = decision?.signed_at ? new Date(decision.signed_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
     const isApproved = step?.status === 'approved';
 
     return `

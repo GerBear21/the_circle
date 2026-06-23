@@ -11,7 +11,6 @@ export interface WorkflowStepDefinition {
   conditions?: StepCondition[];
   settings?: {
     requireComment?: boolean;
-    allowDelegation?: boolean;
     autoApprove?: {
       enabled: boolean;
       condition: string;

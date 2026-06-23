@@ -2,6 +2,8 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { ensureFormPermission, formPermissionCode } from '@/lib/formPermissions';
+import { getUserRBACProfile, hasPermission } from '@/lib/rbac';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -31,6 +33,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           scope,
           scope_department_id,
           scope_business_unit_id,
+          scope_multi_business_unit_ids,
+          audience_type,
+          audience_department_ids,
+          audience_individual_emails,
+          audience_positions,
           category,
           icon,
           color,
@@ -77,7 +84,67 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       if (error) throw error;
 
-      return res.status(200).json({ templates: templates || [] });
+      // End-user listings (published_only) are filtered to what this user may
+      // access. Form designers/admins see everything for management purposes.
+      let visibleTemplates = templates || [];
+      if (published_only === 'true' && visibleTemplates.length > 0) {
+        const profile = await getUserRBACProfile(userId);
+        const isDesigner =
+          profile.is_super_admin ||
+          hasPermission(profile, 'forms.design') ||
+          hasPermission(profile, 'settings.templates');
+
+        if (!isDesigner) {
+          const { data: me } = await supabaseAdmin
+            .from('app_users')
+            .select('id, email, department_id, business_unit_id, job_title')
+            .eq('id', userId)
+            .maybeSingle();
+
+          visibleTemplates = visibleTemplates.filter((t: any) => {
+            // Creator always sees their own forms
+            if (t.creator?.id === userId) return true;
+
+            // Explicit per-form permission grant (role- or user-level)
+            if (hasPermission(profile, formPermissionCode(t.id))) return true;
+
+            // Scope: which org slice the form was published to
+            const scopeOk =
+              !t.scope || t.scope === 'hotel_group'
+                ? true
+                : t.scope === 'departmental'
+                  ? !!me?.department_id && t.scope_department_id === me.department_id
+                  : t.scope === 'business_unit'
+                    ? !!me?.business_unit_id &&
+                      (t.scope_business_unit_id === me.business_unit_id ||
+                        (Array.isArray((t as any).scope_multi_business_unit_ids) &&
+                          (t as any).scope_multi_business_unit_ids.includes(me.business_unit_id)))
+                    : true;
+            if (!scopeOk) return false;
+
+            // Audience: who within that slice may use it
+            const audience = (t as any).audience_type || 'all';
+            if (audience === 'all') return true;
+            if (audience === 'departments') {
+              const ids = (t as any).audience_department_ids || [];
+              return !!me?.department_id && Array.isArray(ids) && ids.includes(me.department_id);
+            }
+            if (audience === 'individuals') {
+              const emails = (t as any).audience_individual_emails || [];
+              return !!me?.email && Array.isArray(emails) &&
+                emails.map((e: string) => String(e).toLowerCase()).includes(me.email.toLowerCase());
+            }
+            if (audience === 'positions') {
+              const positions = (t as any).audience_positions || [];
+              return !!me?.job_title && Array.isArray(positions) &&
+                positions.map((p: string) => String(p).toLowerCase()).includes(String(me.job_title).toLowerCase());
+            }
+            return true;
+          });
+        }
+      }
+
+      return res.status(200).json({ templates: visibleTemplates });
     }
 
     if (req.method === 'POST') {
@@ -181,6 +248,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .single();
 
       if (error) throw error;
+
+      // Dynamic per-form permission so admins can grant/deny this form to
+      // specific roles or users from the roles page. Best-effort.
+      if (data?.id) {
+        await ensureFormPermission(data.id, name);
+      }
 
       return res.status(201).json({ template: data });
     }

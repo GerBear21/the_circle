@@ -29,17 +29,6 @@ interface RequestItem {
 }
 
 const allRequestItems: RequestItem[] = [
-  // --- System Functions (top of page) ---
-  {
-    id: 'esign',
-    title: 'E-Sign PDF',
-    description: 'Electronically sign PDF documents',
-    icon: 'M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z',
-    color: 'success',
-    href: '#esign',
-    category: 'System Functions',
-    popular: true,
-  },
   // --- Finance ---
   // {
   //   id: 'approval',
@@ -169,30 +158,12 @@ const allRequestItems: RequestItem[] = [
     popular: true,
   },
 
-  // --- System Functions (continued) ---
-  {
-    id: 'form',
-    title: 'Design New Form',
-    description: 'Create a custom form template for your team',
-    icon: 'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z',
-    color: 'accent',
-    href: '/requests/new/form',
-    category: 'System Functions',
-  },
-  {
-    id: 'workflow',
-    title: 'Custom Workflow',
-    description: 'Design your own custom approval flow',
-    icon: 'M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2',
-    color: 'accent',
-    href: '/requests/new/workflow',
-    category: 'System Functions',
-  },
 ];
 
 const getColorClasses = (color: string) => {
-  // Unified brown/beige style matching dashboard icons
-  const base = { bg: 'bg-[#F3EADC]', icon: 'text-[#9A7545]', hover: 'hover:bg-[#F3EADC] hover:shadow-[#F3EADC]', border: 'hover:border-[#E6D3B3]' };
+  // Unified clean, monochrome icon style matching the side navigation —
+  // neutral glyphs, no per-item accent colours.
+  const base = { bg: 'bg-transparent', icon: 'text-neutral-700', hover: 'hover:bg-neutral-100', border: 'hover:border-neutral-200' };
   return base;
 };
 
@@ -236,7 +207,7 @@ export default function NewRequestPage() {
 
   if (status === 'loading') {
     return (
-      <AppLayout title="Create New">
+      <AppLayout title="New Request">
         <div className="flex items-center justify-center min-h-[60vh]">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500" />
         </div>
@@ -248,7 +219,7 @@ export default function NewRequestPage() {
 
   return (
     <>
-    <AppLayout title="Create New">
+    <AppLayout title="New Request">
       <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6">
 
         {/* Hero Section with Animation */}
@@ -277,7 +248,7 @@ export default function NewRequestPage() {
               <div className="mt-5 relative max-w-md mx-auto sm:mx-0">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                   </svg>
                 </div>
                 <input
@@ -295,7 +266,7 @@ export default function NewRequestPage() {
                     aria-label="Clear search"
                   >
                     <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
                 )}
@@ -309,7 +280,7 @@ export default function NewRequestPage() {
         {filteredItems.length > 0 && (
           <nav className="flex flex-wrap items-center gap-2 max-w-6xl mx-auto" aria-label="Jump to department">
             <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 mr-1">Jump to:</span>
-            {(['System Functions', 'Finance', 'HR', 'BIS forms'] as RequestCategory[]).map((cat) => {
+            {(['Finance', 'HR', 'BIS forms'] as RequestCategory[]).map((cat) => {
               const count = filteredItems.filter(i => i.category === cat).length;
               if (count === 0) return null;
               const label = cat === 'BIS forms' ? 'BIS' : cat === 'HR' ? 'HR' : cat;
@@ -338,10 +309,10 @@ export default function NewRequestPage() {
             <div className="text-center py-20 bg-gray-50 rounded-3xl border border-dashed border-gray-300">
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 mb-4">
                 <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
-              <p className="text-gray-500 text-lg">No request types found matching "{searchQuery}"</p>
+              <p className="text-gray-500 text-lg">No request types found matching &ldquo;{searchQuery}&rdquo;</p>
               <button
                 onClick={() => setSearchQuery('')}
                 className="mt-4 px-6 py-2 bg-white border border-gray-300 rounded-lg text-primary-600 font-medium hover:bg-gray-50 transition-colors"
@@ -364,40 +335,31 @@ export default function NewRequestPage() {
                 rail: string;       // left rail border colour
               }[] = [
                 {
-                  key: 'System Functions',
-                  label: 'System Functions',
-                  description: 'Cross-cutting tools — signing, form design and workflow building',
-                  iconPath: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z',
-                  accent: 'bg-[#EEF2FF]',
-                  accentText: 'text-[#4338CA]',
-                  rail: 'border-l-[#6366F1]',
-                },
-                {
                   key: 'Finance',
                   label: 'Finance Department',
                   description: 'Approvals for finance, accounting and reimbursements',
                   iconPath: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
-                  accent: 'bg-[#F3EADC]',
-                  accentText: 'text-[#7C5A33]',
-                  rail: 'border-l-[#9A7545]',
+                  accent: 'bg-neutral-100',
+                  accentText: 'text-neutral-700',
+                  rail: 'border-l-neutral-300',
                 },
                 {
                   key: 'HR',
                   label: 'Human Resources',
                   description: 'Travel authorisations, accommodation and people-related approvals',
                   iconPath: 'M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-7a4 4 0 11-8 0 4 4 0 018 0zm6 3a3 3 0 11-6 0 3 3 0 016 0z',
-                  accent: 'bg-[#FEF3C7]',
-                  accentText: 'text-[#92400E]',
-                  rail: 'border-l-[#F59E0B]',
+                  accent: 'bg-neutral-100',
+                  accentText: 'text-neutral-700',
+                  rail: 'border-l-neutral-300',
                 },
                 {
                   key: 'BIS forms',
                   label: 'Business Information Systems',
                   description: 'IT, user access and BIS support requests',
                   iconPath: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z',
-                  accent: 'bg-[#DCFCE7]',
-                  accentText: 'text-[#166534]',
-                  rail: 'border-l-[#22C55E]',
+                  accent: 'bg-neutral-100',
+                  accentText: 'text-neutral-700',
+                  rail: 'border-l-neutral-300',
                 },
               ];
 
@@ -414,9 +376,9 @@ export default function NewRequestPage() {
                       className={`relative scroll-mt-24 rounded-2xl border border-gray-100 bg-white/60 backdrop-blur-sm shadow-sm hover:shadow-md transition-shadow p-5 sm:p-6 border-l-4 ${dept.rail}`}
                     >
                       <header className="flex items-start sm:items-center gap-3 mb-5">
-                        <div className={`w-11 h-11 rounded-xl ${dept.accent} flex items-center justify-center flex-shrink-0 ring-1 ring-inset ring-white/50`}>
-                          <svg className={`w-5 h-5 ${dept.accentText}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={dept.iconPath} />
+                        <div className="flex items-center justify-center flex-shrink-0 text-neutral-700">
+                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={dept.iconPath} />
                           </svg>
                         </div>
                         <div className="flex-1 min-w-0">
@@ -471,7 +433,7 @@ export default function NewRequestPage() {
                                   ${colors.bg} transition-transform duration-300 group-hover:scale-105 group-hover:rotate-3
                                 `}>
                                   <svg className={`w-6 h-6 ${colors.icon}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={item.icon} />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={item.icon} />
                                   </svg>
                                 </div>
 
@@ -492,8 +454,8 @@ export default function NewRequestPage() {
                                 </div>
 
                                 <div className="self-center opacity-0 -translate-x-2 transition-all duration-300 group-hover:opacity-100 group-hover:translate-x-0">
-                                  <svg className="w-5 h-5 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                  <svg className="w-5 h-5 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
                                   </svg>
                                 </div>
                               </div>
@@ -514,7 +476,7 @@ export default function NewRequestPage() {
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm text-[#9A7545]">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
               </svg>
             </div>
             <div>

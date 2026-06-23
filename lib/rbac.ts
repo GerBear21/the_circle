@@ -46,23 +46,11 @@ export interface UserRole {
 
 export interface UserRBACProfile {
   roles: RoleWithPermissions[];
-  permissions: string[];  // flat array of permission codes
+  permissions: string[];  // flat array of permission codes (role grants + user overrides)
   scoped_roles: UserRole[];
   is_super_admin: boolean;
-}
-
-export interface ApprovalDelegation {
-  id: string;
-  delegator_id: string;
-  delegate_id: string;
-  reason: string | null;
-  department_id: string | null;
-  business_unit_id: string | null;
-  starts_at: string;
-  ends_at: string | null;
-  is_active: boolean;
-  created_by: string | null;
-  created_at: string;
+  /** Per-user overrides applied on top of role permissions (grant adds, deny removes). */
+  overrides?: { code: string; granted: boolean }[];
 }
 
 // ============================================================
@@ -81,10 +69,8 @@ export const PERMISSIONS = {
   APPROVALS_VIEW: 'approvals.view',
   APPROVALS_APPROVE: 'approvals.approve',
   APPROVALS_REJECT: 'approvals.reject',
-  APPROVALS_DELEGATE: 'approvals.delegate',
   APPROVALS_OVERRIDE: 'approvals.override',
   APPROVALS_REASSIGN: 'approvals.reassign',
-  APPROVALS_CONFIGURE_DELEGATION: 'approvals.configure_delegation',
   // Users
   USERS_VIEW: 'users.view',
   USERS_CREATE: 'users.create',
@@ -159,15 +145,11 @@ export async function getUserRBACProfile(userId: string): Promise<UserRBACProfil
     return { roles: [], permissions: [], scoped_roles: [], is_super_admin: false };
   }
 
-  if (!userRoles || userRoles.length === 0) {
-    return { roles: [], permissions: [], scoped_roles: [], is_super_admin: false };
-  }
-
   const rolesMap = new Map<string, RoleWithPermissions>();
   const allPermissions = new Set<string>();
   let isSuperAdmin = false;
 
-  for (const ur of userRoles) {
+  for (const ur of userRoles || []) {
     const role = ur.role as any;
     if (!role) continue;
 
@@ -190,11 +172,36 @@ export async function getUserRBACProfile(userId: string): Promise<UserRBACProfil
     }
   }
 
+  // Per-user overrides: grant adds the permission even if no role has it,
+  // deny removes it even if a role grants it. (Super admins bypass all
+  // checks in hasPermission, so denies never lock them out.)
+  const overrides: { code: string; granted: boolean }[] = [];
+  const { data: overrideRows, error: ovError } = await supabaseAdmin
+    .from('user_permission_overrides')
+    .select('granted, permission:permissions ( code )')
+    .eq('user_id', userId);
+
+  if (ovError) {
+    console.error('Error fetching user permission overrides:', ovError);
+  } else {
+    for (const row of overrideRows || []) {
+      const code = (row as any).permission?.code;
+      if (!code) continue;
+      overrides.push({ code, granted: (row as any).granted });
+      if ((row as any).granted) {
+        allPermissions.add(code);
+      } else {
+        allPermissions.delete(code);
+      }
+    }
+  }
+
   return {
     roles: Array.from(rolesMap.values()),
     permissions: Array.from(allPermissions),
-    scoped_roles: userRoles as UserRole[],
+    scoped_roles: (userRoles || []) as UserRole[],
     is_super_admin: isSuperAdmin,
+    overrides,
   };
 }
 

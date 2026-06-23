@@ -110,10 +110,44 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === 'PATCH') {
-      const { notification_ids, is_read } = req.body;
+      const { notification_ids, is_read, is_starred } = req.body;
 
-      if (!notification_ids || !Array.isArray(notification_ids)) {
+      if (!notification_ids || !Array.isArray(notification_ids) || notification_ids.length === 0) {
         return res.status(400).json({ error: 'notification_ids array is required' });
+      }
+
+      // Star/unstar is persisted inside the metadata JSONB so we don't need a
+      // schema change. We read-modify-write each row's metadata to avoid
+      // clobbering other keys (action_url, request_id, …).
+      if (typeof is_starred === 'boolean') {
+        const { data: rows, error: fetchErr } = await supabaseAdmin
+          .from('notifications')
+          .select('id, metadata')
+          .in('id', notification_ids)
+          .eq('recipient_id', userId);
+
+        if (fetchErr) throw fetchErr;
+
+        await Promise.all(
+          (rows || []).map((row: any) =>
+            supabaseAdmin
+              .from('notifications')
+              .update({ metadata: { ...(row.metadata || {}), is_starred } })
+              .eq('id', row.id)
+              .eq('recipient_id', userId)
+          )
+        );
+
+        // Optionally also update read state in the same call.
+        if (typeof is_read === 'boolean') {
+          await supabaseAdmin
+            .from('notifications')
+            .update({ is_read })
+            .in('id', notification_ids)
+            .eq('recipient_id', userId);
+        }
+
+        return res.status(200).json({ success: true });
       }
 
       const { data, error } = await supabaseAdmin
@@ -126,6 +160,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (error) throw error;
 
       return res.status(200).json({ notifications: data });
+    }
+
+    if (req.method === 'DELETE') {
+      const { notification_ids } = req.body;
+
+      if (!notification_ids || !Array.isArray(notification_ids) || notification_ids.length === 0) {
+        return res.status(400).json({ error: 'notification_ids array is required' });
+      }
+
+      const { error } = await supabaseAdmin
+        .from('notifications')
+        .delete()
+        .in('id', notification_ids)
+        .eq('recipient_id', userId);
+
+      if (error) throw error;
+
+      return res.status(200).json({ success: true, deleted: notification_ids.length });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });

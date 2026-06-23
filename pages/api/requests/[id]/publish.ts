@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { createCapexTrackerRow } from '@/lib/capexTrackerHooks';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -99,6 +100,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (updateError) {
       throw updateError;
+    }
+
+    // CAPEX Tracker side-effect: when a CAPEX draft is published it enters the
+    // approval trail, so it must appear on the tracker. Mirrors the same hook
+    // run on direct (non-draft) submission in /api/requests. Fails silently —
+    // never blocks the publish path.
+    if (request.metadata?.type === 'capex' || request.metadata?.requestType === 'capex') {
+      try {
+        await createCapexTrackerRow(id, organizationId, userId);
+      } catch (trackerErr) {
+        console.error('Failed to create CAPEX tracker row on publish:', trackerErr);
+      }
     }
 
     // Get the requester's name for notifications

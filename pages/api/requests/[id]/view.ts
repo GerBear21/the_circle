@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
+import { audit } from '../../../../lib/auditLog';
 
 // POST /api/requests/[id]/view
 // Records that the current user (assumed to be an assigned approver on this
@@ -33,7 +34,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         // touching a step from a different tenant if IDs ever collide.
         const { data: request, error: requestError } = await supabaseAdmin
             .from('requests')
-            .select('id, organization_id')
+            .select('id, organization_id, title, metadata')
             .eq('id', requestId)
             .eq('organization_id', organizationId)
             .single();
@@ -41,6 +42,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (requestError || !request) {
             return res.status(404).json({ error: 'Request not found' });
         }
+
+        // Record a user-activity audit event for every viewer (approver or not)
+        // so the audit "Activity" log reflects day-to-day usage across all
+        // users, not only request authors/approvers. Best-effort — never blocks
+        // the response.
+        const referenceLabel = (request.metadata as any)?.referenceCode || request.title || null;
+        await audit(req, user, {
+            category: 'activity',
+            action: 'request.viewed',
+            targetType: 'request',
+            targetId: requestId,
+            targetLabel: referenceLabel,
+            requestId,
+        });
 
         // Find the step(s) this user is assigned to on this request.
         const { data: steps, error: stepsError } = await supabaseAdmin

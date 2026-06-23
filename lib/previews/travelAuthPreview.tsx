@@ -411,7 +411,7 @@ export function buildTravelAuthPreviewSections(input: TravelAuthPreviewInput): P
                                         </div>
                                         <div style={{ fontSize: 9, fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Date</div>
                                         <div style={{ borderBottom: '1px solid #666', minHeight: 18, marginTop: 4, fontSize: 10, color: decisionColor }}>
-                                            {a?.signedAt ? new Date(a.signedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}
+                                            {a?.signedAt ? new Date(a.signedAt).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}
                                         </div>
                                     </td>
                                 );
@@ -456,9 +456,9 @@ export function travelAuthInputFromRequest(request: any): TravelAuthPreviewInput
     // approver_role (line_manager, hrd, etc.); fall back to metadata's
     // approverRoles map (id-only) when steps haven't been resolved with
     // names yet.
-    const supabaseBase = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
+    // Private bucket: render saved signatures through the authenticated proxy.
     const sigUrlFor = (userId?: string | null) =>
-        userId && supabaseBase ? `${supabaseBase}/storage/v1/object/public/signatures/${userId}.png` : null;
+        userId ? `/api/signature/view?userId=${encodeURIComponent(userId)}` : null;
 
     const approvers: TravelAuthPreviewInput['approvers'] = {};
     for (const step of steps) {

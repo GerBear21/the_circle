@@ -12,6 +12,8 @@
 
 import { supabaseAdmin } from './supabaseAdmin';
 import { generateAndStoreArchive } from '@/pages/api/archives/generate-pdf';
+import { syncApprovedPdfToMicrosoft } from '@/lib/graphDocumentUpload';
+import { recordAuditEvent } from '@/lib/auditLog';
 import {
   resolveApprovalChainFromOrganogram,
   findEmployeeByPositionTitle,
@@ -39,7 +41,6 @@ export interface WorkflowStepDefinition {
   // Step-specific settings
   settings?: {
     requireComment?: boolean;
-    allowDelegation?: boolean;
     autoApprove?: {
       enabled: boolean;
       condition: string;
@@ -589,13 +590,7 @@ export class ApprovalEngine {
     console.log('Found step:', { id: step.id, status: step.status, approver: step.approver_user_id });
     
     if (step.approver_user_id !== userId) {
-      // Check if the user is an active delegate for the assigned approver
-      const delegateId = await this.resolveDelegate(step.approver_user_id);
-      if (delegateId !== userId) {
-        return { success: false, error: 'You are not authorized to act on this approval' };
-      }
-      // User is acting as delegate — allowed to proceed
-      console.log(`User ${userId} acting as delegate for approver ${step.approver_user_id}`);
+      return { success: false, error: 'You are not authorized to act on this approval' };
     }
     
     if (step.status !== 'pending' && step.status !== 'waiting') {
@@ -749,10 +744,12 @@ export class ApprovalEngine {
           // Travel-auth: prompt requester to optionally process a petty cash voucher.
           await this.maybeNotifyPettyCashCta(requestId, request, requestType);
 
-          // Auto-generate and store PDF archive
+          // Auto-generate and store PDF archive, then push it to Microsoft 365
+          // (Teams channel + SharePoint). Both are best-effort.
           try {
-            await generateAndStoreArchive(requestId, request.organization_id, approverId);
+            const archiveResult = await generateAndStoreArchive(requestId, request.organization_id, approverId);
             console.log(`Archive generated for request ${requestId}`);
+            await this.pushApprovedPdfToMicrosoft(requestId, request, archiveResult);
           } catch (archiveError) {
             console.error('Failed to generate archive:', archiveError);
           }
@@ -879,10 +876,12 @@ export class ApprovalEngine {
         // Travel-auth: prompt requester to optionally process a petty cash voucher.
         await this.maybeNotifyPettyCashCta(requestId, request, requestType);
 
-        // Auto-generate and store PDF archive
+        // Auto-generate and store PDF archive, then push it to Microsoft 365
+        // (Teams channel + SharePoint). Both are best-effort.
         try {
-          await generateAndStoreArchive(requestId, request.organization_id, approverId);
+          const archiveResult = await generateAndStoreArchive(requestId, request.organization_id, approverId);
           console.log(`Archive generated for request ${requestId}`);
+          await this.pushApprovedPdfToMicrosoft(requestId, request, archiveResult);
         } catch (archiveError) {
           console.error('Failed to generate archive:', archiveError);
         }
@@ -1055,38 +1054,6 @@ export class ApprovalEngine {
     return { success: true };
   }
   
-  /**
-   * Check if an approver has an active delegation and return the delegate user ID.
-   * Returns null if no active delegation exists.
-   */
-  static async resolveDelegate(
-    approverId: string,
-    departmentId?: string | null,
-    businessUnitId?: string | null
-  ): Promise<string | null> {
-    try {
-      const now = new Date().toISOString();
-
-      let query = supabaseAdmin
-        .from('approval_delegations')
-        .select('delegate_id')
-        .eq('delegator_id', approverId)
-        .eq('is_active', true)
-        .eq('status', 'approved')
-        .lte('starts_at', now);
-
-      // ends_at can be null (indefinite) or a future date
-      // We want: ends_at IS NULL OR ends_at >= now
-      query = query.or(`ends_at.is.null,ends_at.gte.${now}`);
-
-      const { data, error } = await query.limit(1).single();
-
-      if (error || !data) return null;
-      return data.delegate_id;
-    } catch {
-      return null;
-    }
-  }
 
   /**
    * Notify an approver about a pending request
@@ -1237,6 +1204,75 @@ export class ApprovalEngine {
         });
     } catch (error) {
       console.error('Failed to send petty cash CTA notification:', error);
+    }
+  }
+
+  /**
+   * Push the freshly-generated approved PDF across Microsoft 365 — Teams
+   * channel + SharePoint (organisation), the requester's OneDrive, and an
+   * Outlook email to the requester with the PDF attached. Best-effort and
+   * fully guarded — a failure here must never affect the approval outcome.
+   * No-ops unless the GRAPH_* targets are set. The full-approval milestone
+   * and the sync result are both sealed into the immutable audit log.
+   */
+  private static async pushApprovedPdfToMicrosoft(
+    requestId: string,
+    request: { title?: string; metadata?: any; creator_id?: string; organization_id?: string },
+    archiveResult?: { success: boolean; archive?: any }
+  ): Promise<void> {
+    // Record the full-approval milestone regardless of Microsoft config.
+    await recordAuditEvent({
+      organizationId: request.organization_id || null,
+      category: 'workflow',
+      action: 'request.fully_approved',
+      severity: 'notice',
+      targetType: 'request',
+      targetId: requestId,
+      targetLabel: request.title || null,
+      requestId,
+      details: {
+        referenceCode: request.metadata?.referenceCode || null,
+        archived: !!archiveResult?.success,
+      },
+    });
+
+    try {
+      const storagePath = archiveResult?.archive?.storage_path;
+      if (!archiveResult?.success || !storagePath) return;
+
+      // Resolve the requester's email for the OneDrive copy + Outlook mail.
+      let recipientEmail: string | null = null;
+      if (request.creator_id) {
+        const { data: creator } = await supabaseAdmin
+          .from('app_users')
+          .select('email')
+          .eq('id', request.creator_id)
+          .single();
+        recipientEmail = creator?.email || null;
+      }
+
+      const res = await syncApprovedPdfToMicrosoft({
+        storagePath,
+        referenceCode: request.metadata?.referenceCode || null,
+        title: request.title || null,
+        recipientEmail,
+      });
+
+      if (res.teams || res.sharepoint || res.onedrive || res.email) {
+        console.log(`Approved PDF synced for ${requestId} → teams:${res.teams} sharepoint:${res.sharepoint} onedrive:${res.onedrive} email:${res.email}`);
+        await recordAuditEvent({
+          organizationId: request.organization_id || null,
+          category: 'system',
+          action: 'microsoft.document_synced',
+          targetType: 'request',
+          targetId: requestId,
+          targetLabel: request.title || null,
+          requestId,
+          details: { ...res, recipientEmail },
+        });
+      }
+    } catch (e) {
+      console.error('pushApprovedPdfToMicrosoft failed (non-fatal):', e);
     }
   }
 }

@@ -5,6 +5,19 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "../auth/[...nextauth]";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { sendGraphMail, getSignInviteEmailHtml } from "../../../lib/graphMail";
+import { withRateLimit } from "../../../lib/rateLimit";
+import { validateBody, z } from "../../../lib/validate";
+
+const SendInvitesSchema = z.object({
+  documentName: z.string().min(1).max(300),
+  pdfBase64: z.string().min(1),
+  invitees: z.array(z.object({
+    email: z.string().email(),
+    name: z.string().max(200).optional(),
+  })).min(1).max(50),
+  subject: z.string().max(300).optional(),
+  message: z.string().max(5000).optional(),
+}).strip();
 
 export const config = {
   api: {
@@ -30,7 +43,7 @@ interface SendInvitesBody {
 
 const BUCKET = "esign-documents";
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
     return res.status(405).json({ message: "Method not allowed" });
   }
@@ -58,10 +71,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   }
 
-  const body = req.body as SendInvitesBody;
-  if (!body?.pdfBase64 || !body?.documentName || !Array.isArray(body.invitees)) {
-    return res.status(400).json({ message: "Missing required fields" });
-  }
+  const body = validateBody(req, res, SendInvitesSchema);
+  if (!body) return;
 
   const ALLOWED_DOMAIN = "rtg.co.zw";
   const cleanInvitees = body.invitees
@@ -212,3 +223,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     sender: requesterEmail,
   });
 }
+
+// Cap outbound-invite sending to curb email-abuse from any single client.
+export default withRateLimit(
+  { name: "esign-invite", max: 20, windowSeconds: 600 },
+  handler
+);

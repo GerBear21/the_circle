@@ -182,7 +182,23 @@ export function printPreviewDocument(node: HTMLElement | null, title: string) {
             .field.full { grid-column: 1 / -1; }
             .label { font-weight: 600; color: #555; margin-bottom: 2px; text-transform: uppercase; font-size: 10px; }
             .value { color: #111; white-space: pre-wrap; }
-            @media print { @page { margin: 14mm; } body { padding: 0; } }
+            /* The CAPEX approval row carries up to 8 signatory columns and is
+               given a wide min-width for on-screen horizontal scrolling. On
+               paper there is nothing to scroll into, so the last columns (FD,
+               CEO) get clipped. Force the table to fit the printable width. */
+            table.approval-row { table-layout: fixed !important; width: 100% !important; min-width: 0 !important; }
+            table.approval-row th, table.approval-row td {
+                padding: 4px 3px !important; font-size: 8px !important;
+                word-break: break-word; overflow-wrap: anywhere;
+            }
+            table.approval-row .sig-line { height: 22px !important; }
+            /* Neutralise the on-screen horizontal scroll wrapper so it cannot clip. */
+            table.approval-row { display: table; }
+            @media print {
+                @page { margin: 14mm; }
+                body { padding: 0; }
+                table.approval-row { table-layout: fixed !important; width: 100% !important; min-width: 0 !important; }
+            }
         </style></head><body>${html}
         <div class="footer">Generated ${new Date().toLocaleString()}</div>
         <script>window.onload = () => { setTimeout(() => window.print(), 250); };</script>
@@ -242,7 +258,7 @@ export default function RequestPreviewModal({
                             aria-label="Close"
                         >
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                             </svg>
                         </button>
                     </div>
@@ -264,7 +280,7 @@ export default function RequestPreviewModal({
                             className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-[#5E4426] bg-[#F3EADC] border border-[#C9B896] rounded-lg hover:bg-[#E9DCC3] transition"
                         >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
                             </svg>
                             Print / Save as PDF
                         </button>

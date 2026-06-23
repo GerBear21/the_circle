@@ -4,6 +4,9 @@ import { authOptions } from '../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { generateReferenceCode } from '@/lib/requestCode';
 import { createCapexTrackerRow } from '@/lib/capexTrackerHooks';
+import { getUserRBACProfile, hasPermission, PERMISSIONS } from '@/lib/rbac';
+import { getUserAccessScope, scopeForResponse, AccessScope } from '@/lib/accessScope';
+import { audit } from '@/lib/auditLog';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -23,7 +26,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (req.method === 'GET') {
       const { status: statusFilter, type, limit = 50 } = req.query;
-      
+
+      // Audit/oversight scope: the Audit → Transactions page needs to list
+      // EVERY request in the organisation, not just the ones the caller is
+      // personally involved in. Gate this on the audit-view permission so it
+      // can't be used to bypass normal request visibility.
+      const rbacProfile = await getUserRBACProfile(userId);
+      const wantsAuditScope = req.query.scope === 'audit';
+      const canAuditView = wantsAuditScope && (
+        hasPermission(rbacProfile, 'audit.view_logs') ||
+        hasPermission(rbacProfile, PERMISSIONS.ADMIN_AUDIT_LOGS)
+      );
+
       let query = supabaseAdmin
         .from('requests')
         .select(`
@@ -49,7 +63,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         `)
         .eq('organization_id', organizationId)
         .order('created_at', { ascending: false })
-        .limit(100); // Fetch more to filter down
+        .limit(canAuditView ? 1000 : 100); // Fetch more to filter down
 
       if (statusFilter) {
         query = query.eq('status', statusFilter);
@@ -59,8 +73,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       const { data: requests, error } = await query;
-      
+
       if (error) throw error;
+
+      // Oversight visibility: users with requests.view_all see every request
+      // that falls inside their data-access scope (business unit / department).
+      const canViewAll = hasPermission(rbacProfile, 'requests.view_all');
+      let accessScope: AccessScope | null = null;
+      if (canViewAll) {
+        accessScope = await getUserAccessScope(userId, rbacProfile);
+      }
+
+      const inScope = (req: any): boolean => {
+        if (!accessScope) return false;
+        if (accessScope.isOrgWide) return true;
+        if (accessScope.level === 'own') return false;
+        const unit = String(req.metadata?.unit || '').trim().toLowerCase();
+        const buNames = accessScope.businessUnitNames.map(n => n.toLowerCase());
+        if (accessScope.level === 'department') {
+          const dept = String(req.metadata?.department || '').trim().toLowerCase();
+          const deptName = (accessScope.departmentName || '').toLowerCase();
+          if (!dept || !deptName || dept !== deptName) return false;
+          if (unit && buNames.length > 0 && !buNames.includes(unit)) return false;
+          return true;
+        }
+        return unit !== '' && buNames.includes(unit);
+      };
 
       // APPROVAL VISIBILITY: Filter requests user can see
       // User can see if: creator, watcher, or approver with non-waiting step (or any step in parallel mode)
@@ -69,9 +107,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (req.status === 'draft') {
           return req.creator_id === userId;
         }
-        
+
+        // Audit oversight: an auditor querying ?scope=audit sees every
+        // (non-draft) request in the organisation.
+        if (canAuditView) return true;
+
         // Creator can always see their own requests
         if (req.creator_id === userId) return true;
+
+        // Oversight: view_all within data scope
+        if (canViewAll && inScope(req)) return true;
         
         // Check if user is a watcher
         const watcherIds = req.metadata?.watchers || [];
@@ -142,7 +187,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         comments_count: req.metadata?.comments_count || 0,
       }));
 
-      return res.status(200).json({ requests: transformedRequests });
+      return res.status(200).json({
+        requests: transformedRequests,
+        scope: accessScope ? scopeForResponse(accessScope) : null,
+      });
     }
 
     if (req.method === 'POST') {
@@ -384,6 +432,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           console.error('Failed to create watcher notifications:', notifError);
         }
       }
+
+      await audit(req, session.user, {
+        category: 'transaction',
+        action: 'request.created',
+        targetType: 'request',
+        targetId: data.id,
+        targetLabel: title,
+        requestId: data.id,
+        details: { requestType: requestType || null, status: data.status },
+      });
 
       return res.status(201).json({ request: data });
     }

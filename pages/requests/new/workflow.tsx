@@ -52,7 +52,6 @@ interface StepCondition {
 
 interface StepSettings {
   requireComment: boolean;
-  allowDelegation: boolean;
   escalation: { enabled: boolean; hours: number; escalateTo: string };
   notifications: { onAssignment: boolean; onApproval: boolean; onRejection: boolean };
 }
@@ -84,7 +83,6 @@ interface SavedWorkflow {
 
 const defaultStepSettings = (): StepSettings => ({
   requireComment: false,
-  allowDelegation: true,
   escalation: { enabled: false, hours: 24, escalateTo: '' },
   notifications: { onAssignment: true, onApproval: true, onRejection: true },
 });
@@ -456,13 +454,13 @@ export default function CustomizeWorkflowPage() {
   // Helper Renderers
   const renderIcon = (type: ApproverSourceType) => {
     if (type === 'organogram') return (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
     );
     if (type === 'manual') return (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
     );
     return (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
     );
   };
 
@@ -508,13 +506,13 @@ export default function CustomizeWorkflowPage() {
               </div>
               <div className="flex items-center gap-1">
                 <button type="button" onClick={(e) => { e.stopPropagation(); moveStep(step.id, 'up'); }} disabled={index === 0} className="p-1.5 text-gray-400 hover:bg-gray-100 rounded-lg disabled:opacity-30">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 15l7-7 7 7" /></svg>
                 </button>
                 <button type="button" onClick={(e) => { e.stopPropagation(); moveStep(step.id, 'down'); }} disabled={index === steps.length - 1} className="p-1.5 text-gray-400 hover:bg-gray-100 rounded-lg disabled:opacity-30">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 9l-7 7-7-7" /></svg>
                 </button>
                 <button type="button" onClick={(e) => { e.stopPropagation(); removeStep(step.id); }} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg ml-1">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                 </button>
               </div>
             </div>
@@ -545,7 +543,7 @@ export default function CustomizeWorkflowPage() {
                     >
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${step.approverSource === opt.id ? 'bg-primary-100 text-primary-600' : 'bg-white text-gray-500 shadow-sm'
                         }`}>
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={opt.icon} /></svg>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={opt.icon} /></svg>
                       </div>
                       <span className={`block text-xs font-bold ${step.approverSource === opt.id ? 'text-primary-900' : 'text-gray-700'}`}>{opt.label}</span>
                       <span className="block text-[10px] text-gray-500 leading-tight mt-0.5">{opt.desc}</span>
@@ -579,7 +577,7 @@ export default function CustomizeWorkflowPage() {
                         >
                           <option value="">Select Level...</option>
                           <option value="1">Direct Manager (Level 1)</option>
-                          <option value="2">Manager's Manager (Level 2)</option>
+                          <option value="2">Manager&apos;s Manager (Level 2)</option>
                           <option value="3">Level 3 Manager</option>
                         </select>
                       )}
@@ -597,7 +595,7 @@ export default function CustomizeWorkflowPage() {
                             </span>
                           </div>
                           <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center group-hover:bg-primary-50 group-hover:text-primary-600">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                           </div>
                         </button>
                       )}
@@ -668,7 +666,7 @@ export default function CustomizeWorkflowPage() {
                             </span>
                           </div>
                           <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center group-hover:bg-emerald-50 group-hover:text-emerald-600">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                           </div>
                         </button>
                       )}
@@ -703,15 +701,6 @@ export default function CustomizeWorkflowPage() {
                     />
                     <span className="text-sm text-gray-700">Require Comment</span>
                   </label>
-                  <label className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={step.settings.allowDelegation}
-                      onChange={(e) => updateStep(step.id, { settings: { ...step.settings, allowDelegation: e.target.checked } })}
-                      className="rounded border-gray-300 text-primary-600"
-                    />
-                    <span className="text-sm text-gray-700">Allow Delegation</span>
-                  </label>
                 </div>
               </div>
             )}
@@ -730,7 +719,7 @@ export default function CustomizeWorkflowPage() {
         <div className="space-y-4">
           {isWideScope && (
             <div className="flex items-center gap-2 px-3 py-2 bg-[#F3EADC] border border-[#E6D3B3] rounded-lg text-xs text-[#5E4426]">
-              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               Showing positions across all business units for {WORKFLOW_CATEGORIES.find(c => c.value === workflowCategory)?.label} scope
             </div>
           )}
@@ -798,7 +787,7 @@ export default function CustomizeWorkflowPage() {
         <div className="space-y-4">
           {isWideScope && (
             <div className="flex items-center gap-2 px-3 py-2 bg-[#F3EADC] border border-[#E6D3B3] rounded-lg text-xs text-[#5E4426]">
-              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               Showing employees across all business units for {WORKFLOW_CATEGORIES.find(c => c.value === workflowCategory)?.label} scope
             </div>
           )}
@@ -872,7 +861,7 @@ export default function CustomizeWorkflowPage() {
                   onClick={addStep}
                   className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-xl shadow-lg shadow-gray-200 hover:shadow-xl hover:-translate-y-0.5 transition-all text-sm font-medium"
                 >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" /></svg>
                   Add Step
                 </button>
               </div>
@@ -902,13 +891,13 @@ export default function CustomizeWorkflowPage() {
         <div className="max-w-5xl mx-auto px-6 py-8">
           {error && (
             <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-3">
-              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               {error}
             </div>
           )}
           {successMsg && (
             <div className="mb-6 bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl flex items-center gap-3">
-              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               {successMsg}
             </div>
           )}
@@ -937,7 +926,7 @@ export default function CustomizeWorkflowPage() {
                               <span className="font-medium text-gray-700 block">{cat.label}</span>
                               <span className="text-[10px] text-gray-400 leading-tight block">{cat.description}</span>
                             </div>
-                            {workflowCategory === cat.value && <svg className="w-4 h-4 flex-shrink-0 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>}
+                            {workflowCategory === cat.value && <svg className="w-4 h-4 flex-shrink-0 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7" /></svg>}
                           </button>
                         ))}
                       </div>
@@ -948,7 +937,7 @@ export default function CustomizeWorkflowPage() {
                 {/* Auto-generate from Organogram */}
                 <Card className="p-4 bg-gradient-to-br from-[#F3EADC] to-[#FAF6F1] border-[#E6D3B3]">
                   <h4 className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
-                    <svg className="w-4 h-4 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                    <svg className="w-4 h-4 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                     Quick Start
                   </h4>
                   <p className="text-xs text-gray-600 mb-3">
@@ -964,7 +953,7 @@ export default function CustomizeWorkflowPage() {
                     disabled={loadingPositions}
                     className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#9A7545] text-white rounded-xl hover:bg-[#5E4426] disabled:opacity-50 transition-all text-sm font-medium shadow-sm"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
                     {loadingPositions ? 'Loading...' : 'Generate from Organogram'}
                   </button>
                   {steps.length > 0 && (
@@ -1012,7 +1001,7 @@ export default function CustomizeWorkflowPage() {
                 {steps.length === 0 ? (
                   <div className="text-center py-16 border-2 border-dashed border-gray-200 rounded-2xl bg-gray-50/50">
                     <div className="w-16 h-16 mx-auto bg-white rounded-full shadow-sm flex items-center justify-center mb-4">
-                      <svg className="w-8 h-8 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+                      <svg className="w-8 h-8 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
                     </div>
                     <h3 className="text-lg font-semibold text-gray-900">Start your flow</h3>
                     <p className="text-gray-500 mb-6">Add the first approval step to begin</p>
@@ -1140,7 +1129,7 @@ export default function CustomizeWorkflowPage() {
                     <p className="text-sm text-gray-500 line-clamp-2 min-h-[40px]">{wf.description || 'No description'}</p>
                     <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between text-xs text-gray-400">
                       <span>{wf.steps?.length || 0} steps</span>
-                      <span>{new Date(wf.updated_at).toLocaleDateString()}</span>
+                      <span>{new Date(wf.updated_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
                     </div>
                   </div>
                 </Card>

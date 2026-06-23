@@ -82,11 +82,7 @@ export default function VoucherRequestPage() {
     };
 
     // Initial date for display
-    const today = new Date().toLocaleDateString('en-GB', {
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric'
-    });
+    const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
     // Today's date in ISO format for min date validation
     const todayISO = new Date().toISOString().split('T')[0];
@@ -1102,6 +1098,11 @@ export default function VoucherRequestPage() {
         }
     };
 
+    const unsavedPrompt = useUnsavedChangesPrompt({
+        isDirty,
+        disabled: loading || savingDraft,
+    });
+
     if (status === 'loading' || loadingRequest) {
         return (
             <AppLayout title="Voucher Request" showBack onBack={() => router.back()}>
@@ -1113,11 +1114,6 @@ export default function VoucherRequestPage() {
     }
 
     if (!session) return null;
-
-    const unsavedPrompt = useUnsavedChangesPrompt({
-        isDirty,
-        disabled: loading || savingDraft,
-    });
 
     const pageTitle = isApproverEditing ? 'Edit Voucher Request (Approver)' : isEditMode ? 'Edit Voucher Request' : 'Voucher Request';
 
@@ -1138,7 +1134,7 @@ export default function VoucherRequestPage() {
                     {isApproverEditing && (
                         <div className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-primary-50 border border-primary-200 rounded-xl">
                             <svg className="w-4 h-4 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                             </svg>
                             <span className="text-sm font-medium text-primary-700">Editing as Approver - Changes will be tracked</span>
                         </div>
@@ -1255,7 +1251,7 @@ export default function VoucherRequestPage() {
                                         </div>
                                         <div className="md:col-span-3">
                                             <p className="text-xs text-gray-500 italic">
-                                                The voucher will be addressed as: "Dear {formData.guestTitle || '[Title]'} {formData.guestFirstName || '[Name]'}"
+                                                The voucher will be addressed as: &ldquo;Dear {formData.guestTitle || '[Title]'} {formData.guestFirstName || '[Name]'}&rdquo;
                                             </p>
                                         </div>
                                     </div>
@@ -1583,7 +1579,7 @@ export default function VoucherRequestPage() {
                                     className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 bg-primary-50 text-primary-700 rounded-xl hover:bg-primary-100 transition-colors text-sm font-medium border border-primary-200"
                                 >
                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
                                     </svg>
                                     Add Documents
                                 </label>
@@ -1604,7 +1600,7 @@ export default function VoucherRequestPage() {
                                     <div key={`existing-doc-${index}`} className="flex flex-col sm:flex-row gap-4 p-4 border border-gray-200 rounded-xl bg-gray-50">
                                         <div className="w-12 h-12 bg-white border border-gray-200 rounded-lg flex items-center justify-center flex-shrink-0">
                                             <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                             </svg>
                                         </div>
                                         <div className="flex-1 min-w-0">
@@ -1624,7 +1620,7 @@ export default function VoucherRequestPage() {
                                     <div key={`new-doc-${index}`} className="flex flex-col sm:flex-row gap-4 p-4 border border-primary-100 rounded-xl bg-white shadow-sm hover:shadow-md transition-shadow">
                                         <div className="w-12 h-12 bg-primary-50 rounded-lg flex items-center justify-center flex-shrink-0 text-primary-600">
                                             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                             </svg>
                                         </div>
                                         <div className="flex-1 space-y-3 min-w-0">
@@ -1640,7 +1636,7 @@ export default function VoucherRequestPage() {
                                                     title="Remove document"
                                                 >
                                                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                                                     </svg>
                                                 </button>
                                             </div>
@@ -1679,9 +1675,9 @@ export default function VoucherRequestPage() {
                         </p>
 
                         {loadingApproverResolution && (
-                            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-2">
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500" />
-                                <span className="text-sm text-blue-700">Resolving approvers from HRIMS organogram...</span>
+                            <div className="mb-4 p-3 bg-primary-50 border border-primary-200 rounded-xl flex items-center gap-2">
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-500" />
+                                <span className="text-sm text-primary-700">Resolving approvers from HRIMS organogram...</span>
                             </div>
                         )}
 
@@ -1736,7 +1732,7 @@ export default function VoucherRequestPage() {
                                                             title="Change approver"
                                                         >
                                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                                                             </svg>
                                                         </button>
                                                     </div>
@@ -1747,7 +1743,7 @@ export default function VoucherRequestPage() {
                                                         )}
                                                         <div className="relative">
                                                             <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                                                             </svg>
                                                             <input
                                                                 type="text"
@@ -1821,8 +1817,8 @@ export default function VoucherRequestPage() {
                             </div>
                             <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[#F3EADC] text-[#5E4426] rounded-full text-xs font-medium">
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                 </svg>
                                 View Only
                             </div>
@@ -1857,7 +1853,7 @@ export default function VoucherRequestPage() {
                                             title="Remove watcher"
                                         >
                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                                             </svg>
                                         </button>
                                     </div>
@@ -1869,7 +1865,7 @@ export default function VoucherRequestPage() {
                         <div className="relative">
                             <div className="relative">
                                 <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                                 </svg>
                                 <input
                                     type="text"
@@ -1913,7 +1909,7 @@ export default function VoucherRequestPage() {
                                                     <p className="text-xs text-gray-500 truncate">{u.email}</p>
                                                 </div>
                                                 <svg className="w-5 h-5 text-[#9A7545] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                                                 </svg>
                                             </button>
                                         ))
@@ -1926,7 +1922,7 @@ export default function VoucherRequestPage() {
                         <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-xl">
                             <div className="flex items-start gap-2">
                                 <svg className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
                                 <p className="text-xs text-gray-500">
                                     Watchers will receive notifications about this request and can access it from their dashboard. They will be able to download the voucher PDF once the request is fully approved.

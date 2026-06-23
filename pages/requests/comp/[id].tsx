@@ -5,6 +5,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../../api/auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { fetchHrimsEmployeeByEmail } from '@/lib/hrimsClient';
+import { formatDateTime } from '@/lib/formatDate';
 import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input } from '../../../components/ui';
@@ -144,90 +145,6 @@ function ApprovalTimeline({ request, onRedirect, canRedirect }: { request: Reque
     
     const [approvers, setApprovers] = useState<ApproverInfo[]>([]);
     const [loadingApprovers, setLoadingApprovers] = useState(true);
-    
-    // Delegation request state
-    const [showDelegationModal, setShowDelegationModal] = useState(false);
-    const [delegationTargetApprover, setDelegationTargetApprover] = useState<{ id: string; name: string } | null>(null);
-    const [delegationUsers, setDelegationUsers] = useState<Array<{ id: string; display_name: string; email: string }>>([]);
-    const [delegationForm, setDelegationForm] = useState({ delegate_id: '', reason: '', starts_at: '', ends_at: '' });
-    const [delegationSubmitting, setDelegationSubmitting] = useState(false);
-    const [delegationFeedback, setDelegationFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-    
-    // Track submitted delegation requests for this request
-    const [pendingDelegations, setPendingDelegations] = useState<Array<{
-        approverId: string;
-        approverName: string;
-        delegateName: string;
-        submittedAt: string;
-    }>>([]);
-
-    // Fetch users for delegation modal - exclude current user and approvers already in timeline
-    useEffect(() => {
-        if (showDelegationModal && delegationUsers.length === 0) {
-            fetch('/api/users')
-                .then(res => res.json())
-                .then(data => {
-                    const approverIds = new Set(approvers.map(a => a.id));
-                    setDelegationUsers((data.users || []).filter((u: any) => 
-                        u.id !== currentUserId && 
-                        u.id !== delegationTargetApprover?.id &&
-                        !approverIds.has(u.id)
-                    ));
-                })
-                .catch(() => setDelegationUsers([]));
-        }
-    }, [showDelegationModal, currentUserId, delegationUsers.length, approvers, delegationTargetApprover]);
-
-    // Handle delegation request submission
-    const handleDelegationSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!delegationTargetApprover || !delegationForm.delegate_id) return;
-
-        setDelegationSubmitting(true);
-        setDelegationFeedback(null);
-        try {
-            const res = await fetch('/api/rbac/delegations', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    delegator_id: delegationTargetApprover.id,
-                    delegate_id: delegationForm.delegate_id,
-                    reason: delegationForm.reason || undefined,
-                    starts_at: delegationForm.starts_at ? new Date(delegationForm.starts_at).toISOString() : new Date().toISOString(),
-                    ends_at: delegationForm.ends_at ? new Date(delegationForm.ends_at).toISOString() : undefined,
-                    requested_by: currentUserId,
-                    request_id: request.id,
-                }),
-            });
-            if (!res.ok) {
-                const data = await res.json();
-                throw new Error(data.error || 'Failed to submit delegation request');
-            }
-            setDelegationFeedback({ type: 'success', text: 'Delegation request submitted. An admin will review it shortly.' });
-            
-            // Add to pending delegations list
-            const delegateUser = delegationUsers.find(u => u.id === delegationForm.delegate_id);
-            if (delegationTargetApprover) {
-                setPendingDelegations(prev => [...prev, {
-                    approverId: delegationTargetApprover.id,
-                    approverName: delegationTargetApprover.name,
-                    delegateName: delegateUser?.display_name || 'Unknown',
-                    submittedAt: new Date().toISOString(),
-                }]);
-            }
-            
-            setDelegationForm({ delegate_id: '', reason: '', starts_at: '', ends_at: '' });
-            setTimeout(() => {
-                setShowDelegationModal(false);
-                setDelegationTargetApprover(null);
-                setDelegationFeedback(null);
-            }, 2000);
-        } catch (err: any) {
-            setDelegationFeedback({ type: 'error', text: err.message || 'Failed to submit delegation request.' });
-        } finally {
-            setDelegationSubmitting(false);
-        }
-    };
 
     useEffect(() => {
         async function fetchApprovers() {
@@ -364,20 +281,20 @@ function ApprovalTimeline({ request, onRedirect, canRedirect }: { request: Reque
                                                 {approver.first_viewed_at ? (
                                                     <span
                                                         className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-full px-2 py-0.5"
-                                                        title={`First opened ${new Date(approver.first_viewed_at).toLocaleString()}\nLast viewed ${approver.last_viewed_at ? new Date(approver.last_viewed_at).toLocaleString() : '—'}`}
+                                                        title={`First opened ${formatDateTime(approver.first_viewed_at)}\nLast viewed ${approver.last_viewed_at ? formatDateTime(approver.last_viewed_at) : '—'}`}
                                                     >
                                                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                                         </svg>
-                                                        Opened {new Date(approver.first_viewed_at).toLocaleDateString()}
+                                                        Opened {new Date(approver.first_viewed_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                                                     </span>
                                                 ) : isActive ? (
                                                     <span className="inline-flex items-center gap-1 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5">
                                                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
                                                         </svg>
-                                                        Not opened yet
+                                                        Not reviewed yet
                                                     </span>
                                                 ) : null}
                                             </div>
@@ -388,7 +305,7 @@ function ApprovalTimeline({ request, onRedirect, canRedirect }: { request: Reque
                                                     return (
                                                         <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 border border-amber-200">
                                                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
                                                             </svg>
                                                             pp {(step as any).redirect_job_title || 'Redirected'}
                                                         </div>
@@ -413,27 +330,6 @@ function ApprovalTimeline({ request, onRedirect, canRedirect }: { request: Reque
                                                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-primary-50 text-primary-700 border border-primary-100 animate-pulse">
                                                     Awaiting Action
                                                 </span>
-                                                {/* Check if there's a pending delegation for this approver */}
-                                                {(() => {
-                                                    const pendingDelegation = pendingDelegations.find(d => d.approverId === approver.id);
-                                                    if (pendingDelegation) {
-                                                        return (
-                                                            <div className="flex flex-col items-end gap-1">
-                                                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-[#F3EADC] text-[#5E4426] border border-[#C9B896]">
-                                                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                                    </svg>
-                                                                    Delegation Requested
-                                                                </span>
-                                                                <span className="text-xs text-gray-500">
-                                                                    Waiting for admin approval
-                                                                </span>
-                                                            </div>
-                                                        );
-                                                    }
-                                                    return null;
-                                                })()}
-                                                
                                             </div>
                                         ) : (
                                             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-gray-50 text-gray-500 border border-gray-100">
@@ -442,7 +338,7 @@ function ApprovalTimeline({ request, onRedirect, canRedirect }: { request: Reque
                                         )}
                                         {approver.signed_at && (
                                             <span className="text-xs text-gray-400">
-                                                {new Date(approver.signed_at).toLocaleDateString('en-US')}
+                                                {new Date(approver.signed_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                                             </span>
                                         )}
                                     </div>
@@ -455,7 +351,7 @@ function ApprovalTimeline({ request, onRedirect, canRedirect }: { request: Reque
                                         className="mt-4 pt-4 border-t border-gray-100"
                                     >
                                         <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-700 relative">
-                                            <p className="italic">"{approver.comment}"</p>
+                                            <p className="italic">&ldquo;{approver.comment}&rdquo;</p>
                                         </div>
                                     </motion.div>
                                 )}
@@ -549,6 +445,10 @@ export const getServerSideProps: GetServerSideProps<CompHotelBookingDetailsPageP
             decision,
             comment,
             signed_at,
+            signature_url,
+            signature_reference,
+            signature_type,
+            authentication_method,
             approver:app_users!approvals_approver_id_fkey (
               id,
               display_name,
@@ -747,6 +647,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
         const isApprover = request?.request_steps?.some(s => s.approver?.id === currentUserId);
         if (!isApprover) return;
         fetch(`/api/requests/${id}/view`, { method: 'POST' }).catch(() => { /* silent */ });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id, currentUserId, request?.id]);
     
     // Approvers can edit (navigate to edit form)
@@ -1140,6 +1041,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
         if (activeTab === 'documents' && id) {
             fetchDocuments();
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id, activeTab]);
 
     const handleDownloadPdf = () => {
@@ -1247,7 +1149,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                 title="Reject this request?"
                 message={
                     <span>
-                        Are you sure you want to reject "<span className="font-medium text-gray-900">{request?.title}</span>"?
+                        Are you sure you want to reject &ldquo;<span className="font-medium text-gray-900">{request?.title}</span>&rdquo;?
                         The requester will be notified and the workflow will not advance.
                     </span>
                 }
@@ -1281,12 +1183,12 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                     <Card className="bg-danger-50 border-danger-200 !p-4">
                         <div className="flex items-center gap-3">
                             <svg className="w-5 h-5 text-danger-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
                             <p className="text-danger-700 text-sm">{publishError}</p>
                             <button onClick={() => setPublishError(null)} className="ml-auto text-danger-500 hover:text-danger-700">
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                                 </svg>
                             </button>
                         </div>
@@ -1299,8 +1201,8 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                         <div className="flex items-center gap-3">
                             <div className="w-8 h-8 rounded-full bg-[#F3EADC] flex items-center justify-center flex-shrink-0">
                                 <svg className="w-4 h-4 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                 </svg>
                             </div>
                             <div>
@@ -1314,7 +1216,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                 <nav className="flex items-center text-sm text-text-secondary mb-2">
                     <Link href="/approvals" className="hover:text-primary-600 transition-colors flex items-center gap-1">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                         </svg>
                         Back to Approval Tasks
                     </Link>
@@ -1359,7 +1261,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                         {canDelete && (
                             <Button variant="outline" className="gap-2 bg-white text-danger-600 border-danger-200 hover:bg-danger-50" onClick={() => setShowDeleteConfirm(true)}>
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                 </svg>
                                 Delete
                             </Button>
@@ -1380,7 +1282,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                 }}
                             >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                                 </svg>
                                 Edit Draft
                             </Button>
@@ -1388,14 +1290,14 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                             <>
                                 <Button variant="outline" className="gap-2 bg-white" onClick={handleDownloadPdf}>
                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                     </svg>
                                     PDF
                                 </Button>
                                 {actualStatus === 'approved' && request.metadata?.type === 'voucher_request' && (
                                     <Button variant="primary" className="gap-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 shadow-lg shadow-amber-500/20" onClick={handleDownloadVoucher}>
                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
                                         </svg>
                                         Generate Voucher
                                     </Button>
@@ -1405,7 +1307,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                         {canPublish && (
                             <Button variant="primary" className="gap-2 shadow-lg shadow-primary-500/20" onClick={() => setShowPublishConfirm(true)} disabled={publishing} isLoading={publishing}>
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                                 </svg>
                                 {publishing ? 'Publishing...' : 'Publish Request'}
                             </Button>
@@ -1413,7 +1315,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                         {isCurrentApprover && (
                             <Button variant="primary" className="gap-2 shadow-lg shadow-primary-500/20" onClick={() => setShowReviewModal(true)}>
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
                                 Review Request
                             </Button>
@@ -1456,14 +1358,14 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                         {metadata.isExternalGuest ? (
                                                             <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
                                                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                                                                 </svg>
                                                                 External Guest
                                                             </span>
                                                         ) : (
                                                             <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
                                                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                                                                 </svg>
                                                                 Staff Member
                                                             </span>
@@ -1471,15 +1373,15 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                         {metadata.showNameOnVoucher !== false ? (
                                                             <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-[#F3EADC] text-[#5E4426]">
                                                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                                                 </svg>
                                                                 Name Visible on Voucher
                                                             </span>
                                                         ) : (
                                                             <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
                                                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
                                                                 </svg>
                                                                 Name Hidden on Voucher
                                                             </span>
@@ -1531,7 +1433,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                             <div className="bg-emerald-50/50 px-6 py-4 border-b border-emerald-100 flex items-center justify-between">
                                                 <h3 className="font-semibold text-emerald-800 flex items-center gap-2">
                                                     <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                                                     </svg>
                                                     Business Units
                                                 </h3>
@@ -1545,7 +1447,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                             {unit.bookingMade && (
                                                                 <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
                                                                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7" />
                                                                     </svg>
                                                                     Booking Made
                                                                 </span>
@@ -1612,7 +1514,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                             <div className="bg-[#F3EADC]/50 px-6 py-4 border-b border-[#E6D3B3]">
                                                 <h3 className="font-semibold text-[#3F2D19] flex items-center gap-2">
                                                     <svg className="w-5 h-5 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                                     </svg>
                                                     Local Travel Authorization
                                                 </h3>
@@ -1622,7 +1524,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                     <div>
                                                         <label className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1 block">Date of Intended Travel</label>
                                                         <div className="text-text-primary font-medium text-base border-b border-gray-100 pb-2">
-                                                            {travelDocument.dateOfIntendedTravel ? new Date(travelDocument.dateOfIntendedTravel).toLocaleDateString('en-GB') : 'N/A'}
+                                                            {travelDocument.dateOfIntendedTravel ? new Date(travelDocument.dateOfIntendedTravel).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'N/A'}
                                                         </div>
                                                     </div>
                                                     <div>
@@ -1659,7 +1561,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                                 <tbody>
                                                                     {travelDocument.itinerary.map((row: any, idx: number) => (
                                                                         <tr key={idx} className="border-t border-gray-100">
-                                                                            <td className="px-3 py-2 text-gray-900">{row.date ? new Date(row.date).toLocaleDateString('en-GB') : '-'}</td>
+                                                                            <td className="px-3 py-2 text-gray-900">{row.date ? new Date(row.date).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '-'}</td>
                                                                             <td className="px-3 py-2 text-gray-900">{row.from || '-'}</td>
                                                                             <td className="px-3 py-2 text-gray-900">{row.to || '-'}</td>
                                                                             <td className="px-3 py-2 text-gray-900">{row.km || '-'}</td>
@@ -1769,7 +1671,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                             <div className="bg-[#F3EADC]/50 px-6 py-4 border-b border-[#E6D3B3] flex items-center justify-between">
                                                 <h3 className="font-semibold text-[#3F2D19] flex items-center gap-2">
                                                     <svg className="w-5 h-5 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                                     </svg>
                                                     Supporting Documents
                                                 </h3>
@@ -1780,7 +1682,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                     <div key={index} className="flex items-center gap-4 p-4 bg-white rounded-xl border border-gray-200 hover:border-gray-300 transition-colors">
                                                         <div className="w-12 h-12 bg-[#F3EADC] rounded-lg flex items-center justify-center flex-shrink-0">
                                                             <svg className="w-6 h-6 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                                             </svg>
                                                         </div>
                                                         <div className="flex-1 min-w-0">
@@ -1798,7 +1700,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                             )}
                                                             {doc.uploadedBy && (
                                                                 <p className="text-xs text-gray-400 mt-1">
-                                                                    Uploaded by {doc.uploadedBy.name} {doc.uploadedAt ? `on ${new Date(doc.uploadedAt).toLocaleDateString()}` : ''}
+                                                                    Uploaded by {doc.uploadedBy.name} {doc.uploadedAt ? `on ${new Date(doc.uploadedAt).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}` : ''}
                                                                 </p>
                                                             )}
                                                         </div>
@@ -1814,7 +1716,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                             <div className="bg-emerald-50 px-6 py-4 border-b border-emerald-100">
                                                 <h3 className="font-semibold text-emerald-800 flex items-center gap-2">
                                                     <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                                     </svg>
                                                     Administration
                                                     <span className="ml-2 text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Post-Approval</span>
@@ -1849,7 +1751,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                 <div className="mt-6 pt-4 border-t border-gray-200">
                                                     <h4 className="font-medium text-gray-700 mb-3 flex items-center gap-2">
                                                         <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                                                         </svg>
                                                         Attached Travel Document
                                                     </h4>
@@ -1858,11 +1760,11 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                     {metadata.administration?.scannedDocument ? (
                                                         <div className="flex items-center gap-3 p-3 bg-emerald-50 rounded-lg border border-emerald-200">
                                                             <svg className="w-8 h-8 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                                             </svg>
                                                             <div className="flex-1">
                                                                 <p className="font-medium text-emerald-800">{metadata.administration.scannedDocument.filename}</p>
-                                                                <p className="text-xs text-emerald-600">Uploaded on {new Date(metadata.administration.scannedDocument.uploadedAt).toLocaleDateString()}</p>
+                                                                <p className="text-xs text-emerald-600">Uploaded on {new Date(metadata.administration.scannedDocument.uploadedAt).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}</p>
                                                             </div>
                                                             <a href={metadata.administration.scannedDocument.url} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 transition-colors">
                                                                 View
@@ -1872,7 +1774,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                         <div className="flex items-center justify-center p-6 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
                                                             <div className="text-center">
                                                                 <svg className="w-10 h-10 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                                                                 </svg>
                                                                 <p className="text-sm text-gray-500">No document uploaded yet</p>
                                                                 <p className="text-xs text-gray-400 mt-1">Document upload will be available soon</p>
@@ -1906,7 +1808,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                         <div className="bg-primary-50/80 px-6 py-4 border-b border-primary-100">
                                             <h3 className="font-semibold text-primary-800 flex items-center gap-2">
                                                 <svg className="w-5 h-5 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                                 </svg>
                                                 Request Summary
                                             </h3>
@@ -1937,7 +1839,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                 </div>
                                                 <div className="space-y-1">
                                                     <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Submitted On</span>
-                                                    <p className="text-gray-900">{new Date(request.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                                                    <p className="text-gray-900">{new Date(request.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}</p>
                                                 </div>
                                             </div>
                                             {request.description && (
@@ -1958,7 +1860,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                             <div className="bg-gray-50/50 px-6 py-4 border-b border-gray-100 flex items-center justify-between">
                                                 <h3 className="font-semibold text-text-primary font-heading flex items-center gap-2">
                                                     <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                                                     </svg>
                                                     Uploaded Documents
                                                 </h3>
@@ -1975,27 +1877,27 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                     const getFileIcon = () => {
                                                         if (isImage) return (
                                                             <svg className="w-6 h-6 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                                                             </svg>
                                                         );
                                                         if (isPdf) return (
                                                             <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                                                             </svg>
                                                         );
                                                         if (isWord) return (
                                                             <svg className="w-6 h-6 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                                             </svg>
                                                         );
                                                         if (isExcel) return (
                                                             <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
                                                             </svg>
                                                         );
                                                         return (
                                                             <svg className="w-6 h-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                                             </svg>
                                                         );
                                                     };
@@ -2028,13 +1930,13 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                                             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-sm text-gray-500">
                                                                                 <span className="inline-flex items-center gap-1">
                                                                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+                                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
                                                                                     </svg>
                                                                                     {formatFileSize(doc.file_size)}
                                                                                 </span>
                                                                                 <span className="inline-flex items-center gap-1">
                                                                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                                                                                     </svg>
                                                                                     {fileExt.toUpperCase() || 'FILE'}
                                                                                 </span>
@@ -2046,9 +1948,9 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                                             </div>
                                                                             <div className="flex items-center gap-2 mt-2 text-xs text-gray-400">
                                                                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                                                                 </svg>
-                                                                                Uploaded {new Date(doc.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                                                                Uploaded {new Date(doc.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                                                                             </div>
                                                                         </div>
                                                                         <div className="flex flex-col gap-2 flex-shrink-0">
@@ -2056,15 +1958,15 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                                                 <>
                                                                                     <Button variant="primary" size="sm" className="gap-1.5" onClick={() => window.open(doc.download_url, '_blank')}>
                                                                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                                                                         </svg>
                                                                                         Download
                                                                                     </Button>
                                                                                     {(isImage || isPdf) && (
                                                                                         <Button variant="outline" size="sm" className="gap-1.5 bg-white" onClick={() => window.open(doc.download_url, '_blank')}>
                                                                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                                                                             </svg>
                                                                                             Preview
                                                                                         </Button>
@@ -2141,11 +2043,11 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                             </div>
                             <div className="p-4 border-b border-gray-100 flex justify-between items-center">
                                 <span className="text-text-secondary">Created</span>
-                                <span className="font-medium text-text-primary">{new Date(request.created_at).toLocaleDateString('en-US')}</span>
+                                <span className="font-medium text-text-primary">{new Date(request.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
                             </div>
                             <div className="p-4 flex justify-between items-center">
                                 <span className="text-text-secondary">Last Updated</span>
-                                <span className="font-medium text-text-primary">{new Date(request.updated_at).toLocaleDateString('en-US')}</span>
+                                <span className="font-medium text-text-primary">{new Date(request.updated_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
                             </div>
                         </Card>
 
@@ -2154,8 +2056,8 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                             <Card className="!p-6 border-[#E6D3B3] bg-gradient-to-br from-white to-[#FAF6F1]/30 shadow-sm">
                                 <div className="flex items-center gap-2 mb-4">
                                     <svg className="w-4 h-4 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                     </svg>
                                     <h3 className="text-sm font-bold text-[#5E4426] uppercase tracking-widest">Watchers</h3>
                                     <span className="ml-auto text-xs bg-[#F3EADC] text-[#9A7545] px-2 py-0.5 rounded-full font-medium">
@@ -2192,7 +2094,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                             <div className="flex items-center gap-4 mb-4">
                                 <div className="w-12 h-12 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
                                     <svg className="w-6 h-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                                     </svg>
                                 </div>
                                 <div>
@@ -2203,7 +2105,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
                                 <div className="flex items-start gap-3">
                                     <svg className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                                     </svg>
                                     <div>
                                         <p className="text-sm font-medium text-amber-800">Important Notice</p>
@@ -2214,7 +2116,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                 </div>
                             </div>
                             <p className="text-text-secondary mb-6">
-                                Are you sure you want to publish "<span className="font-medium text-text-primary">{request?.title}</span>" and send it for approval?
+                                Are you sure you want to publish &ldquo;<span className="font-medium text-text-primary">{request?.title}</span>&rdquo; and send it for approval?
                             </p>
                             <div className="flex gap-3 justify-end">
                                 <Button variant="outline" onClick={() => setShowPublishConfirm(false)} disabled={publishing}>Cancel</Button>
@@ -2233,7 +2135,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                             <div className="flex items-center gap-4 mb-4">
                                 <div className="w-12 h-12 rounded-full bg-danger-100 flex items-center justify-center flex-shrink-0">
                                     <svg className="w-6 h-6 text-danger-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                     </svg>
                                 </div>
                                 <div>
@@ -2242,7 +2144,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                 </div>
                             </div>
                             <p className="text-text-secondary mb-6">
-                                Are you sure you want to delete "<span className="font-medium text-text-primary">{request.title}</span>"?
+                                Are you sure you want to delete &ldquo;<span className="font-medium text-text-primary">{request.title}</span>&rdquo;?
                             </p>
                             <div className="flex gap-3 justify-end">
                                 <Button variant="outline" onClick={() => setShowDeleteConfirm(false)} disabled={deleting}>Cancel</Button>
@@ -2265,7 +2167,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                 </div>
                                 <button onClick={() => { setShowReviewModal(false); setReviewComment(''); setReviewError(null); }} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors">
                                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                                     </svg>
                                 </button>
                             </div>
@@ -2280,7 +2182,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                     <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
                                         <div className="flex items-start gap-3">
                                             <svg className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                                             </svg>
                                             <div>
                                                 <h4 className="text-sm font-semibold text-amber-900">Identity verification required</h4>
@@ -2312,7 +2214,7 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                 {reviewError && (
                                     <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
                                         <svg className="w-4 h-4 text-red-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                         </svg>
                                         <p className="text-sm text-red-600 font-medium">{reviewError}</p>
                                     </div>

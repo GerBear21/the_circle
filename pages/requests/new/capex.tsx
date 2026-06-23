@@ -73,7 +73,29 @@ export default function NewCapexRequestPage() {
   const [showWatcherDropdown, setShowWatcherDropdown] = useState(false);
   const [quotationDocuments, setQuotationDocuments] = useState<DocumentMetadata[]>([]);
   const [quotationJustification, setQuotationJustification] = useState('');
+  const [quotationReason, setQuotationReason] = useState<string>('');
   const [supportingDocuments, setSupportingDocuments] = useState<DocumentMetadata[]>([]);
+
+  // Supplier directory (auto-populated from prior CAPEX requests) powering the
+  // supplier-name autocomplete on each quotation. activeSupplierField tracks
+  // which quotation row's dropdown is currently open.
+  const [supplierSuggestions, setSupplierSuggestions] = useState<Array<{ id: string; name: string; products: string | null; currency: string }>>([]);
+  const [activeSupplierField, setActiveSupplierField] = useState<number | null>(null);
+
+  const QUOTATION_REASONS: Array<{ value: string; label: string }> = [
+    { value: 'existing_supplier', label: 'Existing supplier — continuity required' },
+    { value: 'sole_supplier', label: 'Sole supplier — no alternatives available' },
+    { value: 'specialized', label: 'Specialized service requiring specific expertise' },
+    { value: 'other', label: 'Other reason — requires MD pre-approval first' },
+  ];
+
+  const requiresMdApproval = quotationReason === 'other';
+
+  // When "Other" is chosen the Managing Director must pre-approve. The MD is
+  // taken straight from the HRIMS-resolved approval chain (managing_director
+  // role) — there is no manual picker. They are prepended to the approval
+  // trail so the request can't proceed until the MD signs off.
+  const mdApproverId = selectedApprovers.managing_director || '';
 
   // Edit mode state
   const { edit: editRequestId, approver: isApproverEdit } = router.query;
@@ -117,7 +139,11 @@ export default function NewCapexRequestPage() {
 
   const unsavedPrompt = useUnsavedChangesPrompt({
     isDirty,
-    disabled: loading || savingDraft,
+    // Suppress the "discard changes?" prompt while we are actively
+    // submitting, saving a draft, or publishing — in all of these cases the
+    // handler performs its own navigation and the changes are being saved,
+    // so the user must not be asked to discard them.
+    disabled: loading || savingDraft || publishing,
   });
 
   const handleQuotationUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -336,7 +362,11 @@ export default function NewCapexRequestPage() {
         if (justificationData) {
           setQuotationJustification(justificationData);
         }
-        
+        const reasonData = metadata.quotationReason || capexData.quotationReason;
+        if (reasonData) {
+          setQuotationReason(reasonData);
+        }
+
         // Also check for documents from the documents table (actual uploaded files)
         // and match them with metadata if metadata is missing
         if (request.documents && Array.isArray(request.documents) && request.documents.length > 0) {
@@ -384,6 +414,7 @@ export default function NewCapexRequestPage() {
       // Fallback to session name if user profile not yet loaded/available
       setFormData(prev => ({ ...prev, requester: session.user.name || '' }));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, session, isEditMode]);
 
   useEffect(() => {
@@ -435,10 +466,23 @@ export default function NewCapexRequestPage() {
       }
     };
 
+    const fetchSuppliers = async () => {
+      try {
+        const response = await fetch('/api/finance/suppliers');
+        if (response.ok) {
+          const data = await response.json();
+          setSupplierSuggestions(data.suppliers || []);
+        }
+      } catch (err) {
+        console.error('Failed to fetch suppliers:', err);
+      }
+    };
+
     if (status === 'authenticated') {
       fetchBusinessUnits();
       fetchDepartments();
       fetchUsers();
+      fetchSuppliers();
     }
   }, [status]);
 
@@ -513,10 +557,6 @@ export default function NewCapexRequestPage() {
       : '—';
 
     const approvalColWidth = `${(100 / approvalRoles.length).toFixed(4)}%`;
-    const pageBreakStyle: React.CSSProperties = {
-      pageBreakBefore: 'always',
-      breakBefore: 'page',
-    };
 
     const headerSection: PreviewSection = {
       content: (
@@ -635,7 +675,18 @@ export default function NewCapexRequestPage() {
                 ))}
               </>
             )}
-            {quotationJustification && (
+            {quotationReason && (
+              <tr>
+                <td style={{ ...labelCellStyle, width: '22%' }} colSpan={1}>Reason (&lt; 3 quotations)</td>
+                <td style={cellStyle} colSpan={4}>
+                  {/* The free-text MD pre-approval reason is deliberately NOT
+                      rendered here — it is shared with the MD for pre-approval
+                      but must not appear on the printed request form. */}
+                  {QUOTATION_REASONS.find(r => r.value === quotationReason)?.label || quotationReason}
+                </td>
+              </tr>
+            )}
+            {!quotationReason && quotationJustification && (
               <tr>
                 <td style={{ ...labelCellStyle, width: '22%' }} colSpan={1}>Justification (&lt; 3 quotations)</td>
                 <td style={cellStyle} colSpan={4}>{quotationJustification}</td>
@@ -645,88 +696,6 @@ export default function NewCapexRequestPage() {
         </table>
       ),
     };
-
-    // Quotation attachment pages — one per uploaded quotation, each on its own A4 page
-    const allQuotations: Array<{
-      supplierName?: string;
-      description?: string;
-      isSelectedSupplier?: boolean;
-      selectionReason?: string;
-      fileName?: string;
-      fileUrl?: string;
-    }> = [
-      ...existingQuotations.map((q: any) => ({
-        supplierName: q.supplierName,
-        description: q.description,
-        isSelectedSupplier: q.isSelectedSupplier,
-        selectionReason: q.selectionReason,
-        fileName: q.fileName || q.name,
-        fileUrl: q.fileUrl || q.url,
-      })),
-      ...quotationDocuments.map(q => ({
-        supplierName: q.supplierName,
-        description: q.description,
-        isSelectedSupplier: q.isSelectedSupplier,
-        selectionReason: q.selectionReason,
-        fileName: q.file?.name,
-        fileUrl: undefined,
-      })),
-    ];
-
-    const quotationPageSections: PreviewSection[] = allQuotations.map((q, idx) => ({
-      content: (
-        <div className="page-break" style={{ ...pageBreakStyle, paddingTop: 12 }}>
-          <h2
-            style={{
-              fontSize: 12,
-              textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-              color: '#5E4426',
-              borderBottom: '1px solid #C9B896',
-              paddingBottom: 4,
-              margin: '0 0 10px',
-            }}
-          >
-            Attached Quotation {idx + 1} of {allQuotations.length}
-          </h2>
-          <table className="doc-grid" style={tableStyle}>
-            <tbody>
-              <tr>
-                <td style={labelCellStyle}>Supplier</td>
-                <td style={cellStyle}>{q.supplierName || '—'}</td>
-                <td style={labelCellStyle}>Selected Supplier</td>
-                <td style={cellStyle}>{q.isSelectedSupplier ? 'Yes' : 'No'}</td>
-              </tr>
-              <tr>
-                <td style={labelCellStyle}>Quotation Description</td>
-                <td style={cellStyle} colSpan={3}>{q.description || '—'}</td>
-              </tr>
-              <tr>
-                <td style={labelCellStyle}>File</td>
-                <td style={cellStyle} colSpan={3}>
-                  {q.fileUrl ? (
-                    <a href={q.fileUrl} target="_blank" rel="noreferrer" style={{ color: '#5E4426', textDecoration: 'underline' }}>
-                      {q.fileName || 'View attachment'}
-                    </a>
-                  ) : (
-                    q.fileName || '—'
-                  )}
-                </td>
-              </tr>
-              {q.isSelectedSupplier && (
-                <tr>
-                  <td style={labelCellStyle}>Selection Reason</td>
-                  <td style={cellStyle} colSpan={3}>{q.selectionReason || '—'}</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-          <p style={{ marginTop: 14, fontSize: 10, fontStyle: 'italic', color: '#666' }}>
-            The original quotation document is attached to this request.
-          </p>
-        </div>
-      ),
-    }));
 
     // Approval section — horizontal row; column width adjusted for however many roles we have
     const approvalSection: PreviewSection = {
@@ -803,7 +772,6 @@ export default function NewCapexRequestPage() {
       justificationSection,
       quotationSummarySection,
       approvalSection,
-      ...quotationPageSections,
     ];
   };
 
@@ -870,10 +838,31 @@ export default function NewCapexRequestPage() {
         setLoading(false);
         return;
       }
-      if (totalQuotations < 3 && !quotationJustification.trim()) {
-        setError('Please provide a justification for uploading fewer than 3 quotations.');
+      // Every newly-uploaded quotation must name its supplier.
+      const missingSupplier = quotationDocuments.findIndex(d => !d.supplierName.trim());
+      if (missingSupplier !== -1) {
+        setError(`Please enter the supplier name for quotation ${missingSupplier + 1}.`);
         setLoading(false);
         return;
+      }
+      if (totalQuotations < 3) {
+        if (!quotationReason) {
+          setError('Please select a reason for uploading fewer than 3 quotations.');
+          setLoading(false);
+          return;
+        }
+        if (quotationReason === 'other') {
+          if (!quotationJustification.trim()) {
+            setError('Please describe your "Other" reason for uploading fewer than 3 quotations.');
+            setLoading(false);
+            return;
+          }
+          if (!mdApproverId) {
+            setError('Selecting "Other" requires the Managing Director to pre-approve, but no MD could be resolved from HRIMS for your approval chain. Please contact an administrator.');
+            setLoading(false);
+            return;
+          }
+        }
       }
     }
 
@@ -939,7 +928,7 @@ export default function NewCapexRequestPage() {
         } else {
           // Regular update for non-approver edits (creator editing draft)
           // Always save even if no field changes detected (approvers/watchers might have changed)
-          const approversArray = [
+          const baseApproversForEdit = [
             selectedApprovers.finance_manager,
             selectedApprovers.general_manager,
             selectedApprovers.procurement_manager,
@@ -949,6 +938,9 @@ export default function NewCapexRequestPage() {
             selectedApprovers.finance_director,
             selectedApprovers.ceo,
           ].filter(Boolean);
+          const approversArray = (requiresMdApproval && mdApproverId)
+            ? [mdApproverId, ...baseApproversForEdit.filter(id => id !== mdApproverId)]
+            : baseApproversForEdit;
 
           const updatePayload = {
             title: `CAPEX: ${formData.projectName}`,
@@ -1011,6 +1003,9 @@ export default function NewCapexRequestPage() {
                 })),
               ],
               quotationJustification: quotationJustification || null,
+              quotationReason: quotationReason || null,
+              cooApprovalRequired: requiresMdApproval,
+              mdApproverId: requiresMdApproval ? (mdApproverId || null) : null,
             },
           };
 
@@ -1102,7 +1097,9 @@ export default function NewCapexRequestPage() {
       // Create new request (original flow)
       // Convert approvers object to ordered array for sequential approval
       // Order: Finance Manager -> General Manager -> Procurement Manager -> Corporate HOD -> Projects Manager -> Operations Director -> Finance Director -> CEO
-      const approversArray = [
+      // If "Other" reason was given for <3 quotations, the COO is prepended as the first approver
+      // so the request cannot move into the official approval trail until the COO signs off.
+      const baseApprovers = [
         selectedApprovers.finance_manager,
         selectedApprovers.general_manager,
         selectedApprovers.procurement_manager,
@@ -1111,7 +1108,10 @@ export default function NewCapexRequestPage() {
         selectedApprovers.managing_director,
         selectedApprovers.finance_director,
         selectedApprovers.ceo,
-      ].filter(Boolean); // Remove any empty values
+      ].filter(Boolean);
+      const approversArray = (requiresMdApproval && mdApproverId)
+        ? [mdApproverId, ...baseApprovers.filter(id => id !== mdApproverId)]
+        : baseApprovers;
 
       const response = await fetch('/api/requests', {
         method: 'POST',
@@ -1175,6 +1175,9 @@ export default function NewCapexRequestPage() {
               uploadedAt: new Date().toISOString(),
             })),
             quotationJustification: quotationJustification || null,
+            quotationReason: quotationReason || null,
+            cooApprovalRequired: requiresMdApproval,
+            mdApproverId: requiresMdApproval ? (mdApproverId || null) : null,
           },
         }),
       });
@@ -1293,7 +1296,7 @@ export default function NewCapexRequestPage() {
     
     try {
       // First, save any changes to the draft
-      const approversArray = [
+      const basePublishApprovers = [
         selectedApprovers.finance_manager,
         selectedApprovers.general_manager,
         selectedApprovers.procurement_manager,
@@ -1303,6 +1306,9 @@ export default function NewCapexRequestPage() {
         selectedApprovers.finance_director,
         selectedApprovers.ceo,
       ].filter(Boolean);
+      const approversArray = (requiresMdApproval && mdApproverId)
+        ? [mdApproverId, ...basePublishApprovers.filter(id => id !== mdApproverId)]
+        : basePublishApprovers;
 
       // Update the request with current form data before publishing
       const updateResponse = await fetch(`/api/requests/${editRequestId}`, {
@@ -1368,6 +1374,9 @@ export default function NewCapexRequestPage() {
               })),
             ],
             quotationJustification: quotationJustification || null,
+            quotationReason: quotationReason || null,
+            cooApprovalRequired: requiresMdApproval,
+            mdApproverId: requiresMdApproval ? (mdApproverId || null) : null,
           },
         }),
       });
@@ -1448,18 +1457,16 @@ export default function NewCapexRequestPage() {
   return (
     <AppLayout title={isEditMode ? "Edit CAPEX Request" : "CAPEX Request"} showBack onBack={() => router.back()} hideNav>
       <form onSubmit={handleSubmit} onChange={() => setIsDirty(true)} className="p-4 sm:p-6 space-y-6 max-w-5xl mx-auto pb-28">
-        <div className="mb-2">
-          <h1 className="text-2xl font-bold text-text-primary font-heading">
-            {isEditMode ? 'Edit Capex Request' : 'New Capex Request'}
-          </h1>
-          <p className="text-text-secondary mt-1">
+        <div className="mb-6 text-center">
+          <h1 className="text-2xl font-bold text-text-primary font-heading uppercase tracking-wide">
             {isApproverEditing
-              ? 'Edit this request as an approver. Your changes will be tracked and visible to others.'
+              ? 'Edit Capex Request'
               : isEditMode
-                ? 'Update the details of this capital expenditure request'
-                : 'Submit a capital expenditure request for approval'}
-          </p>
-          <div className="mt-4 max-w-lg">
+                ? 'Edit Capex Request'
+                : 'Capital Expenditure Request'}
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">DOC NO. FIN 101 — DEPARTMENT: FINANCE</p>
+          <div className="mt-4 max-w-lg mx-auto">
             <ReferenceCodeBanner
               requestType="capex"
               existingCode={existingReferenceCode}
@@ -1467,16 +1474,11 @@ export default function NewCapexRequestPage() {
             />
           </div>
           {isApproverEditing && (
-            <div className="mt-3 p-3 bg-primary-50 border border-primary-200 rounded-xl flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
-                <svg className="w-4 h-4 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                </svg>
-              </div>
-              <div>
-                <p className="font-medium text-primary-800 text-sm">Editing as Approver</p>
-                <p className="text-xs text-primary-600">All changes you make will be recorded and visible to the requester and other viewers.</p>
-              </div>
+            <div className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-primary-50 border border-primary-200 rounded-xl">
+              <svg className="w-4 h-4 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
+              <span className="text-sm font-medium text-primary-700">Editing as Approver — Changes will be tracked</span>
             </div>
           )}
         </div>
@@ -1491,7 +1493,7 @@ export default function NewCapexRequestPage() {
         <Card>
           <h3 className="font-semibold text-text-primary mb-4 flex items-center gap-2 text-lg">
             <svg className="w-5 h-5 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
             </svg>
             General Information
           </h3>
@@ -1582,15 +1584,6 @@ export default function NewCapexRequestPage() {
                 <option value="non-budget">Non-Budgeted</option>
                 <option value="emergency">Emergency</option>
               </select>
-              <label className="mt-2 flex items-start gap-2 text-sm text-gray-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                  checked={!formData.isBudgeted}
-                  onChange={(e) => setFormData({ ...formData, isBudgeted: !e.target.checked })}
-                />
-                <span>This CAPEX is not part of the approved annual budget</span>
-              </label>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1616,7 +1609,7 @@ export default function NewCapexRequestPage() {
         <Card>
           <h3 className="font-semibold text-text-primary mb-4 flex items-center gap-2 text-lg">
             <svg className="w-5 h-5 text-warning-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>
             Project Details
           </h3>
@@ -1667,7 +1660,7 @@ export default function NewCapexRequestPage() {
         <Card>
           <h3 className="font-semibold text-text-primary mb-4 flex items-center gap-2 text-lg">
             <svg className="w-5 h-5 text-success-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             Financial Analysis
           </h3>
@@ -1755,7 +1748,7 @@ export default function NewCapexRequestPage() {
         <Card>
           <h3 className="font-semibold text-text-primary mb-3 flex items-center gap-2 text-lg">
             <svg className="w-5 h-5 text-danger-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
             Quotations
             {!isEditMode && <span className="ml-2 px-2 py-0.5 text-xs font-medium bg-danger-100 text-danger-700 rounded-full">Required</span>}
@@ -1778,7 +1771,7 @@ export default function NewCapexRequestPage() {
                   <div className="flex items-start gap-3">
                     <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${quotation.isSelectedSupplier ? 'bg-emerald-100' : 'bg-gray-100'}`}>
                       <svg className={`w-5 h-5 ${quotation.isSelectedSupplier ? 'text-emerald-600' : 'text-gray-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
                     </div>
                     <div className="flex-1 min-w-0">
@@ -1787,7 +1780,7 @@ export default function NewCapexRequestPage() {
                         {quotation.isSelectedSupplier && (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7" />
                             </svg>
                             Selected Supplier
                           </span>
@@ -1843,7 +1836,7 @@ export default function NewCapexRequestPage() {
                   <div className="flex items-start gap-3">
                     <div className="flex-shrink-0 mt-1">
                       <svg className="w-8 h-8 text-danger-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
                     </div>
                     <div className="flex-1 min-w-0">
@@ -1857,12 +1850,60 @@ export default function NewCapexRequestPage() {
                       title="Remove quotation"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                       </svg>
                     </button>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="relative">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Supplier Name <span className="text-danger-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        autoComplete="off"
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                        placeholder="e.g., ABC Suppliers Ltd"
+                        value={doc.supplierName}
+                        onChange={(e) => handleUpdateQuotationMetadata(index, 'supplierName', e.target.value)}
+                        onFocus={() => setActiveSupplierField(index)}
+                        onBlur={() => setActiveSupplierField(null)}
+                        required
+                      />
+                      {/* Suggested suppliers from the directory */}
+                      {activeSupplierField === index && (() => {
+                        const term = doc.supplierName.trim().toLowerCase();
+                        const matches = supplierSuggestions
+                          .filter(s => s.name && s.name.toLowerCase() !== term &&
+                            (term === '' || s.name.toLowerCase().includes(term)))
+                          .slice(0, 8);
+                        if (matches.length === 0) return null;
+                        return (
+                          <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+                            {matches.map(s => (
+                              <button
+                                key={s.id}
+                                type="button"
+                                onMouseDown={(e) => {
+                                  // onMouseDown (not onClick) so the field's blur
+                                  // doesn't close the dropdown before selection.
+                                  e.preventDefault();
+                                  handleUpdateQuotationMetadata(index, 'supplierName', s.name);
+                                  setActiveSupplierField(null);
+                                }}
+                                className="w-full px-3 py-2 text-left hover:bg-primary-50 transition-colors border-b border-gray-100 last:border-b-0"
+                              >
+                                <p className="text-sm font-medium text-gray-900 truncate">{s.name}</p>
+                                {s.products && (
+                                  <p className="text-xs text-gray-500 truncate">{s.products} · {s.currency}</p>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">
                         Quotation Description
@@ -1873,18 +1914,6 @@ export default function NewCapexRequestPage() {
                         placeholder="e.g., Quotation for office equipment"
                         value={doc.description}
                         onChange={(e) => handleUpdateQuotationMetadata(index, 'description', e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
-                        Supplier Name
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
-                        placeholder="e.g., ABC Suppliers Ltd"
-                        value={doc.supplierName}
-                        onChange={(e) => handleUpdateQuotationMetadata(index, 'supplierName', e.target.value)}
                       />
                     </div>
                   </div>
@@ -1921,26 +1950,119 @@ export default function NewCapexRequestPage() {
             </div>
           )}
 
-          {/* Justification for less than 3 quotations — only available once at least 1 quotation is uploaded */}
+          {/* Reason for less than 3 quotations — only available once at least 1 quotation is uploaded */}
           {(existingQuotations.length + quotationDocuments.length) >= 1 &&
             (existingQuotations.length + quotationDocuments.length) < 3 && (
-            <div className="mt-4 p-4 bg-warning-50 border border-warning-200 rounded-xl">
-              <div className="flex items-start gap-2 mb-2">
+            <div className="mt-4 p-4 bg-warning-50 border border-warning-200 rounded-xl space-y-3">
+              <div className="flex items-start gap-2">
                 <svg className="w-5 h-5 text-warning-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
                 <div className="flex-1">
-                  <h4 className="text-sm font-semibold text-warning-800">Justification Required</h4>
-                  <p className="text-xs text-warning-700 mt-1">You have uploaded {existingQuotations.length + quotationDocuments.length} quotation(s). Please explain why you cannot provide all 3 required quotations.</p>
+                  <h4 className="text-sm font-semibold text-warning-800">Reason Required</h4>
+                  <p className="text-xs text-warning-700 mt-1">
+                    You have uploaded {existingQuotations.length + quotationDocuments.length} quotation(s).
+                    Please choose a reason why you cannot provide all 3 required quotations.
+                  </p>
                 </div>
               </div>
-              <textarea
-                className="w-full px-4 py-3 min-h-[80px] rounded-xl border border-warning-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-warning-500 focus:border-transparent resize-none transition-all mt-2"
-                placeholder="Explain why you are submitting fewer than 3 quotations..."
-                value={quotationJustification}
-                onChange={(e) => setQuotationJustification(e.target.value)}
-                required={(existingQuotations.length + quotationDocuments.length) < 3}
-              />
+
+              <div>
+                <label className="block text-xs font-semibold text-warning-800 mb-1">
+                  Reason <span className="text-danger-500">*</span>
+                </label>
+                <select
+                  className="w-full px-4 py-2 min-h-[44px] rounded-xl border border-warning-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-warning-500 focus:border-transparent transition-all"
+                  value={quotationReason}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setQuotationReason(v);
+                    if (v !== 'other') {
+                      // Clear the MD pre-approval free-text when leaving "Other"
+                      setQuotationJustification('');
+                    }
+                  }}
+                  required={(existingQuotations.length + quotationDocuments.length) < 3}
+                >
+                  <option value="">Select a reason…</option>
+                  {QUOTATION_REASONS.map(r => (
+                    <option key={r.value} value={r.value}>{r.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {requiresMdApproval && (
+                <div className="space-y-3 rounded-xl border border-danger-200 bg-danger-50/40 p-3">
+                  <div className="flex items-start gap-2">
+                    <svg className="w-5 h-5 text-danger-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01M4.93 19h14.14a2 2 0 001.74-3L13.74 4a2 2 0 00-3.48 0L3.19 16a2 2 0 001.74 3z" />
+                    </svg>
+                    <div className="flex-1">
+                      <h4 className="text-sm font-semibold text-danger-800">MD Pre-Approval Required</h4>
+                      <p className="text-xs text-danger-700 mt-1">
+                        Because you selected &ldquo;Other&rdquo;, this CAPEX cannot enter the official approval trail until the
+                        Managing Director has reviewed and approved it. The MD is taken automatically from HRIMS.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-danger-800 mb-1">
+                      Reason for MD pre-approval <span className="text-danger-500">*</span>
+                    </label>
+                    <textarea
+                      className="w-full px-4 py-3 min-h-[80px] rounded-xl border border-danger-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-danger-500 focus:border-transparent resize-none transition-all"
+                      placeholder="Explain your reason for fewer than 3 quotations…"
+                      value={quotationJustification}
+                      onChange={(e) => setQuotationJustification(e.target.value)}
+                      required={requiresMdApproval}
+                    />
+                    <p className="text-[11px] text-danger-700 mt-1">
+                      This reason is shared with the MD for pre-approval and is not printed on the request form.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-danger-800 mb-1">
+                      Managing Director (Pre-Approver)
+                    </label>
+                    {(() => {
+                      const mdUser = users.find(u => u.id === mdApproverId);
+                      if (mdUser) {
+                        return (
+                          <div className="flex items-center gap-3 p-3 bg-white border border-danger-200 rounded-xl">
+                            <div className="w-8 h-8 rounded-full bg-danger-100 flex items-center justify-center flex-shrink-0">
+                              <span className="text-sm font-medium text-danger-600">
+                                {mdUser.display_name?.charAt(0)?.toUpperCase() || '?'}
+                              </span>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 truncate">{mdUser.display_name}</p>
+                              <p className="text-xs text-gray-500 truncate">{mdUser.email}</p>
+                            </div>
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7" />
+                              </svg>
+                              Auto from HRIMS
+                            </span>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="p-3 bg-white border border-danger-200 rounded-xl text-xs text-danger-700">
+                          No Managing Director could be resolved from HRIMS for your approval chain.
+                          Please contact an administrator before submitting.
+                        </div>
+                      );
+                    })()}
+                    <p className="text-[11px] text-danger-700 mt-1">
+                      The MD is added as the first signatory. The official approval trail will only begin
+                      after the MD approves.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           {(existingQuotations.length + quotationDocuments.length) === 0 && (
@@ -1954,7 +2076,7 @@ export default function NewCapexRequestPage() {
         <Card>
           <h3 className="font-semibold text-text-primary mb-3 flex items-center gap-2 text-lg">
             <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
             </svg>
             Supporting Documents
             <span className="ml-2 px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-600 rounded-full">Optional</span>
@@ -1975,7 +2097,7 @@ export default function NewCapexRequestPage() {
                   <div className="flex items-start gap-3">
                     <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-[#F3EADC]">
                       <svg className="w-5 h-5 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                       </svg>
                     </div>
                     <div className="flex-1 min-w-0">
@@ -2024,7 +2146,7 @@ export default function NewCapexRequestPage() {
                   <div className="flex items-start gap-3">
                     <div className="flex-shrink-0 mt-1">
                       <svg className="w-8 h-8 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
                     </div>
                     <div className="flex-1 min-w-0">
@@ -2038,7 +2160,7 @@ export default function NewCapexRequestPage() {
                       title="Remove document"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                       </svg>
                     </button>
                   </div>
@@ -2065,8 +2187,8 @@ export default function NewCapexRequestPage() {
         <Card>
           <h3 className="font-semibold text-text-primary mb-4 flex items-center gap-2 text-lg">
             <svg className="w-5 h-5 text-info-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
             </svg>
             Select Watchers
           </h3>
@@ -2079,7 +2201,7 @@ export default function NewCapexRequestPage() {
             <label className="block text-sm font-medium text-gray-700 mb-2">Search Users</label>
             <div className="relative">
               <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
               <input
                 type="text"
@@ -2123,7 +2245,7 @@ export default function NewCapexRequestPage() {
                         <p className="text-xs text-gray-500 truncate">{user.email}</p>
                       </div>
                       <svg className="w-5 h-5 text-primary-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                       </svg>
                     </button>
                   ))
@@ -2173,7 +2295,7 @@ export default function NewCapexRequestPage() {
                         {watcher.addedBy && (
                           <p className="text-xs text-primary-600 mt-0.5 flex items-center gap-1">
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                             </svg>
                             Added by {watcher.addedBy.name}
                             {watcher.addedBy.isApprover && (
@@ -2190,13 +2312,13 @@ export default function NewCapexRequestPage() {
                           title="Remove"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                           </svg>
                         </button>
                       ) : (
                         <div className="p-1.5 text-gray-300" title="Cannot remove watchers added by others">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                           </svg>
                         </div>
                       )}
@@ -2213,7 +2335,7 @@ export default function NewCapexRequestPage() {
         <Card>
           <h3 className="font-semibold text-text-primary mb-4 flex items-center gap-2 text-lg">
             <svg className="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             Select Approvers <span className="text-red-500">*</span>
           </h3>
@@ -2280,7 +2402,7 @@ export default function NewCapexRequestPage() {
                             title="Remove"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                             </svg>
                           </button>
                         </div>
@@ -2288,7 +2410,7 @@ export default function NewCapexRequestPage() {
                         <div className="relative">
                           <div className="relative">
                             <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                             </svg>
                             <input
                               type="text"
@@ -2407,7 +2529,9 @@ export default function NewCapexRequestPage() {
                 !formData.priority ||
                 (!isApproverEditing && Object.values(selectedApprovers).filter(Boolean).length < 8) ||
                 ((existingQuotations.length + quotationDocuments.length) < 1) ||
-                ((existingQuotations.length + quotationDocuments.length) < 3 && !quotationJustification.trim()) ||
+                quotationDocuments.some(d => !d.supplierName.trim()) ||
+                ((existingQuotations.length + quotationDocuments.length) < 3 && !quotationReason) ||
+                (requiresMdApproval && (!quotationJustification.trim() || !mdApproverId)) ||
                 savingDraft
               }
             >
@@ -2433,7 +2557,7 @@ export default function NewCapexRequestPage() {
                 }
               >
                 <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 Publish
               </Button>
@@ -2453,7 +2577,7 @@ export default function NewCapexRequestPage() {
             <div className="text-center">
               <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <svg className="w-8 h-8 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
               <h3 className="text-xl font-bold text-gray-900 mb-2">Submit for Approval?</h3>

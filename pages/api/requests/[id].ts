@@ -2,6 +2,18 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { validateBody, z } from '@/lib/validate';
+
+const UpdateRequestSchema = z.object({
+  title: z.string().min(1).max(500).optional(),
+  description: z.string().max(20000).optional(),
+  priority: z.string().max(50).optional(),
+  category: z.string().max(100).optional(),
+  metadata: z.record(z.any()).optional(),
+  // `status` is intentionally accepted-but-ignored: status transitions go
+  // through the dedicated submit/publish/withdraw endpoints.
+  status: z.string().optional(),
+}).strip();
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -65,6 +77,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               decision,
               comment,
               signed_at,
+              signature_url,
+              signature_reference,
+              signature_type,
+              authentication_method,
               approver:app_users!approvals_approver_id_fkey (
                 id,
                 display_name,
@@ -162,7 +178,35 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === 'PUT') {
-      const { title, description, priority, category, status, metadata } = req.body;
+      // Resource-level authorization: only the creator may edit a request
+      // through this generic endpoint, and only while it is still a draft.
+      // Approvers use the dedicated approver-edit route; status transitions go
+      // through submit/approve/withdraw — never an arbitrary client-set status.
+      const { data: existing, error: ownErr } = await supabaseAdmin
+        .from('requests')
+        .select('id, creator_id, status')
+        .eq('id', id)
+        .eq('organization_id', organizationId)
+        .single();
+
+      if (ownErr) {
+        if (ownErr.code === 'PGRST116') {
+          return res.status(404).json({ error: 'Request not found' });
+        }
+        throw ownErr;
+      }
+
+      if (existing.creator_id !== user.id) {
+        return res.status(403).json({ error: 'You can only edit your own requests' });
+      }
+
+      if (['approved', 'rejected'].includes(existing.status)) {
+        return res.status(400).json({ error: `Cannot edit a request that is already ${existing.status}` });
+      }
+
+      const parsed = validateBody(req, res, UpdateRequestSchema);
+      if (!parsed) return;
+      const { title, description, priority, category, metadata } = parsed;
 
       const updates: any = {
         updated_at: new Date().toISOString(),
@@ -172,7 +216,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (description !== undefined) updates.description = description;
       if (priority !== undefined) updates.priority = priority;
       if (category !== undefined) updates.category = category;
-      if (status !== undefined) updates.status = status;
       if (metadata !== undefined) updates.metadata = metadata;
 
       const { data, error } = await supabaseAdmin

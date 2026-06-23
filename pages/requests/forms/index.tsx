@@ -237,7 +237,7 @@ export default function AllFormsPage() {
             title={label}
         >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={icon} />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={icon} />
             </svg>
             <span className="hidden sm:inline text-xs font-medium">{label}</span>
         </button>
@@ -272,7 +272,7 @@ export default function AllFormsPage() {
                         className="flex items-center gap-2 whitespace-nowrap"
                     >
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
                         </svg>
                         Design New Form
                     </Button>
@@ -284,7 +284,7 @@ export default function AllFormsPage() {
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-xl bg-[#F3EADC] flex items-center justify-center">
                                 <svg className="w-5 h-5 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                 </svg>
                             </div>
                             <div>
@@ -297,7 +297,7 @@ export default function AllFormsPage() {
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-xl bg-[#F3EADC] flex items-center justify-center">
                                 <svg className="w-5 h-5 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                                 </svg>
                             </div>
                             <div>
@@ -310,7 +310,7 @@ export default function AllFormsPage() {
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center">
                                 <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                                 </svg>
                             </div>
                             <div>
@@ -323,7 +323,7 @@ export default function AllFormsPage() {
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-xl bg-[#F3EADC] flex items-center justify-center">
                                 <svg className="w-5 h-5 text-[#9A7545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                                 </svg>
                             </div>
                             <div>
@@ -341,7 +341,7 @@ export default function AllFormsPage() {
                         <div className="flex flex-col lg:flex-row gap-3">
                             <div className="flex-1 relative">
                                 <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                                 </svg>
                                 <input
                                     type="text"
@@ -356,7 +356,7 @@ export default function AllFormsPage() {
                                         className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                                     >
                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                                         </svg>
                                     </button>
                                 )}
@@ -378,7 +378,7 @@ export default function AllFormsPage() {
                                     }`}
                                 >
                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
                                     </svg>
                                     <span className="hidden sm:inline">Filters</span>
                                     {hasActiveFilters && (
@@ -397,7 +397,7 @@ export default function AllFormsPage() {
                                         {selectedCategory}
                                         <button onClick={() => setSelectedCategory('All')} className="hover:text-[#3F2D19]">
                                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                                             </svg>
                                         </button>
                                     </span>
@@ -407,7 +407,7 @@ export default function AllFormsPage() {
                                         {SCOPE_LABELS[selectedScope]?.label}
                                         <button onClick={() => setSelectedScope('All')} className="hover:text-[#3F2D19]">
                                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                                             </svg>
                                         </button>
                                     </span>
@@ -417,7 +417,7 @@ export default function AllFormsPage() {
                                         {departments.find(d => d.id === selectedDepartment)?.name || 'Department'}
                                         <button onClick={() => setSelectedDepartment('All')} className="hover:text-[#3F2D19]">
                                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
                                             </svg>
                                         </button>
                                     </span>
@@ -552,7 +552,7 @@ export default function AllFormsPage() {
                                                             title="Edit form"
                                                         >
                                                             <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                                             </svg>
                                                         </button>
                                                     )}
@@ -569,14 +569,14 @@ export default function AllFormsPage() {
                                                                         {form.name}
                                                                     </h3>
                                                                     <svg className="w-5 h-5 text-gray-300 group-hover:text-[#C9A574] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
                                                                     </svg>
                                                                 </div>
                                                                 <p className="text-sm text-gray-500 mt-2 line-clamp-2">{form.description || 'No description'}</p>
                                                                 <div className="flex flex-wrap items-center gap-2 mt-4">
                                                                     <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border ${scopeInfo.color}`}>
                                                                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={scopeInfo.icon} />
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={scopeInfo.icon} />
                                                                         </svg>
                                                                         {scopeInfo.label}
                                                                     </span>
@@ -631,14 +631,14 @@ export default function AllFormsPage() {
                                                             title="Edit form"
                                                         >
                                                             <svg className="w-3.5 h-3.5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                                             </svg>
                                                         </button>
                                                     )}
                                                     <div className="flex items-start gap-4 h-full relative z-10 p-5">
                                                         <div className={`w-12 h-12 ${colors.bg} rounded-xl flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform`}>
                                                             <svg className={`w-6 h-6 ${colors.icon}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={form.icon} />
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={form.icon} />
                                                             </svg>
                                                         </div>
                                                         <div className="flex-1 min-w-0 flex flex-col h-full">
@@ -675,7 +675,7 @@ export default function AllFormsPage() {
                                                         </div>
                                                         <div className="self-center opacity-0 -translate-x-2 transition-all duration-300 group-hover:opacity-100 group-hover:translate-x-0 flex-shrink-0">
                                                             <svg className="w-5 h-5 text-gray-300 group-hover:text-[#C9A574]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
                                                             </svg>
                                                         </div>
                                                     </div>
@@ -705,13 +705,13 @@ export default function AllFormsPage() {
                                                             title="Edit form"
                                                         >
                                                             <svg className="w-3 h-3 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                                             </svg>
                                                         </button>
                                                     )}
                                                     <div className={`w-10 h-10 ${colors.bg} rounded-xl flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform`}>
                                                         <svg className={`w-5 h-5 ${colors.icon}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={form.icon} />
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={form.icon} />
                                                         </svg>
                                                     </div>
                                                     <h3 className="font-medium text-gray-900 text-xs line-clamp-2 group-hover:text-[#9A7545] transition-colors mb-2">
@@ -741,7 +741,7 @@ export default function AllFormsPage() {
                                                 >
                                                     <div className={`w-10 h-10 ${colors.bg} rounded-lg flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform`}>
                                                         <svg className={`w-5 h-5 ${colors.icon}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={form.icon} />
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={form.icon} />
                                                         </svg>
                                                     </div>
                                                     <div className="flex-1 min-w-0">
@@ -781,12 +781,12 @@ export default function AllFormsPage() {
                                                             title="Edit form"
                                                         >
                                                             <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                                             </svg>
                                                         </button>
                                                     )}
                                                     <svg className="w-5 h-5 text-gray-300 group-hover:text-[#C9A574] transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
                                                     </svg>
                                                 </div>
                                             );
