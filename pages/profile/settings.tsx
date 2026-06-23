@@ -30,10 +30,9 @@ export default function SettingsPage() {
   }, [userLoading, session, router]);
 
   useEffect(() => {
-    if (user?.id && isSupabaseConfigured) {
-      // Fetch signature
-      const { data } = supabase.storage.from('signatures').getPublicUrl(`${user.id}.png`);
-      checkSignature(data.publicUrl);
+    if (user?.id) {
+      // Private bucket: probe via the authenticated proxy (HEAD), then render it.
+      checkSignature(`/api/signature/view?userId=${user.id}`);
 
       // Set profile picture from user data (already fetched via useCurrentUser)
       if (user.profile_picture_url) {

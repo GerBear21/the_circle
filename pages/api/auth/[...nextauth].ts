@@ -4,6 +4,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { verifyDemoPassword } from "../../../lib/demoPassword";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { recordAuditEvent } from "../../../lib/auditLog";
+import { IDLE_TIMEOUT_SECONDS } from "../../../lib/sessionTimeout";
 
 // DEMO MODE — staging only. When DEMO_MODE=true (set ONLY on the staging
 // deployment, never in production) we additionally enable an email/password
@@ -112,11 +113,16 @@ export const authOptions: NextAuthOptions = {
   debug: true, // Enable debug mode to see errors in logs
   session: {
     strategy: "jwt",
-    maxAge: 8 * 60 * 60, // 8 hours - session expires after this time
-    // Reduce token size to avoid cookie chunking issues
+    // Idle timeout: the cookie's exp is this far in the future and is rolled
+    // forward whenever the client refreshes the session on user activity (see
+    // SessionActivityGuard). Once it lapses, getServerSession/getToken return
+    // null and every protected API responds 401. The absolute (30 min) ceiling
+    // is enforced separately in middleware via the `loginAt` claim.
+    maxAge: IDLE_TIMEOUT_SECONDS, // 15 minutes of inactivity
+    updateAge: 60, // re-issue the rolling token at most once per minute
   },
   jwt: {
-    maxAge: 8 * 60 * 60, // 8 hours
+    maxAge: IDLE_TIMEOUT_SECONDS, // 15 minutes
   },
   cookies: {
     sessionToken: {
@@ -185,6 +191,13 @@ export const authOptions: NextAuthOptions = {
 
     async jwt({ token, user, account, profile }) {
       try {
+        // Stamp the absolute-timeout anchor on every fresh sign-in (account is
+        // only present at sign-in). Refreshes carry it forward untouched, so the
+        // 30-minute absolute ceiling is measured from the original login.
+        if (account) {
+          (token as any).loginAt = Date.now();
+        }
+
         // Demo credentials sign-in: the authorize() callback already resolved
         // the app_users row, so copy its identity onto the token and skip all
         // Azure/Graph-specific logic (there is no MS access token here).
@@ -379,6 +392,11 @@ export const authOptions: NextAuthOptions = {
         if (token.email) {
           session.user.email = token.email as string;
         }
+      }
+      // Surface the login time so the client guard can enforce the absolute
+      // (30 min) timeout and show the matching UX.
+      if (typeof (token as any).loginAt === "number") {
+        (session as any).loginAt = (token as any).loginAt;
       }
       return session;
     },

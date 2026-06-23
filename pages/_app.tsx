@@ -1,15 +1,13 @@
 import type { AppProps } from 'next/app';
-import { SessionProvider, signOut, useSession } from "next-auth/react";
+import { SessionProvider, useSession } from "next-auth/react";
 import Head from 'next/head';
-import { useEffect, useState } from 'react';
 import '../styles/globals.css';
 
 import { ToastProvider } from '../components/ui/ToastProvider';
 import { UserProvider } from '../contexts/UserContext';
 import { RBACProvider } from '../contexts/RBACContext';
 import Loader from '../components/Loader';
-
-const SESSION_FLAG = 'the_circle_active_session';
+import SessionActivityGuard from '../components/SessionActivityGuard';
 
 function SessionGuard({ children }: { children: React.ReactNode }) {
   const { status } = useSession();
@@ -25,10 +23,11 @@ function SessionGuard({ children }: { children: React.ReactNode }) {
 
 export default function App({ Component, pageProps: { session, ...pageProps } }: AppProps) {
   return (
-    <SessionProvider session={session}>
+    <SessionProvider session={session} refetchOnWindowFocus={true}>
       <Head>
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
       </Head>
+      <SessionActivityGuard />
       <SessionGuard>
         <UserProvider>
           <RBACProvider>

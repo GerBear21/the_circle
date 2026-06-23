@@ -1,6 +1,5 @@
 import { useSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
-import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 
 export function useUserSignature() {
   const { data: session, status } = useSession();
@@ -27,19 +26,13 @@ export function useUserSignature() {
         return;
       }
 
-      if (!isSupabaseConfigured) {
-        setLoading(false);
-        return;
-      }
-
       try {
-        // Get the public URL for the user's signature
-        const { data } = supabase.storage.from('signatures').getPublicUrl(`${userId}.png`);
-        
-        // Check if the signature actually exists
-        const res = await fetch(data.publicUrl, { method: 'HEAD' });
+        // Private bucket: resolve via the API, which returns the authenticated
+        // proxy URL only when the signature actually exists.
+        const res = await fetch('/api/signature/has-signature');
         if (res.ok) {
-          setSignatureUrl(data.publicUrl);
+          const data = await res.json();
+          setSignatureUrl(data.hasSignature ? data.signatureUrl : null);
         } else {
           setSignatureUrl(null);
         }

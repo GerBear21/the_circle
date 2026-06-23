@@ -4,6 +4,7 @@ import { GetServerSideProps } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../api/auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { signatureExists, userSignaturePath, userSignatureProxyUrl } from '@/lib/signatureStorage';
 import { AppLayout } from '@/components/layout';
 import { Card, Button } from '@/components/ui';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
@@ -62,10 +63,9 @@ export const getServerSideProps: GetServerSideProps<SettingsProps> = async (cont
   let initialSignatureUrl: string | null = null;
 
   try {
-    if (userId) {
-      const { data } = supabaseAdmin.storage.from('signatures').getPublicUrl(`${userId}.png`);
-      const res = await fetch(data.publicUrl, { method: 'HEAD' });
-      if (res.ok) initialSignatureUrl = `${data.publicUrl}?t=${Date.now()}`;
+    if (userId && (await signatureExists(userSignaturePath(userId)))) {
+      // Private bucket: render through the authenticated proxy.
+      initialSignatureUrl = userSignatureProxyUrl(userId);
     }
   } catch (e) {
     // No signature found
