@@ -5,7 +5,6 @@ import { AppLayout } from '../../components/layout';
 
 import { Card, Button } from '../../components/ui';
 import dynamic from 'next/dynamic';
-import { supabase, isSupabaseConfigured } from '../../lib/supabaseClient';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import { useUserHrimsProfile } from '../../hooks/useUserHrimsProfile';
 
@@ -34,38 +33,14 @@ export default function SettingsPage() {
       // Private bucket: probe via the authenticated proxy (HEAD), then render it.
       checkSignature(`/api/signature/view?userId=${user.id}`);
 
-      // Set profile picture from user data (already fetched via useCurrentUser)
+      // Profile picture from the user's stored URL (set on upload / MS login).
+      // No storage probing — if there's no URL, there's no picture.
       if (user.profile_picture_url) {
-        // Add cache-busting parameter to ensure fresh image
         const url = user.profile_picture_url;
         setProfilePictureUrl(url.includes('?') ? url : `${url}?t=${Date.now()}`);
-      } else {
-        // Fallback: check storage directly
-        fetchProfilePictureFromStorage(user.id);
       }
     }
   }, [user]);
-
-  const fetchProfilePictureFromStorage = async (userId: string) => {
-    if (!isSupabaseConfigured) return;
-    try {
-      const extensions = ['png', 'jpg', 'jpeg', 'webp'];
-      for (const ext of extensions) {
-        const { data } = supabase.storage.from('profile_pictures').getPublicUrl(`${userId}.${ext}`);
-        try {
-          const res = await fetch(data.publicUrl, { method: 'HEAD' });
-          if (res.ok) {
-            setProfilePictureUrl(`${data.publicUrl}?t=${Date.now()}`);
-            return;
-          }
-        } catch (e) {
-          // Continue to next extension
-        }
-      }
-    } catch (err) {
-      console.error("Error fetching profile picture from storage", err);
-    }
-  };
 
   const checkSignature = async (url: string) => {
     try {
