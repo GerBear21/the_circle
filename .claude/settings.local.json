@@ -103,7 +103,8 @@
       "PowerShell(npx tsc --noEmit 2>&1)",
       "Bash(python \"C:\\\\Users\\\\Admin\\\\AppData\\\\Roaming\\\\Claude\\\\local-agent-mode-sessions\\\\skills-plugin\\\\2ab1d8be-e308-4482-bd7e-dd18095926e1\\\\19ce60e0-ad43-46a5-a68d-4074be65af44\\\\skills\\\\docx\\\\scripts\\\\office\\\\validate.py\" \"C:\\\\Users\\\\Admin\\\\the_circle\\\\docs\\\\The_Circle_Business_Case_v1.0.docx\")",
       "Bash(rm -rf .next)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(curl -s -D - -o /dev/null http://localhost:3001/)"
     ]
   }
 }

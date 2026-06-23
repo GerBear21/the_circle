@@ -1,16 +1,18 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
+import { tempSignatureProxyUrl } from '../../../lib/signatureStorage';
+import { validateQuery, z } from '../../../lib/validate';
+
+const CheckSchema = z.object({ sessionId: z.string().min(8).max(128) });
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (req.method !== 'GET') {
         return res.status(405).json({ message: 'Method not allowed' });
     }
 
-    const { sessionId } = req.query;
-
-    if (!sessionId || typeof sessionId !== 'string') {
-        return res.status(400).json({ message: 'Invalid session ID' });
-    }
+    const query = validateQuery(req, res, CheckSchema);
+    if (!query) return;
+    const { sessionId } = query;
 
     try {
         console.log(`[Signature Check] Checking for session: ${sessionId}`);
@@ -37,11 +39,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
             if (exactMatch) {
                 console.log(`[Signature Check] Found exact match for ${sessionId}.png`);
-                const { data: { publicUrl } } = supabaseAdmin.storage
-                    .from('signatures')
-                    .getPublicUrl(`temp/${sessionId}.png`);
-
-                return res.status(200).json({ found: true, url: publicUrl });
+                // Private bucket: return the capability-scoped proxy URL.
+                return res.status(200).json({ found: true, url: tempSignatureProxyUrl(sessionId) });
             } else {
                 console.log(`[Signature Check] No exact match found in results for ${sessionId}.png`);
             }

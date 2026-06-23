@@ -2,6 +2,10 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../auth/[...nextauth]';
+import { SIGNATURE_BUCKET, userSignatureProxyUrl } from '../../../lib/signatureStorage';
+import { validateBody, z } from '../../../lib/validate';
+
+const ClaimSchema = z.object({ sessionId: z.string().min(8).max(128) });
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (req.method !== 'POST') {
@@ -19,12 +23,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             return res.status(400).json({ message: 'User ID not found' });
         }
 
-        const { sessionId } = req.body as { sessionId?: string };
-        if (!sessionId || typeof sessionId !== 'string') {
-            return res.status(400).json({ message: 'Invalid sessionId' });
-        }
+        const body = validateBody(req, res, ClaimSchema);
+        if (!body) return;
+        const { sessionId } = body;
 
-        const bucket = 'signatures';
+        const bucket = SIGNATURE_BUCKET;
         const tempPath = `temp/${sessionId}.png`;
         const finalPath = `${userId}.png`;
 
@@ -55,11 +58,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         // Best-effort cleanup of temp file
         await supabaseAdmin.storage.from(bucket).remove([tempPath]);
 
-        const { data: { publicUrl } } = supabaseAdmin.storage
-            .from(bucket)
-            .getPublicUrl(finalPath);
-
-        return res.status(200).json({ url: publicUrl });
+        // Private bucket: return the authenticated proxy URL.
+        return res.status(200).json({ url: userSignatureProxyUrl(userId) });
     } catch (error) {
         console.error('Claim temp handler error:', error);
         return res.status(500).json({ message: 'Internal server error' });
