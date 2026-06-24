@@ -10,11 +10,14 @@ import Loader from '../components/Loader';
 import SessionActivityGuard from '../components/SessionActivityGuard';
 
 function SessionGuard({ children }: { children: React.ReactNode }) {
-  const { status } = useSession();
+  const { status, data } = useSession();
 
-  // Show loader until we have a definitive session status
-  // This prevents flashing the login UI during OAuth callback processing
-  if (status === 'loading') {
+  // Show the loader only on the INITIAL load, before we have any session.
+  // We must not blank the app when status is briefly 'loading' during a
+  // background session revalidation (we already hold `data`) — doing so would
+  // unmount and remount the whole page tree, resetting scroll and DOM state
+  // mid-form. This prevents flashing the login UI during OAuth callback too.
+  if (status === 'loading' && !data) {
     return <Loader />;
   }
 
@@ -22,8 +25,11 @@ function SessionGuard({ children }: { children: React.ReactNode }) {
 }
 
 export default function App({ Component, pageProps: { session, ...pageProps } }: AppProps) {
+  // refetchOnWindowFocus is off: SessionActivityGuard already rolls the session
+  // forward on activity/visibility (throttled). Leaving it on caused a redundant
+  // second session refetch on every tab switch, adding lag.
   return (
-    <SessionProvider session={session} refetchOnWindowFocus={true}>
+    <SessionProvider session={session} refetchOnWindowFocus={false}>
       <Head>
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
       </Head>

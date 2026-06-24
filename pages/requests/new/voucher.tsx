@@ -5,7 +5,7 @@ import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input, RequestPreviewModal, UnsavedChangesModal, ReferenceCodeBanner } from '../../../components/ui';
 import type { PreviewSection } from '../../../components/ui';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
-import { useUnsavedChangesPrompt } from '../../../hooks';
+import { useUnsavedChangesPrompt, useFormAutosave } from '../../../hooks';
 import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
 import { Span } from 'next/dist/trace';
 
@@ -140,6 +140,19 @@ export default function VoucherRequestPage() {
     const [selectedWatchers, setSelectedWatchers] = useState<Array<{ id: string; display_name: string; email: string }>>([]);
     const [watcherSearch, setWatcherSearch] = useState('');
     const [showWatcherDropdown, setShowWatcherDropdown] = useState(false);
+
+    // Autosave / crash recovery (serializable slices only). Disabled in edit mode.
+    useFormAutosave({
+        formKey: 'voucher',
+        enabled: !isEditMode,
+        data: { formData, selectedApprovers, selectedWatchers },
+        onRestore: (saved) => {
+            if (saved.formData) setFormData(saved.formData);
+            if (saved.selectedApprovers) setSelectedApprovers(prev => ({ ...prev, ...saved.selectedApprovers }));
+            if (Array.isArray(saved.selectedWatchers)) setSelectedWatchers(saved.selectedWatchers);
+            setIsDirty(true);
+        },
+    });
 
     // Travel document state
     const [travelData, setTravelData] = useState({

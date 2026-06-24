@@ -39,8 +39,10 @@ function limitFor(pathname: string): LimitConfig | null {
   // Leave the rest of next-auth (session polling, csrf, providers, oauth
   // callbacks) un-throttled so legitimate session refreshes are never blocked.
   if (pathname.startsWith('/api/auth')) return null;
-  // Coarse global flood cap for the application API.
-  return { name: 'global', max: 120, windowSeconds: 60 }; // 120 req / min / IP
+  // Coarse global flood cap for the application API. Keyed per-user when
+  // authenticated (see middleware below) so many people behind one office /
+  // NAT IP don't share — and exhaust — a single bucket.
+  return { name: 'global', max: 600, windowSeconds: 60 }; // 600 req / min / identity
 }
 
 function clientIp(req: NextRequest): string {
@@ -88,11 +90,28 @@ async function edgeRateLimit(
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  const isAuthRoute = pathname.startsWith('/api/auth');
+
+  // Resolve the session token once for non-next-auth routes. Used both to key
+  // the rate limit per-user and to enforce the absolute timeout below.
+  const token = isAuthRoute
+    ? null
+    : await getToken({
+        req,
+        secret: process.env.NEXTAUTH_SECRET,
+        cookieName: SESSION_COOKIE,
+      });
 
   // --- 1. Rate limiting -------------------------------------------------
   const policy = limitFor(pathname);
   if (policy) {
-    const key = `${policy.name}:${clientIp(req)}`;
+    // Authenticated app traffic is keyed on the user id so concurrent users
+    // sharing one public IP (corporate NAT) get independent buckets. Pre-auth
+    // and login traffic falls back to the IP. The `u:`/`ip:` prefixes keep the
+    // two namespaces from colliding.
+    const userId = token && (token as any).user_id ? String((token as any).user_id) : null;
+    const identity = userId ? `u:${userId}` : `ip:${clientIp(req)}`;
+    const key = `${policy.name}:${identity}`;
     const rl = await edgeRateLimit(key, policy.max, policy.windowSeconds);
     if (!rl.allowed) {
       return new NextResponse(
@@ -112,12 +131,7 @@ export async function middleware(req: NextRequest) {
   }
 
   // --- 2. Absolute session timeout (skip next-auth's own endpoints) -----
-  if (!pathname.startsWith('/api/auth')) {
-    const token = await getToken({
-      req,
-      secret: process.env.NEXTAUTH_SECRET,
-      cookieName: SESSION_COOKIE,
-    });
+  if (!isAuthRoute) {
     const loginAt = token && typeof (token as any).loginAt === 'number' ? (token as any).loginAt : null;
     if (loginAt !== null && Date.now() - loginAt > ABSOLUTE_TIMEOUT_MS) {
       const res = new NextResponse(
