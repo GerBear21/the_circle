@@ -98,13 +98,23 @@ export async function consumeChallenge(params: {
 /**
  * Return all active credentials for a user in the shape the
  * @simplewebauthn/server verifyAuthenticationResponse expects.
+ *
+ * When `rpID` is given, only credentials usable on that domain are returned:
+ * WebAuthn credentials are cryptographically bound to the RP ID they were
+ * registered under, so offering e.g. a localhost-registered passkey on the
+ * deployed site guarantees a failed ceremony. NULL rp_id rows (registered
+ * before rp_id was recorded) are included for backwards compatibility.
  */
-export async function getUserCredentials(userId: string) {
-  const { data, error } = await supabaseAdmin
+export async function getUserCredentials(userId: string, rpID?: string) {
+  let query = supabaseAdmin
     .from('user_biometrics')
-    .select('id, credential_id, public_key, counter, transports, device_name, created_at, last_used_at')
+    .select('id, credential_id, public_key, counter, transports, device_name, rp_id, created_at, last_used_at')
     .eq('user_id', userId)
     .eq('is_active', true);
+  if (rpID) {
+    query = query.or(`rp_id.is.null,rp_id.eq.${rpID}`);
+  }
+  const { data, error } = await query;
   if (error) {
     throw new Error(`Failed to fetch user credentials: ${error.message}`);
   }

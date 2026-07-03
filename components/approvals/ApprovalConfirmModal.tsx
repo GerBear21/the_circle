@@ -117,7 +117,9 @@ export default function ApprovalConfirmModal({
         fetch('/api/webauthn/credentials')
           .then(r => r.ok ? r.json() : null)
           .then((data) => {
-            const has = (data?.credentials || []).some((c: any) => c.is_active);
+            const has = (data?.credentials || []).some(
+              (c: any) => c.is_active && c.usable_here !== false
+            );
             if (has) setUserHasBiometric(true);
           })
           .catch(() => { /* fall back to the prop */ });

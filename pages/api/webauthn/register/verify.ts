@@ -66,7 +66,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     verification.registrationInfo;
 
   // Persist the credential. The credential_id is globally unique so a unique
-  // constraint will catch accidental duplicate submissions.
+  // constraint will catch accidental duplicate submissions. rp_id records the
+  // domain the credential is bound to so authentication only offers passkeys
+  // that can actually work in the current environment.
   const { error: insertError } = await supabaseAdmin
     .from('user_biometrics')
     .insert({
@@ -80,12 +82,56 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       aaguid: aaguid || null,
       backup_eligible: credentialBackedUp || false,
       backup_state: credentialBackedUp || false,
+      rp_id: rpID,
     });
 
   if (insertError) {
-    // Unique violation => already registered; treat as success to keep the
-    // UX idempotent (user re-ran ceremony on the same device).
+    // Unique violation => this exact credential already exists. The ceremony
+    // just proved the caller physically controls the authenticator (challenge
+    // + user verification), so re-own the row: point it at the CURRENT user id
+    // and reactivate it. This self-heals credentials orphaned by stale or
+    // duplicate app_users rows (e.g. after a staging reseed), which previously
+    // made registrations appear to "vanish" between logins.
     if ((insertError as any).code === '23505') {
+      const { data: existingCred } = await supabaseAdmin
+        .from('user_biometrics')
+        .select('id, user_id, is_active')
+        .eq('credential_id', credential.id)
+        .maybeSingle();
+
+      if (existingCred) {
+        const reassigned = existingCred.user_id !== userId;
+        const { error: reownError } = await supabaseAdmin
+          .from('user_biometrics')
+          .update({
+            user_id: userId,
+            is_active: true,
+            counter: credential.counter,
+            device_name: deviceName || defaultDeviceName(req),
+            rp_id: rpID,
+          })
+          .eq('id', existingCred.id);
+
+        if (reownError) {
+          console.error('Failed to re-own biometric credential:', reownError);
+          return res.status(500).json({ error: 'Failed to save credential' });
+        }
+
+        await audit(req, session.user, {
+          category: 'security',
+          action: 'security.device_registered',
+          severity: 'notice',
+          targetType: 'user',
+          targetId: userId,
+          details: {
+            deviceName: deviceName || defaultDeviceName(req),
+            duplicate: true,
+            reassigned,
+            previousUserId: reassigned ? existingCred.user_id : undefined,
+          },
+        });
+      }
+
       return res.status(200).json({ success: true, duplicate: true });
     }
     console.error('Failed to persist biometric credential:', insertError);

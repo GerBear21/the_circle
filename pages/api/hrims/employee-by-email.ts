@@ -39,6 +39,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       department: result.department,
       businessUnit: result.businessUnit,
       position: result.position,
+      reportsTo: result.reportsTo,
     });
   } catch (error: any) {
     console.error('HRIMS Employee by Email API error:', error);

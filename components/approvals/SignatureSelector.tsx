@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type ReactSignatureCanvas from 'react-signature-canvas';
+import { useSignatureCanvasAutosize } from '@/hooks/useSignatureCanvasAutosize';
 
 /**
  * SignatureSelector
@@ -55,6 +56,10 @@ export default function SignatureSelector({
       setSigCanvas(() => mod.default);
     });
   }, []);
+
+  // Keep the canvas backing store matched to its CSS size so strokes land
+  // exactly under the pen/finger (no right-edge drift on wide containers).
+  useSignatureCanvasAutosize(() => canvasRef.current, [SigCanvas, value.type]);
 
   // If the user has no saved signature, auto-switch to manual the first time.
   useEffect(() => {
@@ -142,8 +147,8 @@ export default function SignatureSelector({
                   ref={(ref: ReactSignatureCanvas | null) => { canvasRef.current = ref; }}
                   penColor="#111827"
                   canvasProps={{
-                    width: 400,
-                    height: 120,
+                    // No fixed width/height: the autosize hook keeps the
+                    // backing store in sync with the CSS size + pixel ratio.
                     className: 'w-full h-[120px] rounded',
                     style: { touchAction: 'none' },
                   }}

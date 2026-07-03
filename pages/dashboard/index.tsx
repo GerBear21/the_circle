@@ -14,6 +14,7 @@ import { useState, useEffect } from 'react';
 import { Clock, CheckCircle2, XCircle, FileText, ArrowRight, TrendingUp, AlertTriangle, Fingerprint, ShieldCheck } from 'lucide-react';
 import Lottie from 'lottie-react';
 import BiometricSetupModal from '@/components/approvals/BiometricSetupModal';
+import BiometricEnrollmentPrompt from '@/components/approvals/BiometricEnrollmentPrompt';
 import dashboardAnimation from '@/lotties/Dashboard.json';
 
 function cn(...inputs: ClassValue[]) {
@@ -232,13 +233,20 @@ export default function Dashboard({
   const loadDevices = async () => {
     try {
       const res = await fetch('/api/webauthn/credentials');
-      if (!res.ok) { setDeviceRegistered(false); return; }
+      // Leave state as "unknown" (null) on failure — reporting "no device
+      // registered" off a transient error both misleads the user and would
+      // fire the enrollment prompt at people who ARE registered.
+      if (!res.ok) return;
       const data = await res.json();
-      const active = (data.credentials || []).filter((c: any) => c.is_active);
+      // Count only credentials usable on THIS domain (usable_here === false
+      // means the passkey was registered for a different environment).
+      const active = (data.credentials || []).filter(
+        (c: any) => c.is_active && c.usable_here !== false
+      );
       setDeviceCount(active.length);
       setDeviceRegistered(active.length > 0);
     } catch {
-      setDeviceRegistered(false);
+      /* network hiccup — keep the loading/unknown state */
     }
   };
 
@@ -533,6 +541,14 @@ export default function Dashboard({
           isOpen={showBiometricSetup}
           onClose={() => setShowBiometricSetup(false)}
           onSuccess={() => { setShowBiometricSetup(false); loadDevices(); }}
+        />
+
+        {/* Dismissible post-login nudge for users with no registered device.
+            deviceRegistered === false only after a successful credentials
+            fetch, so transient errors never trigger the prompt. */}
+        <BiometricEnrollmentPrompt
+          shouldPrompt={deviceRegistered === false}
+          onRegister={() => setShowBiometricSetup(true)}
         />
       </AppLayout>
     </>

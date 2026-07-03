@@ -207,6 +207,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: 'Title is required' });
       }
 
+      // Voucher requests are gated: only users with `vouchers.create` (or a
+      // super admin) may raise them.
+      const isVoucherRequest = requestType === 'voucher_request' || metadata?.type === 'voucher_request';
+      if (isVoucherRequest) {
+        const voucherProfile = await getUserRBACProfile(userId);
+        if (!hasPermission(voucherProfile, PERMISSIONS.VOUCHERS_CREATE)) {
+          return res.status(403).json({ error: 'You do not have permission to create vouchers' });
+        }
+      }
+
       // Allow draft or pending status, default to draft
       const validStatuses = ['draft', 'pending'];
       const finalStatus = validStatuses.includes(requestStatus) ? requestStatus : 'draft';
@@ -388,6 +398,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           await createCapexTrackerRow(data.id, organizationId, userId);
         } catch (trackerErr) {
           console.error('Failed to create CAPEX tracker row:', trackerErr);
+        }
+      }
+
+      // Voucher register side-effect: create a pending booklet row on submission
+      // so the voucher can be tracked before approval. The sequential number and
+      // email fulfilment are filled in on final approval. Fails silently.
+      if (finalStatus === 'pending' && isVoucherRequest) {
+        try {
+          await supabaseAdmin
+            .from('vouchers')
+            .upsert({
+              organization_id: organizationId,
+              request_id: data.id,
+              guest_names: finalMetadata.guestNames || null,
+              business_units: finalMetadata.selectedBusinessUnits || [],
+              reason: finalMetadata.reason || description || null,
+              created_by: userId,
+            }, { onConflict: 'request_id' });
+        } catch (voucherErr) {
+          console.error('Failed to create voucher register row:', voucherErr);
         }
       }
 

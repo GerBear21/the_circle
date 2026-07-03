@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../auth/[...nextauth]';
 import { SIGNATURE_BUCKET, userSignatureProxyUrl } from '../../../lib/signatureStorage';
 import { validateBody, z } from '../../../lib/validate';
+import { audit } from '../../../lib/auditLog';
 
 const ClaimSchema = z.object({ sessionId: z.string().min(8).max(128) });
 
@@ -57,6 +58,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         // Best-effort cleanup of temp file
         await supabaseAdmin.storage.from(bucket).remove([tempPath]);
+
+        // Security event: a signature captured on mobile is now the user's
+        // registered signature.
+        await audit(req, session.user, {
+            category: 'security',
+            action: 'security.signature_registered',
+            severity: 'notice',
+            targetType: 'user',
+            targetId: userId,
+            details: { method: 'mobile', sizeBytes: buffer.length },
+        });
 
         // Private bucket: return the authenticated proxy URL.
         return res.status(200).json({ url: userSignatureProxyUrl(userId) });

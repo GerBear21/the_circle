@@ -6,6 +6,7 @@ export { WorkflowDefaultsConfig } from './WorkflowDefaultsConfig';
 export { NotificationsConfig } from './NotificationsConfig';
 export { AccessConfig } from './AccessConfig';
 export { PreferencesConfig } from './PreferencesConfig';
+export { VoucherEmailsConfig } from './VoucherEmailsConfig';
 export {
   NavButton,
   SLAIcon,

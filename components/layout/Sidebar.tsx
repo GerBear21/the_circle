@@ -7,7 +7,6 @@ import {
   FilePlus2,
   ListChecks,
   FilePen,
-  History,
   CircleCheck,
   FileSignature,
   LayoutTemplate,
@@ -26,6 +25,8 @@ import {
   Timer,
   FormInput,
   GitBranch,
+  Bug,
+  Ticket,
   ChevronDown,
   ChevronsLeft,
   ChevronsRight,
@@ -70,7 +71,7 @@ const navSections: NavSection[] = [
       },
       {
         href: '/requests/my-requests',
-        label: 'Track Requests',
+        label: 'My Requests',
         icon: <ListChecks {...iconProps} />,
       },
       {
@@ -79,14 +80,16 @@ const navSections: NavSection[] = [
         icon: <FilePen {...iconProps} />,
       },
       {
-        href: '/requests/history',
-        label: 'History & Archives',
-        icon: <History {...iconProps} />,
-      },
-      {
         href: '/approvals',
         label: 'My Approval Tasks',
         icon: <CircleCheck {...iconProps} />,
+      },
+      {
+        href: '/vouchers',
+        label: 'Voucher Register',
+        requiredPermissions: ['vouchers.view_register'],
+        requireAny: true,
+        icon: <Ticket {...iconProps} />,
       },
       {
         href: '/requests/esign',
@@ -231,11 +234,28 @@ const navSections: NavSection[] = [
         icon: <GitBranch {...iconProps} />,
       },
       {
+        href: '/admin/settings/voucher-emails',
+        label: 'Voucher Emails',
+        requiredPermissions: ['admin.system_config'],
+        requireAny: true,
+        icon: <Ticket {...iconProps} />,
+      },
+      {
         href: '/admin/roles',
         label: 'Access and Rights',
         requiredPermissions: ['admin.roles', 'users.assign_roles', 'users.manage_access', 'admin.system_config'],
         requireAny: true,
         icon: <ShieldCheck {...iconProps} />,
+      },
+    ],
+  },
+  {
+    title: 'Support',
+    items: [
+      {
+        href: '/bugs',
+        label: 'Report a Bug',
+        icon: <Bug {...iconProps} />,
       },
     ],
   },
@@ -251,7 +271,7 @@ interface SidebarProps {
 export default function Sidebar({ isOpen, onClose, collapsed = false, onToggleCollapse }: SidebarProps) {
   const router = useRouter();
   const { hasPermission, hasAnyPermission, hasAllPermissions, loading: rbacLoading } = useRBAC();
-  const [expandedSections, setExpandedSections] = useState<string[]>(['Requests', 'Finance', 'Audit', 'Administrator']);
+  const [expandedSections, setExpandedSections] = useState<string[]>(['Requests', 'Finance', 'Audit', 'Administrator', 'Support']);
   const navRef = useRef<HTMLElement>(null);
 
   // Preserve the nav scroll position across page navigations. The sidebar
