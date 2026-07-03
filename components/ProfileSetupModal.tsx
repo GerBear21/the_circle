@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useSession } from 'next-auth/react';
+import { useSuppressToastsWhileOpen } from './ui/ToastProvider';
 
 interface Department {
   id: string;
@@ -50,6 +51,7 @@ export default function ProfileSetupModal({
   currentBusinessUnitId,
   onComplete
 }: ProfileSetupModalProps) {
+  useSuppressToastsWhileOpen(isOpen);
   const { data: session } = useSession();
   
   // HRIMS lookup state

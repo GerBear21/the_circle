@@ -2,6 +2,7 @@ import { useState, useCallback, ComponentType } from 'react';
 import { createPortal } from 'react-dom';
 import dynamic from 'next/dynamic';
 import { useSession } from 'next-auth/react';
+import { useSuppressToastsWhileOpen } from '../ui/ToastProvider';
 
 interface PdfSignatureEditorProps {
   pdfUrl: string;
@@ -62,6 +63,7 @@ const isAllowedEmail = (email: string) =>
 const newId = () => Math.random().toString(36).slice(2);
 
 export default function ESignModal({ isOpen, onClose, onComplete }: ESignModalProps) {
+  useSuppressToastsWhileOpen(isOpen);
   const { data: session } = useSession();
   const [step, setStep] = useState<Step>('upload');
   const [pdfFile, setPdfFile] = useState<File | null>(null);

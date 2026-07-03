@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { startRegistration, browserSupportsWebAuthn } from '@simplewebauthn/browser';
+import { useSuppressToastsWhileOpen } from '../ui/ToastProvider';
 
 /**
  * BiometricSetupModal
@@ -24,6 +25,7 @@ interface Props {
 }
 
 export default function BiometricSetupModal({ isOpen, onClose, onSuccess, required }: Props) {
+  useSuppressToastsWhileOpen(isOpen);
   const [status, setStatus] = useState<'idle' | 'registering' | 'success' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [deviceName, setDeviceName] = useState<string>('');

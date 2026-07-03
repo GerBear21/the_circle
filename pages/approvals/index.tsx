@@ -696,8 +696,11 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
                 const creatorName = creator?.display_name || creator?.email?.split('@')[0] || 'Unknown';
                 const creatorInitial = creatorName.charAt(0).toUpperCase();
                 const profilePhoto = creator?.profile_picture_url;
-                const isCritical = priority === 'critical';
-                const isHighUrgent = priority === 'high';
+                // Urgency cues (pulsing border + animation) should only run while the
+                // request still needs action — never on resolved/approved requests.
+                const isResolved = ['approved', 'rejected', 'withdrawn', 'cancelled', 'completed'].includes(request.status);
+                const isCritical = priority === 'critical' && !isResolved;
+                const isHighUrgent = priority === 'high' && !isResolved;
                 const amount = request.metadata?.amount || request.metadata?.total_amount;
                 const currency = request.metadata?.currency || '$';
 

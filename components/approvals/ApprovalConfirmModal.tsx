@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { startAuthentication, browserSupportsWebAuthn } from '@simplewebauthn/browser';
 import type { ApprovalRisk, AuthenticationMethod } from '@/lib/approvalRisk';
 import BiometricSetupModal from './BiometricSetupModal';
+import FeedbackLottie from '../ui/FeedbackLottie';
+import { useSuppressToastsWhileOpen } from '../ui/ToastProvider';
 
 /**
  * ApprovalConfirmModal
@@ -65,6 +67,7 @@ export default function ApprovalConfirmModal({
   onCancel,
   busy,
 }: Props) {
+  useSuppressToastsWhileOpen(isOpen);
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showBiometricSetup, setShowBiometricSetup] = useState(false);
@@ -409,8 +412,9 @@ export default function ApprovalConfirmModal({
 
           {error && (
             <div className="px-6 pb-2">
-              <div className="p-3 bg-danger-50 border border-danger-200 rounded-lg text-sm text-danger-700">
-                {error}
+              <div className="p-3 bg-danger-50 border border-danger-200 rounded-lg text-sm text-danger-700 flex items-center gap-2.5">
+                <FeedbackLottie type="error" size={36} />
+                <span>{error}</span>
               </div>
             </div>
           )}
