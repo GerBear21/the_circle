@@ -20,6 +20,8 @@ import {
 } from './hrimsClient';
 import { onCapexApproved, onCapexRejected } from './capexTrackerHooks';
 import { autoCreatePettyCashFromTravelAuth } from './autoPettyCash';
+import { sendUserNotificationEmail, escapeHtml, appBaseUrl } from './notificationEmail';
+import { getUserPreferences } from './userPreferences';
 
 // ============================================================================
 // Types
@@ -738,7 +740,7 @@ export class ApprovalEngine {
             request.organization_id,
             `Your request ${requestRef} has been fully approved. All ${totalSteps} approvers have signed off — the request is now finalised and the approved document is available to download.`,
             requestType,
-            { title: 'Request fully approved', senderId: approverId }
+            { title: 'Request fully approved', senderId: approverId, sendEmail: false }
           );
 
           // Travel-auth: prompt requester to optionally process a petty cash voucher.
@@ -870,7 +872,7 @@ export class ApprovalEngine {
           request.organization_id,
           `Your request ${requestRef} has been fully approved. Final sign-off by ${approverLabel}. The approved document is available to preview and download.${commentSuffix}`,
           requestType,
-          { title: 'Request fully approved', senderId: approverId }
+          { title: 'Request fully approved', senderId: approverId, sendEmail: false }
         );
 
         // Travel-auth: prompt requester to optionally process a petty cash voucher.
@@ -1085,6 +1087,17 @@ export class ApprovalEngine {
     } catch (error) {
       console.error('Failed to notify approver:', error);
     }
+
+    // Mirror the in-app task by email (gated by the approver's preferences).
+    await sendUserNotificationEmail({
+      userId: approverId,
+      kind: 'approval_tasks',
+      subject: 'Approval required — The Circle',
+      heading: 'A request is waiting for your approval',
+      bodyHtml: `<p>${escapeHtml(message).replace(/\n/g, '<br>')}</p>`,
+      actionUrl: `/requests/${requestId}`,
+      actionLabel: 'Review Request',
+    });
   }
   
   /**
@@ -1101,13 +1114,24 @@ export class ApprovalEngine {
     organizationId: string,
     message: string,
     requestType?: string,
-    options?: { title?: string; actionLabel?: string; senderId?: string | null }
+    options?: {
+      title?: string;
+      actionLabel?: string;
+      senderId?: string | null;
+      /**
+       * Whether to mirror this update by email. Defaults to true (gated by
+       * the requester's "request updates" preference). Full-approval events
+       * pass false because the richer completion email — with the signed PDF
+       * attached — is sent from pushApprovedPdfToMicrosoft instead.
+       */
+      sendEmail?: boolean;
+    }
   ): Promise<void> {
-    try {
-      // Determine the correct URL based on request type
-      const isComplimentaryRequest = requestType === 'hotel_booking' || requestType === 'voucher_request';
-      const actionUrl = isComplimentaryRequest ? `/requests/comp/${requestId}` : `/requests/${requestId}`;
+    // Determine the correct URL based on request type
+    const isComplimentaryRequest = requestType === 'hotel_booking' || requestType === 'voucher_request';
+    const actionUrl = isComplimentaryRequest ? `/requests/comp/${requestId}` : `/requests/${requestId}`;
 
+    try {
       await supabaseAdmin
         .from('notifications')
         .insert({
@@ -1130,6 +1154,18 @@ export class ApprovalEngine {
         });
     } catch (error) {
       console.error('Failed to notify requester:', error);
+    }
+
+    if (options?.sendEmail !== false) {
+      await sendUserNotificationEmail({
+        userId: requesterId,
+        kind: 'request_updates',
+        subject: `${options?.title || 'Request update'} — The Circle`,
+        heading: options?.title || 'Request update',
+        bodyHtml: `<p>${escapeHtml(message).replace(/\n/g, '<br>')}</p>`,
+        actionUrl,
+        actionLabel: options?.actionLabel || 'View Request',
+      });
     }
   }
 
@@ -1240,7 +1276,8 @@ export class ApprovalEngine {
       const storagePath = archiveResult?.archive?.storage_path;
       if (!archiveResult?.success || !storagePath) return;
 
-      // Resolve the requester's email for the OneDrive copy + Outlook mail.
+      // Resolve the requester's email for the OneDrive copy + Outlook mail,
+      // and their preferences for the per-user opt-outs.
       let recipientEmail: string | null = null;
       if (request.creator_id) {
         const { data: creator } = await supabaseAdmin
@@ -1250,13 +1287,62 @@ export class ApprovalEngine {
           .single();
         recipientEmail = creator?.email || null;
       }
+      const prefs = request.creator_id
+        ? await getUserPreferences(request.creator_id)
+        : null;
+
+      const referenceCode = request.metadata?.referenceCode || null;
+      const requestUrl = `${appBaseUrl()}/requests/${requestId}`;
 
       const res = await syncApprovedPdfToMicrosoft({
         storagePath,
-        referenceCode: request.metadata?.referenceCode || null,
+        referenceCode,
         title: request.title || null,
         recipientEmail,
+        requestUrl,
+        options: {
+          includeOneDrive: prefs?.autoArchiveOneDrive !== false,
+          includeEmail: prefs?.emailCompletionPdf !== false,
+          oneDriveFolder: prefs?.oneDriveFolder || null,
+        },
       });
+
+      // Remember where the document landed so the request page and archive
+      // view can offer "Open in OneDrive / SharePoint" links.
+      if (archiveResult?.archive?.id && (res.links.onedrive || res.links.sharepoint || res.links.teams)) {
+        const { error: linkError } = await supabaseAdmin
+          .from('archived_documents')
+          .update({
+            microsoft_links: res.links,
+            microsoft_synced_at: new Date().toISOString(),
+          })
+          .eq('id', archiveResult.archive.id);
+        if (linkError) console.error('Failed to persist Microsoft links on archive:', linkError);
+      }
+
+      // Completion email fallback: when Graph mail didn't send it (Graph not
+      // configured, or the send failed), deliver a link-only completion email
+      // through the shared transport (Graph → Resend) so the requester still
+      // hears about the outcome. Preference-gated inside.
+      if (!res.email && request.creator_id && prefs?.emailCompletionPdf !== false) {
+        const linkRows = [
+          res.links.onedrive && `<li><a href="${res.links.onedrive}">Open in your OneDrive</a></li>`,
+          res.links.sharepoint && `<li><a href="${res.links.sharepoint}">Open in SharePoint</a></li>`,
+        ].filter(Boolean).join('');
+        await sendUserNotificationEmail({
+          userId: request.creator_id,
+          email: recipientEmail,
+          kind: 'completion',
+          subject: `Approved: ${request.title || 'Your request'}${referenceCode ? ` (${referenceCode})` : ''}`,
+          heading: 'Request fully approved',
+          bodyHtml: `
+            <p><strong>${escapeHtml(request.title || 'Your request')}</strong>${referenceCode ? ` (${escapeHtml(referenceCode)})` : ''}
+            has completed its review. The signed approval document is ready to download from the request page.</p>
+            ${linkRows ? `<p>It has also been saved to your Microsoft 365:</p><ul>${linkRows}</ul>` : ''}`,
+          actionUrl: `/requests/${requestId}`,
+          actionLabel: 'View & download the approved PDF',
+        });
+      }
 
       if (res.teams || res.sharepoint || res.onedrive || res.email) {
         console.log(`Approved PDF synced for ${requestId} → teams:${res.teams} sharepoint:${res.sharepoint} onedrive:${res.onedrive} email:${res.email}`);

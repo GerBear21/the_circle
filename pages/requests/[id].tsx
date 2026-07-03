@@ -1075,6 +1075,8 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     const [showReviewModal, setShowReviewModal] = useState(false);
     const [showApprovedPreview, setShowApprovedPreview] = useState(false);
     const [downloadingArchive, setDownloadingArchive] = useState(false);
+    // Where the approved PDF landed in Microsoft 365 (OneDrive/SharePoint webUrls).
+    const [archiveLinks, setArchiveLinks] = useState<{ onedrive?: string; sharepoint?: string; teams?: string } | null>(null);
     const [reviewComment, setReviewComment] = useState('');
     const [reviewProcessing, setReviewProcessing] = useState(false);
     const [reviewError, setReviewError] = useState<string | null>(null);
@@ -1942,6 +1944,29 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
         window.open(`/api/requests/${id}/pdf`, '_blank');
     };
 
+    // Once fully approved, fetch the archive record so we can surface the
+    // OneDrive/SharePoint copies alongside the manual download. This also
+    // pre-warms the archive for older requests (the endpoint generates it on
+    // demand when missing).
+    useEffect(() => {
+        if (!id || request?.status !== 'approved') return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetch(`/api/requests/${id}/archive`);
+                if (!res.ok) return;
+                const data = await res.json();
+                if (!cancelled && data?.archive?.microsoft_links) {
+                    setArchiveLinks(data.archive.microsoft_links);
+                }
+            } catch {
+                // Non-fatal — the Download button still works via its own fetch.
+            }
+        })();
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [id, request?.status]);
+
     /**
      * Download the archived (auto-generated) PDF of a fully-approved request.
      * The endpoint will mint the archive on demand if it doesn't exist yet
@@ -2357,6 +2382,33 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
                                 </svg>
                                 <span style={{ color: '#ffffff' }}>{downloadingArchive ? 'Preparing…' : 'Download'}</span>
+                            </Button>
+                        )}
+                        {/* Microsoft 365 copies — appear once the approved PDF has been
+                            auto-archived to the requester's OneDrive / the organisation's
+                            SharePoint library. */}
+                        {request.status === 'approved' && archiveLinks?.onedrive && (
+                            <Button
+                                variant="outline"
+                                className="gap-2 bg-white text-[#0364B8] border-[#B3D4EE] hover:bg-[#EFF6FC]"
+                                onClick={() => window.open(archiveLinks.onedrive, '_blank', 'noopener,noreferrer')}
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+                                </svg>
+                                Open in OneDrive
+                            </Button>
+                        )}
+                        {request.status === 'approved' && archiveLinks?.sharepoint && (
+                            <Button
+                                variant="outline"
+                                className="gap-2 bg-white text-[#036C70] border-[#A5D2D4] hover:bg-[#EBF5F5]"
+                                onClick={() => window.open(archiveLinks.sharepoint, '_blank', 'noopener,noreferrer')}
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+                                </svg>
+                                Open in SharePoint
                             </Button>
                         )}
                         {/* Edit Draft button - navigates to the form page */}

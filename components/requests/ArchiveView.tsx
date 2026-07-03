@@ -24,6 +24,8 @@ interface ArchivedDocument {
     folder_name: string | null;
     template_id: string | null;
     category: string | null;
+    microsoft_links: { onedrive?: string; sharepoint?: string; teams?: string } | null;
+    microsoft_synced_at: string | null;
 }
 
 interface FolderSummary {
@@ -224,6 +226,8 @@ export default function ArchiveView() {
             setSyncMessage(sent.length
                 ? `"${archive.request_title}" sent to: ${sent.join(', ')}`
                 : 'Microsoft 365 is not configured — ask an administrator to set up the integration.');
+            // Refresh so the new OneDrive/SharePoint links show up on the card.
+            if (sent.length) await fetchArchived();
         } catch (err: any) {
             setSyncMessage(err.message);
         } finally {
@@ -504,6 +508,19 @@ export default function ArchiveView() {
                                                             {archive.attached_documents.length} files
                                                         </span>
                                                     )}
+                                                    {archive.microsoft_links?.onedrive && (
+                                                        <a
+                                                            href={archive.microsoft_links.onedrive}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            className="flex items-center gap-1 text-[#0364B8] hover:underline"
+                                                            title="Saved to OneDrive — click to open"
+                                                        >
+                                                            <CloudUpload className="w-3.5 h-3.5" strokeWidth={1.5} />
+                                                            OneDrive
+                                                        </a>
+                                                    )}
                                                 </div>
 
                                                 <div className="flex items-center gap-1.5">
@@ -631,21 +648,49 @@ export default function ArchiveView() {
                             )}
 
                             {/* Microsoft 365 actions */}
-                            <div className="border border-gray-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gray-50/50">
-                                <div>
-                                    <div className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                                        <CloudUpload className="w-4 h-4 text-brand-500" strokeWidth={1.5} />
-                                        Microsoft 365
+                            <div className="border border-gray-200 rounded-xl p-4 bg-gray-50/50">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                    <div>
+                                        <div className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                                            <CloudUpload className="w-4 h-4 text-brand-500" strokeWidth={1.5} />
+                                            Microsoft 365
+                                        </div>
+                                        <p className="text-xs text-gray-500 mt-0.5">
+                                            {selectedArchive.microsoft_links
+                                                ? 'This document has been saved to Microsoft 365.'
+                                                : 'Save this document to your OneDrive and receive it by Outlook email.'}
+                                        </p>
                                     </div>
-                                    <p className="text-xs text-gray-500 mt-0.5">Save this document to your OneDrive and receive it by Outlook email.</p>
+                                    <button
+                                        onClick={(e) => syncToMicrosoft(selectedArchive, e)}
+                                        disabled={syncingId === selectedArchive.id}
+                                        className="px-4 py-2 rounded-lg bg-white border border-gray-300 text-gray-700 font-medium text-sm hover:bg-gray-100 transition-colors disabled:opacity-50 whitespace-nowrap"
+                                    >
+                                        {syncingId === selectedArchive.id ? 'Sending…' : selectedArchive.microsoft_links ? 'Send again' : 'Send to my Microsoft 365'}
+                                    </button>
                                 </div>
-                                <button
-                                    onClick={(e) => syncToMicrosoft(selectedArchive, e)}
-                                    disabled={syncingId === selectedArchive.id}
-                                    className="px-4 py-2 rounded-lg bg-white border border-gray-300 text-gray-700 font-medium text-sm hover:bg-gray-100 transition-colors disabled:opacity-50 whitespace-nowrap"
-                                >
-                                    {syncingId === selectedArchive.id ? 'Sending…' : 'Send to my Microsoft 365'}
-                                </button>
+                                {selectedArchive.microsoft_links && (
+                                    <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-200">
+                                        {selectedArchive.microsoft_links.onedrive && (
+                                            <a href={selectedArchive.microsoft_links.onedrive} target="_blank" rel="noopener noreferrer"
+                                               className="px-3 py-1.5 rounded-lg bg-[#EFF6FC] text-[#0364B8] font-medium text-xs hover:bg-[#DEEBF7] transition-colors">
+                                                Open in OneDrive
+                                            </a>
+                                        )}
+                                        {selectedArchive.microsoft_links.sharepoint && (
+                                            <a href={selectedArchive.microsoft_links.sharepoint} target="_blank" rel="noopener noreferrer"
+                                               className="px-3 py-1.5 rounded-lg bg-[#EBF5F5] text-[#036C70] font-medium text-xs hover:bg-[#D9EDEE] transition-colors">
+                                                Open in SharePoint
+                                            </a>
+                                        )}
+                                        {selectedArchive.microsoft_links.teams && (
+                                            <a href={selectedArchive.microsoft_links.teams} target="_blank" rel="noopener noreferrer"
+                                               className="px-3 py-1.5 rounded-lg bg-[#EDEBF9] text-[#4B53BC] font-medium text-xs hover:bg-[#DDD9F2] transition-colors">
+                                                Open in Teams
+                                            </a>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         </div>
 

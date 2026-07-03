@@ -4,5 +4,15 @@
     "deploymentEnabled": {
       "main": false
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/reminders",
+      "schedule": "0 7 * * 1-5"
+    },
+    {
+      "path": "/api/cron/weekly-digest",
+      "schedule": "0 7 * * 1"
+    }
+  ]
 }
