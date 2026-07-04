@@ -4,7 +4,7 @@ import { authOptions } from '../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { generateReferenceCode } from '@/lib/requestCode';
 import { createCapexTrackerRow } from '@/lib/capexTrackerHooks';
-import { getUserRBACProfile, hasPermission } from '@/lib/rbac';
+import { getUserRBACProfile, hasPermission, PERMISSIONS } from '@/lib/rbac';
 import { getUserAccessScope, scopeForResponse, AccessScope } from '@/lib/accessScope';
 import { audit } from '@/lib/auditLog';
 
@@ -26,7 +26,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (req.method === 'GET') {
       const { status: statusFilter, type, limit = 50 } = req.query;
-      
+
+      // Audit/oversight scope: the Audit → Transactions page needs to list
+      // EVERY request in the organisation, not just the ones the caller is
+      // personally involved in. Gate this on the audit-view permission so it
+      // can't be used to bypass normal request visibility.
+      const rbacProfile = await getUserRBACProfile(userId);
+      const wantsAuditScope = req.query.scope === 'audit';
+      const canAuditView = wantsAuditScope && (
+        hasPermission(rbacProfile, 'audit.view_logs') ||
+        hasPermission(rbacProfile, PERMISSIONS.ADMIN_AUDIT_LOGS)
+      );
+
       let query = supabaseAdmin
         .from('requests')
         .select(`
@@ -52,7 +63,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         `)
         .eq('organization_id', organizationId)
         .order('created_at', { ascending: false })
-        .limit(100); // Fetch more to filter down
+        .limit(canAuditView ? 1000 : 100); // Fetch more to filter down
 
       if (statusFilter) {
         query = query.eq('status', statusFilter);
@@ -62,12 +73,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       const { data: requests, error } = await query;
-      
+
       if (error) throw error;
 
       // Oversight visibility: users with requests.view_all see every request
       // that falls inside their data-access scope (business unit / department).
-      const rbacProfile = await getUserRBACProfile(userId);
       const canViewAll = hasPermission(rbacProfile, 'requests.view_all');
       let accessScope: AccessScope | null = null;
       if (canViewAll) {
@@ -97,6 +107,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (req.status === 'draft') {
           return req.creator_id === userId;
         }
+
+        // Audit oversight: an auditor querying ?scope=audit sees every
+        // (non-draft) request in the organisation.
+        if (canAuditView) return true;
 
         // Creator can always see their own requests
         if (req.creator_id === userId) return true;

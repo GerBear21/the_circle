@@ -1147,16 +1147,16 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     const effectivePendingStep = pendingStep || waitingStepThatShouldBePending;
     const isCurrentApprover = !!effectivePendingStep;
 
-    // Record an "approver opened the request" event so the timeline can show
-    // whether the assigned approver has actually viewed it yet. Server-side
-    // the endpoint silently no-ops for non-approvers.
+    // Record that the current user opened the request. Server-side this both
+    // (a) updates approver view-tracking for the timeline (a no-op for
+    // non-approvers) and (b) logs a user-activity audit event for every
+    // viewer so the audit "Activity" log captures day-to-day usage. Fires
+    // once per page open.
     useEffect(() => {
         if (!id || typeof id !== 'string' || !currentUserId) return;
-        const isApprover = request?.request_steps?.some(s => s.approver?.id === currentUserId);
-        if (!isApprover) return;
         fetch(`/api/requests/${id}/view`, { method: 'POST' }).catch(() => { /* silent */ });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [id, currentUserId, request?.id]);
+    }, [id, currentUserId]);
 
     // Travel authorisations and hotel bookings both require HRD cost allocation.
     // Travel auths always carry a grand total to allocate against; hotel

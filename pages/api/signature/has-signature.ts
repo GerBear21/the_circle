@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { userSignatureProxyUrl } from '@/lib/signatureStorage';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -37,11 +38,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const hasSignature = data && data.length > 0 && data.some(file => file.name === `${userId}.png`);
 
     if (hasSignature) {
-      const { data: { publicUrl } } = supabaseAdmin.storage
-        .from('signatures')
-        .getPublicUrl(`${userId}.png`);
-
-      return res.status(200).json({ hasSignature: true, signatureUrl: publicUrl });
+      return res.status(200).json({ hasSignature: true, signatureUrl: userSignatureProxyUrl(userId) });
     }
 
     return res.status(200).json({ hasSignature: false, signatureUrl: null });

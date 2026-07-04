@@ -48,7 +48,7 @@ export default function AuditTransactionsPage() {
             if (!session) return;
             try {
                 setLoadingRequests(true);
-                const response = await fetch('/api/requests?limit=200');
+                const response = await fetch('/api/requests?limit=1000&scope=audit');
                 if (!response.ok) throw new Error('Failed to fetch');
                 const data = await response.json();
                 setRequests(data.requests || []);

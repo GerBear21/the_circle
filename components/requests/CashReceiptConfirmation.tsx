@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button } from '../ui';
 import { useToast } from '../ui/ToastProvider';
+import { useCurrentUser } from '../../hooks/useCurrentUser';
 
 interface ConfirmationView {
   id: string;
@@ -34,11 +35,17 @@ function fmt(d: string | null): string {
 // hand-over. Confirmed records appear under Finance → Cash Receipts.
 export default function CashReceiptConfirmation({ requestId, isCreator, approved }: Props) {
   const { addToast } = useToast();
+  const { user: currentUser } = useCurrentUser();
   const [loading, setLoading] = useState(true);
   const [isPettyCash, setIsPettyCash] = useState(false);
   const [confirmation, setConfirmation] = useState<ConfirmationView | null>(null);
 
-  const [clerkEmail, setClerkEmail] = useState('');
+  // Clerk is chosen from existing system users (the code is delivered in-app),
+  // so we present a searchable picker rather than a free-text email field.
+  const [users, setUsers] = useState<Array<{ id: string; display_name: string; email: string }>>([]);
+  const [clerkSearch, setClerkSearch] = useState('');
+  const [selectedClerk, setSelectedClerk] = useState<{ id: string; display_name: string; email: string } | null>(null);
+  const [showClerkDropdown, setShowClerkDropdown] = useState(false);
   const [otp, setOtp] = useState('');
   const [sending, setSending] = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -63,6 +70,17 @@ export default function CashReceiptConfirmation({ requestId, isCreator, approved
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestId]);
+
+  // Load system users for the clerk picker (creator-only flow).
+  useEffect(() => {
+    if (!isCreator) return;
+    let cancelled = false;
+    fetch('/api/users')
+      .then((r) => (r.ok ? r.json() : { users: [] }))
+      .then((data) => { if (!cancelled) setUsers(data.users || []); })
+      .catch(() => { /* picker just stays empty */ });
+    return () => { cancelled = true; };
+  }, [isCreator]);
 
   // Tick a 1-second countdown to the OTP expiry while a code is live.
   useEffect(() => {
@@ -134,29 +152,16 @@ export default function CashReceiptConfirmation({ requestId, isCreator, approved
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to send code');
-      if (data.emailSent) {
-        addToast({
-          type: 'success',
-          title: 'Code sent to clerk',
-          message: data.clerkFound
-            ? `A one-time code was sent to ${data.clerkEmail} (in-app notification + email).`
-            : `A one-time code was emailed to ${data.clerkEmail}.`,
-        });
-      } else if (data.clerkFound) {
-        // Email didn't go out, but the clerk is a system user and got the
-        // code via their in-app notifications.
-        addToast({
-          type: 'info',
-          title: 'Code sent in-app',
-          message: `Email could not be delivered, but ${data.clerkEmail} received the code in their in-app notifications.`,
-        });
-      } else {
-        addToast({
-          type: 'error',
-          title: 'Email not delivered',
-          message: `Could not email ${data.clerkEmail}${data.emailError ? ` (${data.emailError})` : ''}. Ask an admin to configure Microsoft email, or use a clerk who has a system account.`,
-        });
-      }
+      // The API only returns success once the code has actually been delivered
+      // (in-app notification, plus email when available).
+      const who = data.clerkName || data.clerkEmail || 'the clerk';
+      addToast({
+        type: 'success',
+        title: 'Code sent to clerk',
+        message: data.emailSent
+          ? `A one-time code was sent to ${who} (in-app notification + email).`
+          : `A one-time code was sent to ${who} in their in-app notifications.`,
+      });
       setOtp('');
       await load();
     } catch (e: any) {
@@ -166,8 +171,14 @@ export default function CashReceiptConfirmation({ requestId, isCreator, approved
     }
   };
 
-  const sendCode = () => send(clerkEmail);
-  const resend = () => send(confirmation?.clerkEmail || clerkEmail);
+  const sendCode = () => {
+    if (!selectedClerk) {
+      addToast({ type: 'error', title: 'Select a clerk', message: 'Choose the accounts clerk from the list of users.' });
+      return;
+    }
+    send(selectedClerk.email);
+  };
+  const resend = () => send(confirmation?.clerkEmail || selectedClerk?.email || '');
 
   const cancel = async () => {
     setCancelling(true);
@@ -175,7 +186,8 @@ export default function CashReceiptConfirmation({ requestId, isCreator, approved
       const res = await fetch(`/api/requests/${requestId}/cash-receipt`, { method: 'DELETE' });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to cancel');
       setOtp('');
-      setClerkEmail('');
+      setSelectedClerk(null);
+      setClerkSearch('');
       addToast({ type: 'info', title: 'Cancelled', message: 'The code was cancelled. You can start again.' });
       await load();
     } catch (e: any) {
@@ -278,15 +290,76 @@ export default function CashReceiptConfirmation({ requestId, isCreator, approved
               </div>
             </div>
           ) : (
-            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-              <input
-                type="email"
-                className="w-full rounded-xl border border-[#C9B896] bg-white px-4 py-2.5 text-sm text-[#3F2D19] focus:outline-none focus:ring-2 focus:ring-[#9A7545]"
-                placeholder="Accounts clerk email"
-                value={clerkEmail}
-                onChange={(e) => setClerkEmail(e.target.value)}
-              />
-              <Button variant="primary" onClick={sendCode} isLoading={sending} disabled={sending} className="flex-shrink-0">
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-start">
+              <div className="relative w-full">
+                {showClerkDropdown && <div className="fixed inset-0 z-10" onClick={() => setShowClerkDropdown(false)} />}
+                {selectedClerk ? (
+                  <div className="flex items-center gap-3 rounded-xl border border-[#C9B896] bg-white px-3 py-2">
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[#F3EADC]">
+                      <span className="text-sm font-medium text-[#9A7545]">{selectedClerk.display_name?.charAt(0)?.toUpperCase() || '?'}</span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-[#3F2D19]">{selectedClerk.display_name}</p>
+                      <p className="truncate text-xs text-[#9A7545]">{selectedClerk.email}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { setSelectedClerk(null); setClerkSearch(''); }}
+                      className="flex-shrink-0 text-[#9A7545] hover:text-[#3F2D19]"
+                      title="Change clerk"
+                    >
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      type="text"
+                      className="w-full rounded-xl border border-[#C9B896] bg-white px-4 py-2.5 text-sm text-[#3F2D19] focus:outline-none focus:ring-2 focus:ring-[#9A7545]"
+                      placeholder="Search the accounts clerk by name or email"
+                      value={clerkSearch}
+                      onChange={(e) => { setClerkSearch(e.target.value); setShowClerkDropdown(true); }}
+                      onFocus={() => setShowClerkDropdown(true)}
+                    />
+                    {showClerkDropdown && (
+                      <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-[#C9B896] bg-white shadow-lg">
+                        {users
+                          .filter((u) => {
+                            // The requestor can't sign cash over to themselves —
+                            // exclude the current user from the clerk picker.
+                            if (currentUser?.id && u.id === currentUser.id) return false;
+                            if (currentUser?.email && u.email?.toLowerCase() === currentUser.email.toLowerCase()) return false;
+                            const t = clerkSearch.trim().toLowerCase();
+                            return t
+                              ? (u.display_name?.toLowerCase().includes(t) || u.email?.toLowerCase().includes(t))
+                              : true;
+                          })
+                          .slice(0, 12)
+                          .map((u) => (
+                            <button
+                              key={u.id}
+                              type="button"
+                              onClick={() => { setSelectedClerk(u); setShowClerkDropdown(false); setClerkSearch(''); }}
+                              className="flex w-full items-center gap-3 p-3 text-left transition-colors hover:bg-[#F7F0E2]"
+                            >
+                              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[#F3EADC]">
+                                <span className="text-sm font-medium text-[#9A7545]">{u.display_name?.charAt(0)?.toUpperCase() || '?'}</span>
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-medium text-[#3F2D19]">{u.display_name}</p>
+                                <p className="truncate text-xs text-[#9A7545]">{u.email}</p>
+                              </div>
+                            </button>
+                          ))}
+                        {users.length === 0 && (
+                          <div className="p-3 text-center text-sm text-[#9A7545]">No users available</div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+              <Button variant="primary" onClick={sendCode} isLoading={sending} disabled={sending || !selectedClerk} className="flex-shrink-0">
                 Send Code to Clerk
               </Button>
             </div>

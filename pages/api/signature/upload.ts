@@ -2,6 +2,14 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../auth/[...nextauth]';
+import { SIGNATURE_BUCKET, userSignatureProxyUrl, tempSignatureProxyUrl } from '../../../lib/signatureStorage';
+import { validateBody, z } from '../../../lib/validate';
+
+const UploadSchema = z.object({
+  image: z.string().min(1).startsWith('data:image'),
+  type: z.enum(['mobile-temp', 'profile']).optional(),
+  sessionId: z.string().min(8).max(128).optional(),
+});
 
 export const config = {
     api: {
@@ -16,14 +24,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(405).json({ message: 'Method not allowed' });
     }
 
-    const { sessionId, type } = req.body;
-    console.log(`[Signature Upload] Starting upload for session: ${sessionId}, type: ${type}`);
-
     try {
         if (!supabaseAdmin) {
             console.error('[Signature Upload] Supabase admin client is not initialized. Check server-side environment variables.');
             return res.status(500).json({ message: 'Server configuration error: Supabase client not initialized' });
         }
+
+        const body = validateBody(req, res, UploadSchema);
+        if (!body) return;
+        const { sessionId, type, image } = body;
+        console.log(`[Signature Upload] Starting upload for session: ${sessionId}, type: ${type}`);
 
         const session = await getServerSession(req, res, authOptions);
 
@@ -32,13 +42,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         // The mobile page might not be authenticated if opened via QR code without login.
         // So we should allow unauthenticated uploads for 'mobile-temp' but maybe validate the session ID format.
 
-        const { image } = req.body;
-
-        if (!image) {
-            console.error('[Signature Upload] No image provided');
-            return res.status(400).json({ message: 'No image provided' });
-        }
-
         console.log(`[Signature Upload] Image size: ${image.length} chars`);
 
         // Convert base64 to buffer
@@ -46,16 +49,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const buffer = Buffer.from(base64Data, 'base64');
 
         let filePath = '';
-        let bucket = 'signatures'; // We assume this bucket exists
+        let proxyUrl = '';
+        const bucket = SIGNATURE_BUCKET;
 
         if (type === 'mobile-temp' && sessionId) {
-            // Temp storage for mobile handoff
-            if (!/^[0-9a-fA-F-]{36}$/.test(sessionId) && sessionId.length < 10) {
-                // Basic validation, uuid usually 36 chars.
-                // But since we want to be safe, just ensure it's a string
-                console.warn(`[Signature Upload] Suspicious sessionId format: ${sessionId}`);
-            }
+            // Temp storage for mobile handoff (capability = high-entropy sessionId)
             filePath = `temp/${sessionId}.png`;
+            proxyUrl = tempSignatureProxyUrl(sessionId);
         } else {
             // Permanent storage for user profile
             if (!session) {
@@ -64,6 +64,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
             const userId = (session.user as any).id;
             filePath = `${userId}.png`;
+            proxyUrl = userSignatureProxyUrl(userId);
         }
 
         console.log(`[Signature Upload] Uploading to ${bucket}/${filePath}`);
@@ -82,13 +83,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         console.log('[Signature Upload] Upload success');
 
-        // Get public URL
-        const { data: { publicUrl } } = supabaseAdmin.storage
-            .from(bucket)
-            .getPublicUrl(filePath);
-
-        console.log(`[Signature Upload] Public URL generated: ${publicUrl}`);
-        return res.status(200).json({ url: publicUrl });
+        // Private bucket: return the authenticated proxy URL, not a public URL.
+        return res.status(200).json({ url: proxyUrl });
     } catch (error: any) {
         console.error('[Signature Upload] Handler error:', error);
         return res.status(500).json({ message: 'Internal server error', details: error.message });

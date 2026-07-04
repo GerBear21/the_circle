@@ -1,7 +1,6 @@
 import type { AppProps } from 'next/app';
-import { SessionProvider, signOut, useSession } from "next-auth/react";
+import { SessionProvider, useSession } from "next-auth/react";
 import Head from 'next/head';
-import { useEffect, useState } from 'react';
 import '../styles/globals.css';
 
 import { ToastProvider } from '../components/ui/ToastProvider';
@@ -12,6 +11,7 @@ import ErrorBoundary from '../components/ErrorBoundary';
 import GlobalErrorListener from '../components/GlobalErrorListener';
 
 const SESSION_FLAG = 'the_circle_active_session';
+import SessionActivityGuard from '../components/SessionActivityGuard';
 
 function SessionGuard({ children }: { children: React.ReactNode }) {
   const { status } = useSession();
@@ -27,7 +27,7 @@ function SessionGuard({ children }: { children: React.ReactNode }) {
 
 export default function App({ Component, pageProps: { session, ...pageProps } }: AppProps) {
   return (
-    <SessionProvider session={session}>
+    <SessionProvider session={session} refetchOnWindowFocus={true}>
       <Head>
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
       </Head>
@@ -43,6 +43,16 @@ export default function App({ Component, pageProps: { session, ...pageProps } }:
           </UserProvider>
         </SessionGuard>
       </ErrorBoundary>
+      <SessionActivityGuard />
+      <SessionGuard>
+        <UserProvider>
+          <RBACProvider>
+            <ToastProvider>
+              <Component {...pageProps} />
+            </ToastProvider>
+          </RBACProvider>
+        </UserProvider>
+      </SessionGuard>
     </SessionProvider>
   );
 }

@@ -6,6 +6,12 @@ import PDFDocument from 'pdfkit';
 import path from 'path';
 import fs from 'fs';
 import { audit } from '@/lib/auditLog';
+import {
+  signatureExists,
+  userSignaturePath,
+  userSignatureProxyUrl,
+  resolveSignatureSignedUrl,
+} from '@/lib/signatureStorage';
 
 // This API generates and stores a PDF archive for a fully approved request
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -136,6 +142,8 @@ export async function generateAndStoreArchive(
             approver_id,
             authentication_method,
             signature_type,
+            signature_url,
+            signature_reference,
             approver:app_users!approvals_approver_id_fkey (
               id,
               display_name,
@@ -215,20 +223,23 @@ export async function generateAndStoreArchive(
       }
     }
 
-    // Resolve signature URLs from storage for each approval
+    // Resolve the signature image to embed for each approval. A signature
+    // DRAWN at approval time is uploaded to a per-request path and stored on
+    // the approval row (signature_url / signature_reference) — that is the
+    // authoritative image and must win. Only when no drawn signature was
+    // recorded do we fall back to the approver's pre-registered (saved)
+    // signature image at signatures/<approverId>.png.
     for (const step of (request.request_steps || [])) {
       for (const approval of (step.approvals || [])) {
+        const drawn = approval.signature_url || approval.signature_reference;
+        if (typeof drawn === 'string' && drawn) {
+          approval.signature_url = drawn;
+          continue;
+        }
+        approval.signature_url = undefined;
         if (approval.approver_id) {
-          const { data } = supabaseAdmin.storage.from('signatures').getPublicUrl(`${approval.approver_id}.png`);
-          if (data?.publicUrl) {
-            try {
-              const checkRes = await fetch(data.publicUrl, { method: 'HEAD' });
-              if (checkRes.ok) {
-                approval.signature_url = data.publicUrl;
-              }
-            } catch {
-              // Signature file doesn't exist, leave as undefined
-            }
+          if (await signatureExists(userSignaturePath(approval.approver_id))) {
+            approval.signature_url = userSignatureProxyUrl(approval.approver_id);
           }
         }
       }
@@ -793,7 +804,9 @@ async function generatePdfBuffer(
       request.request_steps.map(async (step: any, index: number) => {
         const approval = step.approvals?.[0];
         if (approval?.signature_url) {
-          const buf = await fetchImageBuffer(approval.signature_url);
+          // Server-side PDF: resolve proxy/stored URL to a signed URL first.
+          const resolved = await resolveSignatureSignedUrl(approval.signature_url);
+          const buf = resolved ? await fetchImageBuffer(resolved) : null;
           if (buf) signatureBuffers.set(index, buf);
         }
       })
@@ -803,7 +816,8 @@ async function generatePdfBuffer(
   // Pre-fetch self-sign signature if present
   let selfSignSignatureBuffer: Buffer | null = null;
   if (formData.signature_url) {
-    selfSignSignatureBuffer = await fetchImageBuffer(formData.signature_url);
+    const resolvedSelf = await resolveSignatureSignedUrl(formData.signature_url);
+    selfSignSignatureBuffer = resolvedSelf ? await fetchImageBuffer(resolvedSelf) : null;
   }
 
   return new Promise((resolve, reject) => {

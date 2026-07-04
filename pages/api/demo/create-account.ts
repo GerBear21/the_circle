@@ -5,6 +5,19 @@ import { authOptions } from '../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { hrimsClient } from '@/lib/hrimsClient';
 import { assignRoleToUser, getUserRBACProfile, hasPermission, PERMISSIONS } from '@/lib/rbac';
+import { withRateLimit } from '@/lib/rateLimit';
+import { validateBody, z } from '@/lib/validate';
+
+const CreateAccountSchema = z.object({
+  firstName: z.string().min(1).max(100),
+  lastName: z.string().min(1).max(100),
+  email: z.string().email().optional().or(z.literal('')),
+  password: z.string().min(1).max(200).optional().or(z.literal('')),
+  jobTitle: z.string().min(1).max(150),
+  departmentId: z.string().uuid().optional().nullable(),
+  parentPositionId: z.string().uuid().optional().nullable(),
+  appRoleId: z.string().uuid().optional().nullable(),
+}).strip();
 
 const DEMO_MODE = process.env.DEMO_MODE === 'true';
 const DEMO_EMAIL_DOMAIN = 'rtg.demo';
@@ -22,7 +35,7 @@ const DEFAULT_PASSWORD = 'Demo@2026!';
  * role), so a signed-in low-privilege demo user cannot self-provision a new —
  * potentially privileged — account through this endpoint.
  */
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!DEMO_MODE) {
     return res.status(403).json({ error: 'Demo mode is not enabled in this environment.' });
   }
@@ -46,6 +59,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
+    const parsed = validateBody(req, res, CreateAccountSchema);
+    if (!parsed) return;
     const {
       firstName,
       lastName,
@@ -55,11 +70,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       departmentId,
       parentPositionId,
       appRoleId,
-    } = req.body || {};
-
-    if (!firstName || !lastName || !jobTitle) {
-      return res.status(400).json({ error: 'First name, last name and position title are required.' });
-    }
+    } = parsed;
 
     // Privilege gate (defence in depth, on top of DEMO_MODE). Provisioning a
     // demo persona creates a real, loginable account; assigning a role can grant
@@ -240,3 +251,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ error: err.message || 'Failed to create demo account' });
   }
 }
+
+// Cap demo-account provisioning per client to prevent bulk abuse.
+export default withRateLimit(
+  { name: 'demo-create-account', max: 30, windowSeconds: 600 },
+  handler
+);
