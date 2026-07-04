@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { validateBody, z } from '@/lib/validate';
+import { ApprovalEngine } from '@/lib/approvalEngine';
+import { audit } from '@/lib/auditLog';
 
 const UpdateRequestSchema = z.object({
   title: z.string().min(1).max(500).optional(),
@@ -200,13 +202,82 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(403).json({ error: 'You can only edit your own requests' });
       }
 
-      if (['approved', 'rejected'].includes(existing.status)) {
-        return res.status(400).json({ error: `Cannot edit a request that is already ${existing.status}` });
+      if (existing.status === 'approved') {
+        return res.status(400).json({ error: 'Cannot edit a request that is already approved' });
       }
 
       const parsed = validateBody(req, res, UpdateRequestSchema);
       if (!parsed) return;
       const { title, description, priority, category, metadata } = parsed;
+
+      // Editing a REJECTED request is treated as an "edit & resubmit": the
+      // (possibly fully re-edited) form metadata is merged over the existing
+      // metadata — preserving server-managed keys like referenceCode,
+      // resubmissionCount and resubmissionHistory that the form doesn't carry —
+      // then the workflow is reset and re-routed by the approval engine. This
+      // is the path used by the form pages (?edit=<id>) for full structured
+      // re-editing; the lightweight inline editor uses /resubmit instead.
+      if (existing.status === 'rejected') {
+        const { data: current } = await supabaseAdmin
+          .from('requests')
+          .select('metadata, title')
+          .eq('id', id)
+          .single();
+
+        const previousReference = (current?.metadata as any)?.referenceCode || null;
+        const mergedMetadata = { ...(current?.metadata || {}), ...(metadata || {}) };
+
+        const resubmitUpdates: any = {
+          metadata: mergedMetadata,
+          updated_at: new Date().toISOString(),
+        };
+        if (title !== undefined) resubmitUpdates.title = title;
+        if (description !== undefined) resubmitUpdates.description = description;
+        if (priority !== undefined) resubmitUpdates.priority = priority;
+        if (category !== undefined) resubmitUpdates.category = category;
+
+        const { error: mergeErr } = await supabaseAdmin
+          .from('requests')
+          .update(resubmitUpdates)
+          .eq('id', id)
+          .eq('organization_id', organizationId);
+        if (mergeErr) {
+          console.error('Failed to persist resubmission edits:', mergeErr);
+          return res.status(500).json({ error: 'Failed to save your changes' });
+        }
+
+        const result = await ApprovalEngine.resubmitRequest(id, user.id);
+
+        await audit(req, session.user, {
+          category: 'workflow',
+          action: 'request.resubmitted',
+          severity: 'notice',
+          outcome: result.success ? 'success' : 'failure',
+          targetType: 'request',
+          targetId: id,
+          requestId: id,
+          targetLabel: result.newReference || title || current?.title || null,
+          details: result.success
+            ? {
+                newReference: result.newReference || null,
+                previousReference,
+                version: result.version || null,
+                via: 'form',
+              }
+            : { error: result.error },
+        });
+
+        if (!result.success) {
+          return res.status(400).json({ error: result.error });
+        }
+
+        return res.status(200).json({
+          request: { id, ...resubmitUpdates },
+          resubmitted: true,
+          newReference: result.newReference || null,
+          version: result.version || null,
+        });
+      }
 
       const updates: any = {
         updated_at: new Date().toISOString(),

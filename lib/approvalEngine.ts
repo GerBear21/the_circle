@@ -18,8 +18,9 @@ import {
   resolveApprovalChainFromOrganogram,
   findEmployeeByPositionTitle,
 } from './hrimsClient';
-import { onCapexApproved, onCapexRejected } from './capexTrackerHooks';
+import { onCapexApproved, onCapexRejected, onCapexResubmitted, onCapexCancelled } from './capexTrackerHooks';
 import { autoCreatePettyCashFromTravelAuth } from './autoPettyCash';
+import { onVoucherFullyApproved } from './voucherFulfilment';
 
 // ============================================================================
 // Types
@@ -756,6 +757,9 @@ export class ApprovalEngine {
 
           // CAPEX Tracker: flip status to awaiting funding. Safe for all types — hook guards internally.
           await onCapexApproved(requestId, approverId);
+
+          // Voucher: issue the sequential number + email reception/reservations. Guards internally.
+          await onVoucherFullyApproved(requestId, request);
         }
 
         return { success: true, message: 'Request fully approved (parallel)' };
@@ -888,6 +892,9 @@ export class ApprovalEngine {
 
         // CAPEX Tracker: flip status to awaiting funding. Safe for all types — hook guards internally.
         await onCapexApproved(requestId, approverId);
+
+        // Voucher: issue the sequential number + email reception/reservations. Guards internally.
+        await onVoucherFullyApproved(requestId, request);
       }
 
       return { success: true, message: 'Request fully approved' };
@@ -1050,10 +1057,348 @@ export class ApprovalEngine {
       .from('requests')
       .update({ status: 'withdrawn' })
       .eq('id', requestId);
-    
+
     return { success: true };
   }
-  
+
+  /**
+   * Resubmit a previously rejected request.
+   *
+   * Resets the approval workflow so the (possibly edited) request goes back
+   * through its approvers, while preserving the rejection history:
+   *  - The round's rejection (who / when / why) is snapshotted into
+   *    `metadata.resubmissionHistory` so the timeline can show every round.
+   *  - A versioned reference is generated (`<base>-R{n}`); the original is kept
+   *    in `metadata.originalReferenceCode`.
+   *  - Old steps + approval records are cleared and the steps are rebuilt from
+   *    the request's approver list, status returns to `pending`, and the
+   *    relevant approver(s) are notified.
+   *
+   * The caller (API route) is responsible for persisting any field edits into
+   * metadata *before* calling this, for recording the resubmission in
+   * `request_modifications`, and for writing the audit event.
+   */
+  static async resubmitRequest(
+    requestId: string,
+    userId: string
+  ): Promise<{ success: boolean; error?: string; newReference?: string | null; version?: number }> {
+
+    const { data: request } = await supabaseAdmin
+      .from('requests')
+      .select(`
+        id, creator_id, organization_id, status, title, metadata,
+        request_steps (
+          id, step_index, approver_user_id, status, step_definition, approver_role,
+          approvals ( id, decision, comment, signed_at, approver_id )
+        )
+      `)
+      .eq('id', requestId)
+      .single();
+
+    if (!request) {
+      return { success: false, error: 'Request not found' };
+    }
+
+    if (request.creator_id !== userId) {
+      return { success: false, error: 'Only the requester can resubmit this request' };
+    }
+
+    const steps = (request.request_steps as any[]) || [];
+    const isRejected =
+      request.status === 'rejected' || steps.some((s) => s.status === 'rejected');
+    if (!isRejected) {
+      return { success: false, error: 'Only rejected requests can be resubmitted' };
+    }
+
+    const meta: any = request.metadata || {};
+
+    // --- Snapshot the rejection that closed this round ------------------
+    const rejectedStep = [...steps]
+      .sort((a, b) => (a.step_index || 0) - (b.step_index || 0))
+      .find((s) => s.status === 'rejected');
+    let rejectionSnapshot: any = null;
+    if (rejectedStep) {
+      const approval =
+        (rejectedStep.approvals || []).find((a: any) => a.decision === 'rejected') ||
+        (rejectedStep.approvals || [])[0] ||
+        null;
+      const rejecterId = approval?.approver_id || rejectedStep.approver_user_id || null;
+      let rejecterName: string | null = null;
+      let rejecterRole: string | null = null;
+      if (rejecterId) {
+        const { data: rejecter } = await supabaseAdmin
+          .from('app_users')
+          .select('display_name, job_title, role')
+          .eq('id', rejecterId)
+          .single();
+        rejecterName = rejecter?.display_name || null;
+        rejecterRole = rejecter?.job_title || rejecter?.role || null;
+      }
+      rejectionSnapshot = {
+        // The round being closed: 1 = original submission, 2 = first resubmission, …
+        version: Number(meta.resubmissionCount || 0) + 1,
+        referenceCode: meta.referenceCode || null,
+        rejectedById: rejecterId,
+        rejectedByName: rejecterName,
+        rejectedByRole: rejecterRole,
+        rejectedAtStep: rejectedStep.step_index || null,
+        stepLabel: formatStepLabel(rejectedStep),
+        comment: approval?.comment || null,
+        rejectedAt: approval?.signed_at || null,
+      };
+    }
+
+    // --- Versioned reference (<base>-R{n}) -----------------------------
+    const prevCount = Number(meta.resubmissionCount || 0);
+    const newVersion = prevCount + 1;
+    const currentRef = typeof meta.referenceCode === 'string' ? meta.referenceCode : '';
+    const baseRef = currentRef.replace(/-R\d+$/i, '');
+    const newReference = baseRef ? `${baseRef}-R${newVersion}` : currentRef || null;
+
+    const history = Array.isArray(meta.resubmissionHistory)
+      ? [...meta.resubmissionHistory]
+      : [];
+    if (rejectionSnapshot) history.push(rejectionSnapshot);
+
+    // --- Determine the approver chain to rebuild -----------------------
+    // Prefer the (possibly edited) approver list from metadata; fall back to
+    // the approvers carried by the existing steps so resubmission still works
+    // for requests that don't persist an explicit approvers array.
+    let approverIds = extractApproverIds(meta);
+    if (approverIds.length === 0) {
+      approverIds = [...steps]
+        .sort((a, b) => (a.step_index || 0) - (b.step_index || 0))
+        .map((s) => s.approver_user_id)
+        .filter((x): x is string => !!x);
+    }
+    if (approverIds.length === 0) {
+      return { success: false, error: 'No approvers found to route the resubmission to' };
+    }
+
+    const useParallel = meta.useParallelApprovals === true;
+
+    // --- Reset workflow: drop old approvals + steps, then rebuild ------
+    const stepIds = steps.map((s) => s.id);
+    if (stepIds.length > 0) {
+      await supabaseAdmin.from('approvals').delete().in('step_id', stepIds);
+    }
+    await supabaseAdmin.from('request_steps').delete().eq('request_id', requestId);
+
+    const newSteps = approverIds.map((approverId, index) => ({
+      request_id: requestId,
+      step_index: index + 1,
+      step_type: 'approval',
+      approver_user_id: approverId,
+      status: useParallel ? 'pending' : index === 0 ? 'pending' : 'waiting',
+    }));
+    const { error: stepsError } = await supabaseAdmin
+      .from('request_steps')
+      .insert(newSteps);
+    if (stepsError) {
+      console.error('Failed to rebuild steps on resubmit:', stepsError);
+      return { success: false, error: 'Failed to restart the approval workflow' };
+    }
+
+    // --- Persist new metadata + flip status back to pending -----------
+    const newMeta = {
+      ...meta,
+      referenceCode: newReference || meta.referenceCode,
+      originalReferenceCode: meta.originalReferenceCode || meta.referenceCode || null,
+      resubmissionCount: newVersion,
+      resubmissionHistory: history,
+      total_steps: approverIds.length,
+      current_step: useParallel ? null : 1,
+    };
+    await supabaseAdmin
+      .from('requests')
+      .update({
+        status: 'pending',
+        metadata: newMeta,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', requestId);
+
+    // --- Notify approver(s) of the resubmission -----------------------
+    const { data: requester } = await supabaseAdmin
+      .from('app_users')
+      .select('display_name')
+      .eq('id', userId)
+      .single();
+    const requesterName = requester?.display_name || 'The requester';
+    const refLabel = newReference || `"${request.title}"`;
+
+    if (useParallel) {
+      for (const approverId of approverIds) {
+        await this.notifyApprover(
+          requestId,
+          approverId,
+          request.organization_id,
+          userId,
+          `${requesterName} has resubmitted request ${refLabel} after addressing the rejection. Please review. (Parallel approval - ${approverIds.length} approvers)`
+        );
+      }
+    } else {
+      await this.notifyApprover(
+        requestId,
+        approverIds[0],
+        request.organization_id,
+        userId,
+        `${requesterName} has resubmitted request ${refLabel} after addressing the rejection. Please review. (Step 1 of ${approverIds.length})`
+      );
+    }
+
+    // Timeline entry for the resubmission event itself. Recorded here (rather
+    // than in the calling route) so every entry point — the inline resubmit
+    // endpoint and the form-based PUT path — produces a consistent history row.
+    try {
+      await supabaseAdmin.from('request_modifications').insert({
+        request_id: requestId,
+        modified_by: userId,
+        modification_type: 'resubmission',
+        field_name: null,
+        old_value: currentRef || null,
+        new_value: newReference || null,
+      });
+    } catch (modErr) {
+      console.error('Failed to record resubmission modification:', modErr);
+    }
+
+    // CAPEX Tracker: return the row to the active pipeline. Safe for all types —
+    // hook guards internally for CAPEX.
+    await onCapexResubmitted(requestId, userId);
+
+    return { success: true, newReference, version: newVersion };
+  }
+
+  /**
+   * Cancel a request.
+   *
+   * Unlike withdrawal (creator-only, pre-approval), cancellation can be done by
+   * EITHER the requester OR any approver on the request, AT ANY STAGE —
+   * including after the request has been fully approved. A reason is mandatory.
+   * The request record and its full history are preserved; only the status
+   * flips to 'cancelled' and a cancellation snapshot (who / when / why /
+   * previous status) is stored in metadata. Everyone else involved is notified.
+   */
+  static async cancelRequest(
+    requestId: string,
+    userId: string,
+    reason: string
+  ): Promise<{ success: boolean; error?: string }> {
+
+    const trimmed = (reason || '').trim();
+    if (!trimmed) {
+      return { success: false, error: 'A cancellation reason is required' };
+    }
+
+    const { data: request } = await supabaseAdmin
+      .from('requests')
+      .select(`
+        id, creator_id, organization_id, status, title, metadata,
+        request_steps ( approver_user_id, status )
+      `)
+      .eq('id', requestId)
+      .single();
+
+    if (!request) {
+      return { success: false, error: 'Request not found' };
+    }
+
+    const steps = (request.request_steps as any[]) || [];
+    const isCreator = request.creator_id === userId;
+    const isApprover = steps.some((s) => s.approver_user_id === userId);
+    if (!isCreator && !isApprover) {
+      return { success: false, error: 'Only the requester or an approver can cancel this request' };
+    }
+
+    if (request.status === 'cancelled') {
+      return { success: false, error: 'This request has already been cancelled' };
+    }
+    if (request.status === 'withdrawn') {
+      return { success: false, error: 'This request was withdrawn and cannot be cancelled' };
+    }
+
+    const previousStatus = request.status;
+    const meta: any = request.metadata || {};
+
+    // Resolve the canceller's identity for the snapshot + notifications.
+    const { data: canceller } = await supabaseAdmin
+      .from('app_users')
+      .select('display_name, job_title, role')
+      .eq('id', userId)
+      .single();
+    const cancellerName = canceller?.display_name || 'A user';
+    const cancellerRole = canceller?.job_title || canceller?.role || null;
+    const cancellerLabel = cancellerRole ? `${cancellerName} (${cancellerRole})` : cancellerName;
+    const cancellerKind: 'requester' | 'approver' = isCreator ? 'requester' : 'approver';
+
+    const cancellation = {
+      reason: trimmed,
+      cancelledById: userId,
+      cancelledByName: cancellerName,
+      cancelledByRole: cancellerRole,
+      cancelledByKind: cancellerKind,
+      cancelledAt: new Date().toISOString(),
+      previousStatus,
+    };
+
+    await supabaseAdmin
+      .from('requests')
+      .update({
+        status: 'cancelled',
+        metadata: { ...meta, cancellation },
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', requestId);
+
+    // Timeline entry so the cancellation shows in the modification history.
+    try {
+      await supabaseAdmin.from('request_modifications').insert({
+        request_id: requestId,
+        modified_by: userId,
+        modification_type: 'cancellation',
+        field_name: null,
+        old_value: previousStatus,
+        new_value: trimmed.slice(0, 1000),
+      });
+    } catch (modErr) {
+      console.error('Failed to record cancellation modification:', modErr);
+    }
+
+    // Notify everyone else involved: the creator (when an approver cancels) and
+    // any approver who had an active or completed step — so all stakeholders
+    // learn the request was stopped and why.
+    const requestRef = meta.referenceCode || `"${request.title}"`;
+    const requestType = meta.type || meta.requestType;
+    const recipientIds = new Set<string>();
+    if (!isCreator && request.creator_id) recipientIds.add(request.creator_id);
+    for (const s of steps) {
+      if (
+        s.approver_user_id &&
+        s.approver_user_id !== userId &&
+        ['pending', 'waiting', 'approved'].includes(s.status)
+      ) {
+        recipientIds.add(s.approver_user_id);
+      }
+    }
+    for (const recipientId of recipientIds) {
+      await this.notifyRequester(
+        requestId,
+        recipientId,
+        request.organization_id,
+        `${cancellerLabel} cancelled ${requestRef}.\n\nReason: "${truncate(trimmed, 240)}"`,
+        requestType,
+        { title: `Request cancelled by ${cancellerName}`, senderId: userId }
+      );
+    }
+
+    // CAPEX Tracker: move the row to 'On Hold' (no dedicated cancelled state).
+    // Safe for all types — hook guards internally for CAPEX.
+    await onCapexCancelled(requestId, userId);
+
+    return { success: true };
+  }
+
 
   /**
    * Notify an approver about a pending request
@@ -1282,6 +1627,27 @@ export class ApprovalEngine {
  * (e.g. "Department Head", "Finance Director"). Returns an empty string when
  * the step has no useful name so callers can omit the parenthetical.
  */
+/**
+ * Extract the ordered approver user IDs from a request's metadata. Mirrors the
+ * client-side helper used on the request detail page: supports both a direct
+ * `approvers` array and approvers nested under a form-type key (capex, leave…).
+ */
+function extractApproverIds(metadata: Record<string, any> | undefined): string[] {
+  if (!metadata) return [];
+  if (Array.isArray(metadata.approvers)) {
+    return metadata.approvers.filter((id: any) => typeof id === 'string' && id.length > 0);
+  }
+  const formTypes = ['capex', 'leave', 'travel', 'expense', 'approval'];
+  for (const formType of formTypes) {
+    if (metadata[formType] && Array.isArray(metadata[formType].approvers)) {
+      return metadata[formType].approvers.filter(
+        (id: any) => typeof id === 'string' && id.length > 0
+      );
+    }
+  }
+  return [];
+}
+
 function formatStepLabel(step: any): string {
   if (!step) return '';
   const def = step.step_definition as WorkflowStepDefinition | undefined;

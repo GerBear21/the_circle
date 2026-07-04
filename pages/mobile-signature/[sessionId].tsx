@@ -3,11 +3,17 @@ import { useRef, useState, useEffect } from 'react';
 import SignatureCanvas from 'react-signature-canvas';
 import Head from 'next/head';
 import { GetServerSideProps } from 'next';
+import { useSignatureCanvasAutosize } from '../../hooks/useSignatureCanvasAutosize';
 
 export default function MobileSignaturePage() {
     const router = useRouter();
     const { sessionId } = router.query;
     const sigCanvas = useRef<SignatureCanvas>(null);
+
+    // Keep the canvas backing store matched to its CSS size (and re-sync on
+    // rotation / mobile URL-bar collapse) so ink lands under the finger.
+    useSignatureCanvasAutosize(() => sigCanvas.current);
+
     const [submitting, setSubmitting] = useState(false);
     const [submitted, setSubmitted] = useState(false);
     const [statusMessage, setStatusMessage] = useState<string>('');

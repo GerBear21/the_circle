@@ -26,15 +26,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const userId = session.user.id as string;
   const { requestId, stepId } = req.body ?? {};
 
-  const credentials = await getUserCredentials(userId);
+  const { rpID } = getRpConfig();
+
+  // Only offer credentials bound to THIS domain — passkeys registered under a
+  // different RP ID (e.g. localhost during development) can never complete
+  // the ceremony here, and offering them just produces confusing failures.
+  const credentials = await getUserCredentials(userId, rpID);
   if (credentials.length === 0) {
     return res.status(400).json({
       error: 'No biometric credentials registered',
       code: 'NO_CREDENTIALS',
     });
   }
-
-  const { rpID } = getRpConfig();
 
   const options = await generateAuthenticationOptions({
     rpID,

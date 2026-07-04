@@ -6,7 +6,7 @@ import { Card, Button, Input, RequestPreviewModal, UnsavedChangesModal, Referenc
 import type { PreviewSection, DocumentHeader } from '../../../components/ui';
 import { buildTravelAuthPreviewSections, buildTravelAuthDocumentHeader } from '../../../lib/previews/travelAuthPreview';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
-import { useUnsavedChangesPrompt } from '../../../hooks';
+import { useUnsavedChangesPrompt, useFormAutosave } from '../../../hooks';
 import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
 import { calculateTollgatesForItinerary, getTollgateRouteInfo, TollgateRouteType } from '../../../lib/formConfig';
 
@@ -216,6 +216,23 @@ export default function TravelAuthPage() {
 
     // Tollgate route type selection (premium or standard)
     const [tollgateRouteType, setTollgateRouteType] = useState<TollgateRouteType>('premium');
+
+    // Autosave / crash recovery (serializable slices only). Disabled in edit mode.
+    useFormAutosave({
+        // Local and international share this component — keep their drafts separate.
+        formKey: isInternational ? 'international-travel-auth' : 'travel-auth',
+        enabled: !isEditMode,
+        data: { travelData, selectedApprovers, aaCalculator, isEmergencyRequest, emergencyReason, tollgateRouteType },
+        onRestore: (saved) => {
+            if (saved.travelData) setTravelData(saved.travelData);
+            if (saved.selectedApprovers) setSelectedApprovers(prev => ({ ...prev, ...saved.selectedApprovers }));
+            if (saved.aaCalculator) setAACalculator(saved.aaCalculator);
+            if (typeof saved.isEmergencyRequest === 'boolean') setIsEmergencyRequest(saved.isEmergencyRequest);
+            if (typeof saved.emergencyReason === 'string') setEmergencyReason(saved.emergencyReason);
+            if (saved.tollgateRouteType) setTollgateRouteType(saved.tollgateRouteType);
+            setIsDirty(true);
+        },
+    });
 
     // Cost allocation is now auto-calculated, no need for state
 

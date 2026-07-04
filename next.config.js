@@ -11,6 +11,8 @@ const isProd = process.env.NODE_ENV === 'production';
 //     inline styles, and globals.css @imports the Manrope font stylesheet.
 //   - *.supabase.co (https + wss) — client SDK REST calls and realtime sockets.
 //   - blob:/data: — generated PDFs, signature canvases, and the pdf.js worker.
+//   - ui-avatars.com — generated initials avatars used as the fallback when a
+//     user has no uploaded profile picture (img-src only).
 // frame-ancestors 'none' blocks clickjacking (X-Frame-Options is kept as the
 // legacy fallback). upgrade-insecure-requests is prod-only so local http dev
 // is unaffected.
@@ -20,7 +22,7 @@ const csp = [
   "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
-  "img-src 'self' data: blob: https://*.supabase.co https://graph.microsoft.com",
+  "img-src 'self' data: blob: https://*.supabase.co https://graph.microsoft.com https://ui-avatars.com",
   "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://graph.microsoft.com",
   "worker-src 'self' blob:",
   "frame-src 'self'",
@@ -62,6 +64,18 @@ const nextConfig = {
         // Apply the security headers to every route.
         source: '/:path*',
         headers: securityHeaders,
+      },
+    ];
+  },
+  async redirects() {
+    return [
+      {
+        // The standalone History & Archives page was merged into My Requests
+        // (Requests + Archived Documents tabs). Keep old bookmarks working;
+        // any ?tab= query is forwarded automatically.
+        source: '/requests/history',
+        destination: '/requests/my-requests',
+        permanent: true,
       },
     ];
   },

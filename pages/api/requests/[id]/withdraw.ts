@@ -2,16 +2,16 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]';
 import { ApprovalEngine } from '@/lib/approvalEngine';
-import { audit } from '@/lib/auditLog';
+import { withAudit } from '@/lib/withAudit';
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
     const session = await getServerSession(req, res, authOptions);
-    
+
     if (!session?.user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
@@ -25,22 +25,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const result = await ApprovalEngine.withdrawRequest(id, userId);
 
-    await audit(req, session.user, {
-      category: 'workflow',
-      action: 'request.withdrawn',
-      severity: 'notice',
-      outcome: result.success ? 'success' : 'failure',
-      targetType: 'request',
-      targetId: id,
-      requestId: id,
-      details: result.success ? {} : { error: result.error },
-    });
-
     if (!result.success) {
       return res.status(400).json({ error: result.error });
     }
 
-    return res.status(200).json({ 
+    return res.status(200).json({
       success: true,
       message: 'Request withdrawn'
     });
@@ -50,3 +39,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ error: error.message || 'Failed to withdraw request' });
   }
 }
+
+// Audit logging is attached automatically at the route boundary.
+export default withAudit(handler, {
+  category: 'workflow',
+  action: 'request.withdrawn',
+  severity: 'notice',
+  targetType: 'request',
+  details: ({ ok, responseBody }) => (ok ? {} : { error: responseBody?.error }),
+});

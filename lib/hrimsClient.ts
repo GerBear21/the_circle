@@ -342,6 +342,12 @@ export async function resolveApprovalChainFromOrganogram(
  * Fetch an employee by their email address from HRIMS
  * Returns employee details including department_id, business_unit_id, job_title, etc.
  */
+export interface HrimsReportsTo {
+  name: string;
+  email: string | null;
+  jobTitle: string | null;
+}
+
 export async function fetchHrimsEmployeeByEmail(
   email: string
 ): Promise<{
@@ -349,6 +355,8 @@ export async function fetchHrimsEmployeeByEmail(
   department: HrimsDepartment | null;
   businessUnit: HrimsBusinessUnit | null;
   position: HrimsOrganogramPosition | null;
+  /** Immediate manager from the organogram (null for top positions like the CEO). */
+  reportsTo: HrimsReportsTo | null;
 } | null> {
   if (!hrimsClient) throw new Error('HRIMS client not configured');
 
@@ -405,11 +413,74 @@ export async function fetchHrimsEmployeeByEmail(
     position = posData as HrimsOrganogramPosition | null;
   }
 
+  // Resolve who this employee reports to. Primary: the active occupant of the
+  // parent position in the organogram. Fallback: employees.manager_id. Top
+  // positions (e.g. the CEO) have neither, so this stays null.
+  let reportsTo: HrimsReportsTo | null = null;
+
+  if (position?.parent_position_id) {
+    const { data: parentPos } = await hrimsClient
+      .from('organogram_positions')
+      .select('id, position_title, employee_id')
+      .eq('id', position.parent_position_id)
+      .eq('is_active', true)
+      .single();
+
+    if (parentPos) {
+      let mgr: Pick<HrimsEmployee, 'first_name' | 'last_name' | 'email' | 'job_title'> | null = null;
+
+      const { data: mgrByPos } = await hrimsClient
+        .from('employees')
+        .select('first_name, last_name, email, job_title')
+        .eq('current_position_id', parentPos.id)
+        .eq('employment_status', 'active')
+        .limit(1)
+        .single();
+
+      if (mgrByPos) {
+        mgr = mgrByPos;
+      } else if (parentPos.employee_id) {
+        const { data: mgrById } = await hrimsClient
+          .from('employees')
+          .select('first_name, last_name, email, job_title')
+          .eq('id', parentPos.employee_id)
+          .eq('employment_status', 'active')
+          .single();
+        if (mgrById) mgr = mgrById;
+      }
+
+      if (mgr) {
+        reportsTo = {
+          name: `${mgr.first_name} ${mgr.last_name}`.trim(),
+          email: mgr.email || null,
+          jobTitle: parentPos.position_title || mgr.job_title || null,
+        };
+      }
+    }
+  }
+
+  if (!reportsTo && employee.manager_id) {
+    const { data: mgr } = await hrimsClient
+      .from('employees')
+      .select('first_name, last_name, email, job_title')
+      .eq('id', employee.manager_id)
+      .eq('employment_status', 'active')
+      .single();
+    if (mgr) {
+      reportsTo = {
+        name: `${mgr.first_name} ${mgr.last_name}`.trim(),
+        email: mgr.email || null,
+        jobTitle: mgr.job_title || null,
+      };
+    }
+  }
+
   return {
     employee: employee as HrimsEmployee,
     department,
     businessUnit,
     position,
+    reportsTo,
   };
 }
 

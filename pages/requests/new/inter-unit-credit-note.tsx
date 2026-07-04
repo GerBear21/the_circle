@@ -5,7 +5,7 @@ import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input, RequestPreviewModal, UnsavedChangesModal, ReferenceCodeBanner } from '../../../components/ui';
 import type { PreviewSection } from '../../../components/ui';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
-import { useUnsavedChangesPrompt } from '../../../hooks';
+import { useUnsavedChangesPrompt, useFormAutosave } from '../../../hooks';
 import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
 
 // Business units that can issue or receive an inter-unit credit note. Mirrors
@@ -108,6 +108,21 @@ export default function InterUnitCreditNoteRequestPage() {
     const [selectedWatchers, setSelectedWatchers] = useState<Array<{ id: string; display_name: string; email: string }>>([]);
     const [watcherSearch, setWatcherSearch] = useState('');
     const [showWatcherDropdown, setShowWatcherDropdown] = useState(false);
+
+    // Autosave / crash recovery (serializable slices only). Disabled in edit mode.
+    useFormAutosave({
+        formKey: 'inter-unit-credit-note',
+        enabled: !isEditMode,
+        data: { formData, lineItems, selectedApprovers, selectedWatchers, selectedToAccountantId },
+        onRestore: (saved) => {
+            if (saved.formData) setFormData(saved.formData);
+            if (Array.isArray(saved.lineItems) && saved.lineItems.length > 0) setLineItems(saved.lineItems);
+            if (saved.selectedApprovers) setSelectedApprovers(prev => ({ ...prev, ...saved.selectedApprovers }));
+            if (Array.isArray(saved.selectedWatchers)) setSelectedWatchers(saved.selectedWatchers);
+            if (typeof saved.selectedToAccountantId === 'string') setSelectedToAccountantId(saved.selectedToAccountantId);
+            setIsDirty(true);
+        },
+    });
 
     const [showPreview, setShowPreview] = useState(false);
     const [showConfirm, setShowConfirm] = useState(false);

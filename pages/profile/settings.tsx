@@ -15,7 +15,7 @@ const SignaturePad = dynamic(() => import('../../components/SignaturePad'), {
 
 export default function SettingsPage() {
   const { user, session, loading: userLoading, updateProfilePicture } = useCurrentUser();
-  const { departmentName, businessUnitName } = useUserHrimsProfile();
+  const { departmentName, businessUnitName, reportsTo } = useUserHrimsProfile();
   const router = useRouter();
   const [signatureUrl, setSignatureUrl] = useState<string | undefined>(undefined);
   const [profilePictureUrl, setProfilePictureUrl] = useState<string | undefined>(undefined);
@@ -194,6 +194,19 @@ export default function SettingsPage() {
                 </p>
               </div>
             </div>
+            {/* Only rendered when the organogram resolves a manager — top
+                positions (e.g. the CEO) have none, so the field is omitted. */}
+            {reportsTo && (
+              <div>
+                <label className="block text-sm font-medium text-gray-500 mb-1">Reports To</label>
+                <p className="text-gray-900 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
+                  {reportsTo.name}
+                  {reportsTo.jobTitle && (
+                    <span className="text-gray-500"> — {reportsTo.jobTitle}</span>
+                  )}
+                </p>
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-gray-500 mb-1">Role</label>
               <p className="text-gray-900 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200 capitalize">

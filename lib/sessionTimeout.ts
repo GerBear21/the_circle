@@ -21,10 +21,3 @@ export const ABSOLUTE_TIMEOUT_SECONDS = 30 * 60; // 30 minutes from login
 
 export const IDLE_TIMEOUT_MS = IDLE_TIMEOUT_SECONDS * 1000;
 export const ABSOLUTE_TIMEOUT_MS = ABSOLUTE_TIMEOUT_SECONDS * 1000;
-
-/**
- * sessionStorage key set at sign-in. sessionStorage is wiped when the tab/page
- * is closed, so its absence on an authenticated load means the page was closed
- * and re-opened — the client guard then forces a fresh login.
- */
-export const ACTIVE_SESSION_FLAG = 'the_circle_active_session';

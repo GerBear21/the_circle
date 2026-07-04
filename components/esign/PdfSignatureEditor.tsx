@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { PDFDocument, rgb } from 'pdf-lib';
 import type ReactSignatureCanvas from 'react-signature-canvas';
 import { useUserSignature } from '../../hooks/useUserSignature';
+import { useSignatureCanvasAutosize } from '../../hooks/useSignatureCanvasAutosize';
 
 // =============================================================================
 // pdf.js loader — bypasses webpack entirely.
@@ -128,6 +129,9 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
   const [manualSigDataUrl, setManualSigDataUrl] = useState<string | null>(null);
   const [SigCanvas, setSigCanvas] = useState<typeof ReactSignatureCanvas | null>(null);
   const sigCanvasRef = useRef<ReactSignatureCanvas | null>(null);
+  // Keep the drawing canvas backing store matched to its CSS size so strokes
+  // land exactly under the pen/finger.
+  useSignatureCanvasAutosize(() => sigCanvasRef.current, [SigCanvas, signatureChoice]);
   /** The image source to use for the next signature placement. Set when the
    *  picker closes; consumed by handlePageClick. */
   const [pendingSigSrc, setPendingSigSrc] = useState<string | null>(null);
@@ -807,8 +811,9 @@ export default function PdfSignatureEditor({ pdfUrl, onSave, onCancel }: PdfSign
                         ref={(ref: ReactSignatureCanvas | null) => { sigCanvasRef.current = ref; }}
                         penColor="#111827"
                         canvasProps={{
-                          width: 400,
-                          height: 130,
+                          // No fixed width/height: the autosize hook keeps the
+                          // backing store in sync with CSS size + pixel ratio,
+                          // so strokes land under the pen/finger.
                           className: 'w-full h-[130px] rounded',
                           style: { touchAction: 'none' },
                         }}

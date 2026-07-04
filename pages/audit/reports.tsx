@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import AuditPageShell from '../../components/audit/AuditPageShell';
 import { CATEGORY_STYLES } from '../../components/audit/AuditEventExplorer';
 import {
@@ -37,7 +37,17 @@ export default function AuditReportsPage() {
   const [outcome, setOutcome] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [actorId, setActorId] = useState('');
+  const [users, setUsers] = useState<Array<{ id: string; display_name: string; email: string }>>([]);
   const [busy, setBusy] = useState<string | null>(null);
+
+  // Load org users so the auditor can scope a report to one person's activity.
+  useEffect(() => {
+    fetch('/api/users')
+      .then((r) => (r.ok ? r.json() : { users: [] }))
+      .then((data) => setUsers(data.users || []))
+      .catch(() => { /* picker stays empty */ });
+  }, []);
 
   // Integrity verification state
   const [verifying, setVerifying] = useState(false);
@@ -72,6 +82,7 @@ export default function AuditReportsPage() {
     if (category) p.category = category;
     if (severity) p.severity = severity;
     if (outcome) p.outcome = outcome;
+    if (actorId) p.actorId = actorId;
     if (from) p.from = new Date(from).toISOString();
     if (to) {
       const end = new Date(to);
@@ -166,9 +177,19 @@ export default function AuditReportsPage() {
           <CalendarRange className="w-4 h-4 text-brand-500" strokeWidth={1.5} />
           Custom Report Builder
         </h2>
-        <p className="text-sm text-gray-500 mb-5">Combine any filters, then export the matching evidence as CSV or PDF.</p>
+        <p className="text-sm text-gray-500 mb-5">Combine any filters — including a specific user — then export the matching evidence as CSV or PDF.</p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+          <div className="sm:col-span-2 lg:col-span-1">
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">User</label>
+            <select value={actorId} onChange={(e) => setActorId(e.target.value)}
+              className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-white text-sm text-gray-700 focus:outline-none focus:border-brand-500 cursor-pointer">
+              <option value="">All users</option>
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>{u.display_name || u.email}</option>
+              ))}
+            </select>
+          </div>
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Category</label>
             <select value={category} onChange={(e) => setCategory(e.target.value)}

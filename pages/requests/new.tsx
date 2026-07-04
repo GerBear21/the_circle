@@ -283,7 +283,7 @@ export default function NewRequestPage() {
             {(['Finance', 'HR', 'BIS forms'] as RequestCategory[]).map((cat) => {
               const count = filteredItems.filter(i => i.category === cat).length;
               if (count === 0) return null;
-              const label = cat === 'BIS forms' ? 'BIS' : cat === 'HR' ? 'HR' : cat;
+              const label = cat === 'BIS forms' ? 'BIS' : cat === 'HR' ? 'Travel & Accommodation' : cat;
               const anchor = cat.toLowerCase().replace(/\s+/g, '-');
               return (
                 <a
@@ -345,8 +345,8 @@ export default function NewRequestPage() {
                 },
                 {
                   key: 'HR',
-                  label: 'Human Resources',
-                  description: 'Travel authorisations, accommodation and people-related approvals',
+                  label: 'Travel & Accommodation',
+                  description: 'Travel authorisations, complimentary accommodation and vouchers',
                   iconPath: 'M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-7a4 4 0 11-8 0 4 4 0 018 0zm6 3a3 3 0 11-6 0 3 3 0 016 0z',
                   accent: 'bg-neutral-100',
                   accentText: 'text-neutral-700',

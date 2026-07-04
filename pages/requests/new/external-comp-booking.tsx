@@ -5,7 +5,7 @@ import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input, RequestPreviewModal, UnsavedChangesModal, ReferenceCodeBanner } from '../../../components/ui';
 import type { PreviewSection } from '../../../components/ui';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
-import { useUnsavedChangesPrompt } from '../../../hooks';
+import { useUnsavedChangesPrompt, useFormAutosave } from '../../../hooks';
 import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
 import { calculateTollgatesForItinerary, getTollgateRouteInfo, TollgateRouteType } from '../../../lib/formConfig';
 
@@ -225,6 +225,24 @@ export default function ExternalCompBookingPage() {
             conferencingCost: { quantity: '', unitCost: '', totalCost: '' },
             tollgates: [{ road: '', quantity: '1', unitCost: '', totalCost: '' }] as TollgateEntry[],
             other: { description: '', quantity: '', unitCost: '', totalCost: '' },
+        },
+    });
+
+    // Autosave / crash recovery (serializable slices only). Disabled in edit mode.
+    useFormAutosave({
+        formKey: 'external-comp-booking',
+        enabled: !isEditMode,
+        data: { formData, travelData, selectedApprovers, selectedBusinessUnits, aaCalculator, isEmergencyRequest, emergencyReason, tollgateRouteType },
+        onRestore: (saved) => {
+            if (saved.formData) setFormData(saved.formData);
+            if (saved.travelData) setTravelData(saved.travelData);
+            if (saved.selectedApprovers) setSelectedApprovers(prev => ({ ...prev, ...saved.selectedApprovers }));
+            if (Array.isArray(saved.selectedBusinessUnits)) setSelectedBusinessUnits(saved.selectedBusinessUnits);
+            if (saved.aaCalculator) setAACalculator(saved.aaCalculator);
+            if (typeof saved.isEmergencyRequest === 'boolean') setIsEmergencyRequest(saved.isEmergencyRequest);
+            if (typeof saved.emergencyReason === 'string') setEmergencyReason(saved.emergencyReason);
+            if (saved.tollgateRouteType) setTollgateRouteType(saved.tollgateRouteType);
+            setIsDirty(true);
         },
     });
 

@@ -27,6 +27,12 @@ interface HrimsUserProfile {
     grade: string | null;
     level: number;
   } | null;
+  /** Immediate manager from the organogram — null for top positions (e.g. CEO). */
+  reportsTo: {
+    name: string;
+    email: string | null;
+    jobTitle: string | null;
+  } | null;
   found: boolean;
 }
 
@@ -105,6 +111,7 @@ export function useUserHrimsProfile() {
             department: data.department,
             businessUnit: data.businessUnit,
             position: data.position,
+            reportsTo: data.reportsTo || null,
             found: true,
           };
           setProfile(fresh);
@@ -120,6 +127,7 @@ export function useUserHrimsProfile() {
             department: null,
             businessUnit: null,
             position: null,
+            reportsTo: null,
             found: false,
           };
           setProfile(empty);
@@ -140,6 +148,7 @@ export function useUserHrimsProfile() {
             department: null,
             businessUnit: null,
             position: null,
+            reportsTo: null,
             found: false,
           });
         }
@@ -168,5 +177,6 @@ export function useUserHrimsProfile() {
     businessUnitCode: profile?.businessUnit?.code || null,
     jobTitle: profile?.employee?.job_title || null,
     positionTitle: profile?.position?.position_title || null,
+    reportsTo: profile?.reportsTo || null,
   };
 }

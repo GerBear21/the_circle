@@ -1,11 +1,9 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
-import { getToken } from 'next-auth/jwt';
 import { createHash, randomInt } from 'crypto';
 import { authOptions } from '../../auth/[...nextauth]';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { sendAppGraphMail } from '../../../../lib/graphAppMail';
-import { sendGraphMail } from '../../../../lib/graphMail';
 
 const OTP_TTL_MINUTES = 10;
 const MAX_ATTEMPTS = 5;
@@ -152,30 +150,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           <p style="color:#666;font-size:13px">This code expires in ${OTP_TTL_MINUTES} minutes. If you did not expect this, ignore this email.</p>
         </div>`;
 
-      // Email the clerk via Microsoft Graph (no third party). Prefer the
-      // requestor's delegated token (Mail.Send is already consented at sign-in,
-      // so this needs no extra admin setup) and DON'T save a copy to their Sent
-      // Items so the OTP can't be read by the requestor. Fall back to the
-      // app-only service mailbox if no delegated token is available.
+      // Email the clerk via Microsoft Graph. The OTP must ONLY ever reach the
+      // clerk — NEVER the requestor. We therefore send strictly from the
+      // app-only service mailbox and NEVER via the requestor's delegated token
+      // (a delegated send drops a copy, OTP and all, into the requestor's Sent
+      // Items). The OTP is also kept OUT of the subject line for the same
+      // reason; it lives only in the email body and the clerk's in-app
+      // notification.
       let emailSent = false;
       let emailError: string | undefined;
-      const subject = `Petty cash one-time code: ${otp}`;
+      const subject = 'Petty cash one-time code';
       try {
-        const jwt = await getToken({ req, secret: process.env.NEXTAUTH_SECRET || 'fallback-secret-for-build-only' });
-        const accessToken = (jwt as any)?.ms_access_token as string | undefined;
-        if (accessToken) {
-          try {
-            await sendGraphMail({ accessToken, to: { email: clerkEmailRaw }, subject, html: emailHtml, saveToSentItems: false });
-            emailSent = true;
-          } catch (delegErr: any) {
-            console.error('cash-receipt delegated email failed, trying app mail:', delegErr?.message || delegErr);
-          }
-        }
-        if (!emailSent) {
-          const r = await sendAppGraphMail({ to: clerkEmailRaw, subject, html: emailHtml });
-          emailSent = !!r?.success;
-          if (!emailSent) emailError = r?.error;
-        }
+        const r = await sendAppGraphMail({ to: clerkEmailRaw, subject, html: emailHtml });
+        emailSent = !!r?.success;
+        if (!emailSent) emailError = r?.error;
       } catch (e: any) {
         emailError = e?.message || 'Email failed';
         console.error('cash-receipt email failed:', e);

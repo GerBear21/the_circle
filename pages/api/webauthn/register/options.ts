@@ -37,11 +37,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(404).json({ error: 'User not found' });
   }
 
-  // Existing credentials are excluded from the allow-list so the browser
-  // doesn't prompt the user to re-register the same authenticator.
-  const existing = await getUserCredentials(userId);
-
   const { rpID } = getRpConfig();
+
+  // Existing credentials (for this domain) are excluded so the browser
+  // doesn't prompt the user to re-register the same authenticator.
+  const existing = await getUserCredentials(userId, rpID);
 
   const options = await generateRegistrationOptions({
     rpName: RP_NAME,

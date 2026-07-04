@@ -355,10 +355,18 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
                             <Fingerprint className="w-5 h-5" strokeWidth={1.5} />
                           </span>
                           <div className="min-w-0">
-                            <p className="text-sm font-medium text-text-primary truncate">{cred.device_name || 'Biometric Device'}</p>
+                            <p className="text-sm font-medium text-text-primary truncate">
+                              {cred.device_name || 'Biometric Device'}
+                              {cred.usable_here === false && (
+                                <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 align-middle">
+                                  Different environment
+                                </span>
+                              )}
+                            </p>
                             <p className="text-xs text-text-secondary">
                               Added {new Date(cred.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                               {cred.last_used_at ? ` • Last used ${new Date(cred.last_used_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}` : ''}
+                              {cred.usable_here === false && cred.rp_id ? ` • Registered on ${cred.rp_id}` : ''}
                             </p>
                           </div>
                         </div>

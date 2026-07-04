@@ -5,7 +5,7 @@ import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input, RequestPreviewModal, UnsavedChangesModal, ReferenceCodeBanner } from '../../../components/ui';
 import type { PreviewSection } from '../../../components/ui';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
-import { useUnsavedChangesPrompt } from '../../../hooks';
+import { useUnsavedChangesPrompt, useFormAutosave } from '../../../hooks';
 import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
 import SignatureSelector, { type SignatureSelection } from '../../../components/approvals/SignatureSelector';
 
@@ -138,6 +138,22 @@ export default function PettyCashRequestPage() {
 
     const [showPreview, setShowPreview] = useState(false);
     const [showConfirm, setShowConfirm] = useState(false);
+
+    // Autosave / crash recovery for new requests. Disabled in edit mode and when
+    // prefilling from a linked travel auth, where the server owns the data.
+    // Only serializable slices are persisted (signatures / file uploads excluded).
+    useFormAutosave({
+        formKey: 'petty-cash',
+        enabled: !isEditMode && !linkedTravelAuthId,
+        data: { formData, lineItems, selectedApprovers, selectedWatchers },
+        onRestore: (saved) => {
+            if (saved.formData) setFormData(saved.formData);
+            if (Array.isArray(saved.lineItems) && saved.lineItems.length > 0) setLineItems(saved.lineItems);
+            if (saved.selectedApprovers) setSelectedApprovers(prev => ({ ...prev, ...saved.selectedApprovers }));
+            if (Array.isArray(saved.selectedWatchers)) setSelectedWatchers(saved.selectedWatchers);
+            setIsDirty(true);
+        },
+    });
 
     useEffect(() => {
         if (status === 'unauthenticated') {
