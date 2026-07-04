@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useSuppressToastsWhileOpen } from './ui/ToastProvider';
 
 interface PinSetupModalProps {
   isOpen: boolean;
@@ -7,6 +8,7 @@ interface PinSetupModalProps {
 }
 
 export default function PinSetupModal({ isOpen, onComplete }: PinSetupModalProps) {
+  useSuppressToastsWhileOpen(isOpen);
   const [pin, setPin] = useState(['', '', '', '']);
   const [confirmPin, setConfirmPin] = useState(['', '', '', '']);
   const [error, setError] = useState<string | null>(null);

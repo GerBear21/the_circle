@@ -7,6 +7,10 @@ import { ToastProvider } from '../components/ui/ToastProvider';
 import { UserProvider } from '../contexts/UserContext';
 import { RBACProvider } from '../contexts/RBACContext';
 import Loader from '../components/Loader';
+import ErrorBoundary from '../components/ErrorBoundary';
+import GlobalErrorListener from '../components/GlobalErrorListener';
+
+const SESSION_FLAG = 'the_circle_active_session';
 import SessionActivityGuard from '../components/SessionActivityGuard';
 
 function SessionGuard({ children }: { children: React.ReactNode }) {
@@ -33,6 +37,18 @@ export default function App({ Component, pageProps: { session, ...pageProps } }:
       <Head>
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
       </Head>
+      <ErrorBoundary>
+        <SessionGuard>
+          <UserProvider>
+            <RBACProvider>
+              <ToastProvider>
+                <GlobalErrorListener />
+                <Component {...pageProps} />
+              </ToastProvider>
+            </RBACProvider>
+          </UserProvider>
+        </SessionGuard>
+      </ErrorBoundary>
       <SessionActivityGuard />
       <SessionGuard>
         <UserProvider>

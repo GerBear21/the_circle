@@ -1,5 +1,6 @@
 import { Fragment, ReactNode, forwardRef, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useSuppressToastsWhileOpen } from './ToastProvider';
 
 export interface PreviewField {
     label: string;
@@ -220,6 +221,7 @@ export default function RequestPreviewModal({
 }: RequestPreviewModalProps) {
     const printAreaRef = useRef<HTMLDivElement>(null);
 
+    useSuppressToastsWhileOpen(isOpen);
     if (!isOpen) return null;
 
     const handlePrint = () => printPreviewDocument(printAreaRef.current, title);

@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import FeedbackLottie, { FeedbackType } from './FeedbackLottie';
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info';
 
@@ -11,28 +12,17 @@ export interface ToastProps {
     duration?: number;
 }
 
-const ICONS = {
-    success: (
-        <svg className="w-6 h-6 text-success-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7" />
-        </svg>
-    ),
-    error: (
-        <svg className="w-6 h-6 text-danger-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
-        </svg>
-    ),
-    warning: (
-        <svg className="w-6 h-6 text-warning-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-        </svg>
-    ),
-    info: (
-        <svg className="w-6 h-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-    ),
-};
+// success / error / warning use the shared Lottie animations; info keeps a static icon.
+function ToastIcon({ type }: { type: ToastType }) {
+    if (type === 'info') {
+        return (
+            <svg className="w-6 h-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+        );
+    }
+    return <FeedbackLottie type={type as FeedbackType} size={44} />;
+}
 
 const STYLES = {
     success: 'bg-success-50 border-success-100',
@@ -53,7 +43,7 @@ export default function Toast({ id, type, title, message, onClose, duration = 50
     return (
         <div className={`flex items-start gap-4 p-4 rounded-xl border shadow-lg max-w-sm w-full transition-all transform hover:scale-[1.02] ${STYLES[type]}`}>
             <div className="flex-shrink-0">
-                {ICONS[type]}
+                <ToastIcon type={type} />
             </div>
             <div className="flex-1 pt-0.5">
                 {title && <h3 className="text-sm font-semibold text-gray-900 mb-1">{title}</h3>}

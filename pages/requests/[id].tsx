@@ -2385,8 +2385,12 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     const statusInfo = statusConfig[actualStatus || request.status] || statusConfig.pending;
 
     const priority = request.metadata?.priority || 'normal';
-    const isCritical = priority === 'critical';
-    const isHighPriority = priority === 'high';
+    // Urgency banner + pulsing border should only run while the request still
+    // needs action — stop it once the request is resolved (approved/rejected/etc).
+    const displayStatus = actualStatus || request.status;
+    const isResolvedStatus = ['approved', 'rejected', 'withdrawn', 'cancelled', 'completed'].includes(displayStatus);
+    const isCritical = priority === 'critical' && !isResolvedStatus;
+    const isHighPriority = priority === 'high' && !isResolvedStatus;
 
     return (
         <AppLayout title={`Request #${request.id.substring(0, 8)}`}>

@@ -1,4 +1,6 @@
 import { createPortal } from 'react-dom';
+import FeedbackLottie from './FeedbackLottie';
+import { useSuppressToastsWhileOpen } from './ToastProvider';
 
 interface UnsavedChangesModalProps {
     isOpen: boolean;
@@ -17,6 +19,7 @@ export default function UnsavedChangesModal({
     onDiscard,
     onCancel,
 }: UnsavedChangesModalProps) {
+    useSuppressToastsWhileOpen(isOpen);
     if (!isOpen) return null;
 
     const modal = (
@@ -29,10 +32,8 @@ export default function UnsavedChangesModal({
                 >
                     <div className="p-6">
                         <div className="flex items-start gap-4">
-                            <div className="w-11 h-11 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center flex-shrink-0">
-                                <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01M4.93 4.93a10 10 0 1014.14 0M12 3v6" />
-                                </svg>
+                            <div className="w-14 h-14 flex items-center justify-center flex-shrink-0">
+                                <FeedbackLottie type="warning" size={56} />
                             </div>
                             <div className="flex-1">
                                 <h3 className="text-lg font-semibold text-gray-900">Unsaved changes</h3>

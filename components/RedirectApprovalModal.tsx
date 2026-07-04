@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Button } from './ui';
+import { useSuppressToastsWhileOpen } from './ui/ToastProvider';
 
 interface User {
     id: string;
@@ -27,6 +28,7 @@ export default function RedirectApprovalModal({
     stepInfo,
     requestTitle,
 }: RedirectApprovalModalProps) {
+    useSuppressToastsWhileOpen(isOpen);
     const [users, setUsers] = useState<User[]>([]);
     const [loadingUsers, setLoadingUsers] = useState(true);
     const [selectedUserId, setSelectedUserId] = useState('');
