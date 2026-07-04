@@ -66,7 +66,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         // Try to find an existing archive row first.
         let { data: archive, error: archiveError } = await supabaseAdmin
             .from('archived_documents')
-            .select('id, storage_path, filename')
+            .select('id, storage_path, filename, microsoft_links, microsoft_synced_at')
             .eq('request_id', id)
             .order('archived_at', { ascending: false })
             .limit(1)
@@ -86,6 +86,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 id: gen.archive.id,
                 storage_path: gen.archive.storage_path,
                 filename: gen.archive.filename,
+                microsoft_links: gen.archive.microsoft_links || null,
+                microsoft_synced_at: gen.archive.microsoft_synced_at || null,
             };
         }
 
@@ -103,6 +105,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 id: archive.id,
                 filename: archive.filename,
                 download_url: signed.signedUrl,
+                microsoft_links: (archive as any).microsoft_links || null,
+                microsoft_synced_at: (archive as any).microsoft_synced_at || null,
             },
         });
     } catch (error: any) {
