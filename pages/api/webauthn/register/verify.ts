@@ -156,15 +156,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 }
 
 /**
- * Best-effort friendly device name derived from the user-agent so the user
- * can distinguish "Windows Hello on Work Laptop" from "Touch ID on Phone"
- * in settings. They can rename later.
+ * Best-effort, identifiable device label derived from the user-agent so the
+ * user can tell their registered devices apart in settings — e.g.
+ * "Chrome · Windows" vs "Safari · iPhone". They can rename it later.
+ *
+ * We deliberately record BROWSER + OS/device (not just the biometric method)
+ * so the label stays meaningful now that enrolment isn't limited to platform
+ * authenticators (a passkey may live on a phone or security key).
  */
 function defaultDeviceName(req: NextApiRequest): string {
   const ua = (req.headers['user-agent'] || '').toString();
-  if (/Windows/i.test(ua)) return 'Windows Hello';
-  if (/Macintosh|Mac OS X/i.test(ua)) return 'Touch ID / Mac';
-  if (/iPhone|iPad/i.test(ua)) return 'Face ID / iPhone';
-  if (/Android/i.test(ua)) return 'Android Biometrics';
-  return 'Biometric Device';
+
+  // Browser (order matters — Edge/Opera/Brave spoof Chrome, iOS spoofs Safari).
+  let browser = 'Browser';
+  if (/Edg\//i.test(ua)) browser = 'Edge';
+  else if (/OPR\/|Opera/i.test(ua)) browser = 'Opera';
+  else if (/Firefox\//i.test(ua)) browser = 'Firefox';
+  else if (/Chrome\//i.test(ua) && !/Chromium/i.test(ua)) browser = 'Chrome';
+  else if (/Safari\//i.test(ua) && /Version\//i.test(ua)) browser = 'Safari';
+
+  // OS / device.
+  let device = 'device';
+  if (/iPhone/i.test(ua)) device = 'iPhone';
+  else if (/iPad/i.test(ua)) device = 'iPad';
+  else if (/Android/i.test(ua)) device = 'Android';
+  else if (/Windows/i.test(ua)) device = 'Windows';
+  else if (/Macintosh|Mac OS X/i.test(ua)) device = 'Mac';
+  else if (/Linux/i.test(ua)) device = 'Linux';
+
+  return `${browser} · ${device}`;
 }

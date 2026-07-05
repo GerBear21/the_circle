@@ -14,7 +14,6 @@ import { useState, useEffect } from 'react';
 import { Clock, CheckCircle2, XCircle, FileText, ArrowRight, TrendingUp, AlertTriangle, Fingerprint, ShieldCheck } from 'lucide-react';
 import Lottie from 'lottie-react';
 import BiometricSetupModal from '@/components/approvals/BiometricSetupModal';
-import BiometricEnrollmentPrompt from '@/components/approvals/BiometricEnrollmentPrompt';
 import dashboardAnimation from '@/lotties/Dashboard.json';
 
 function cn(...inputs: ClassValue[]) {
@@ -541,14 +540,6 @@ export default function Dashboard({
           isOpen={showBiometricSetup}
           onClose={() => setShowBiometricSetup(false)}
           onSuccess={() => { setShowBiometricSetup(false); loadDevices(); }}
-        />
-
-        {/* Dismissible post-login nudge for users with no registered device.
-            deviceRegistered === false only after a successful credentials
-            fetch, so transient errors never trigger the prompt. */}
-        <BiometricEnrollmentPrompt
-          shouldPrompt={deviceRegistered === false}
-          onRegister={() => setShowBiometricSetup(true)}
         />
       </AppLayout>
     </>

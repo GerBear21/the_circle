@@ -50,15 +50,6 @@ export default function App({ Component, pageProps: { session, ...pageProps } }:
         </SessionGuard>
       </ErrorBoundary>
       <SessionActivityGuard />
-      <SessionGuard>
-        <UserProvider>
-          <RBACProvider>
-            <ToastProvider>
-              <Component {...pageProps} />
-            </ToastProvider>
-          </RBACProvider>
-        </UserProvider>
-      </SessionGuard>
     </SessionProvider>
   );
 }

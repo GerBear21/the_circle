@@ -56,7 +56,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     authenticatorSelection: {
       residentKey: 'preferred',
       userVerification: 'required', // must prove user presence + verification (biometric/PIN)
-      authenticatorAttachment: 'platform', // prefer built-in (Windows Hello / Touch ID / Face ID)
+      // NOTE: we deliberately DON'T pin authenticatorAttachment. Leaving it open
+      // lets the browser offer whatever the user actually has — built-in
+      // biometrics (Windows Hello, Touch ID, Face ID, Android fingerprint),
+      // a passkey synced via iCloud Keychain / Google Password Manager, a
+      // roaming passkey on their phone (scanned via QR), or a hardware security
+      // key. This is what makes enrolment work from any device and any browser,
+      // including execs on MacBooks / iPads / iPhones / Android who may not have
+      // a platform authenticator on the machine they're currently signed in on.
     },
     excludeCredentials: existing.map(c => ({
       id: c.credential_id,
