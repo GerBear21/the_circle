@@ -8,10 +8,12 @@ import {
   Clock,
   CheckCircle2,
   XCircle,
+  Ban,
   FileText,
   Calendar,
   Paperclip,
   ChevronRight,
+  ChevronLeft,
   type LucideIcon,
 } from 'lucide-react';
 import { formatDate } from '@/lib/formatDate';
@@ -48,6 +50,8 @@ interface Stats {
   pending: number;
   approved: number;
   rejected: number;
+  cancelled: number;
+  withdrawn: number;
   draft: number;
 }
 
@@ -89,8 +93,8 @@ function formatCurrency(amount: number, currency: string = 'USD') {
 
 const MODE_CONFIG: Record<RequestsMode, { title: string; subtitle: string; statuses?: string[] }> = {
   tracking: {
-    title: 'Track Requests',
-    subtitle: 'Monitor the status of your submitted requests.',
+    title: 'My Requests',
+    subtitle: 'Track, review and manage every request you have submitted — active and historical.',
   },
   drafts: {
     title: 'My Drafts',
@@ -100,17 +104,25 @@ const MODE_CONFIG: Record<RequestsMode, { title: string; subtitle: string; statu
   history: {
     title: 'Request History',
     subtitle: 'A record of your completed, withdrawn and cancelled requests.',
-    statuses: ['approved', 'rejected', 'withdrawn', 'cancelled'],
   },
 };
 
-type TrackTab = 'all' | 'pending' | 'approved' | 'rejected';
-const trackTabs: { id: TrackTab; label: string; statuses: string[] }[] = [
-  { id: 'all', label: 'All', statuses: ['pending', 'in_review', 'approved', 'rejected'] },
+// Unified status sections used by both the tracking ("My Requests") and history
+// views, so a user always sees the same well-defined groups regardless of entry
+// point. Drafts have their own dedicated page and are intentionally excluded.
+type SectionTab = 'all' | 'pending' | 'approved' | 'rejected' | 'cancelled' | 'withdrawn';
+const sectionTabs: { id: SectionTab; label: string; statuses: string[] }[] = [
+  { id: 'all', label: 'All', statuses: ['pending', 'in_review', 'approved', 'rejected', 'cancelled', 'withdrawn'] },
   { id: 'pending', label: 'Pending', statuses: ['pending', 'in_review'] },
   { id: 'approved', label: 'Approved', statuses: ['approved'] },
   { id: 'rejected', label: 'Rejected', statuses: ['rejected'] },
+  { id: 'cancelled', label: 'Cancelled', statuses: ['cancelled'] },
+  { id: 'withdrawn', label: 'Withdrawn', statuses: ['withdrawn'] },
 ];
+
+const PAGE_SIZE = 8;
+
+const EMPTY_STATS: Stats = { total: 0, pending: 0, approved: 0, rejected: 0, cancelled: 0, withdrawn: 0, draft: 0 };
 
 export default function RequestsView({ mode }: { mode: RequestsMode }) {
   const router = useRouter();
@@ -118,10 +130,13 @@ export default function RequestsView({ mode }: { mode: RequestsMode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<TrackTab>('all');
-  const [stats, setStats] = useState<Stats>({ total: 0, pending: 0, approved: 0, rejected: 0, draft: 0 });
+  const [activeTab, setActiveTab] = useState<SectionTab>('all');
+  const [page, setPage] = useState(1);
+  const [stats, setStats] = useState<Stats>(EMPTY_STATS);
 
   const cfg = MODE_CONFIG[mode];
+  // Tracking + history share the unified, sectioned, paginated experience.
+  const usesSections = mode === 'tracking' || mode === 'history';
 
   useEffect(() => {
     let active = true;
@@ -129,7 +144,7 @@ export default function RequestsView({ mode }: { mode: RequestsMode }) {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch('/api/requests/my-requests');
+        const response = await fetch('/api/requests/my-requests?limit=500');
         if (!response.ok) {
           const errorData = await response.json();
           throw new Error(errorData.error || 'Failed to fetch requests');
@@ -137,7 +152,7 @@ export default function RequestsView({ mode }: { mode: RequestsMode }) {
         const data = await response.json();
         if (!active) return;
         setRequests(data.requests || []);
-        setStats(data.stats || { total: 0, pending: 0, approved: 0, rejected: 0, draft: 0 });
+        setStats({ ...EMPTY_STATS, ...(data.stats || {}) });
       } catch (err: any) {
         if (active) setError(err.message || 'Failed to load requests');
       } finally {
@@ -148,16 +163,23 @@ export default function RequestsView({ mode }: { mode: RequestsMode }) {
     return () => { active = false; };
   }, []);
 
-  const statsCards: { label: string; value: number; Icon: LucideIcon; tab: TrackTab }[] = [
+  // Reset to the first page whenever the section or the search term changes, so
+  // the user never lands on an out-of-range page.
+  useEffect(() => {
+    setPage(1);
+  }, [activeTab, searchQuery]);
+
+  const statsCards: { label: string; value: number; Icon: LucideIcon; tab: SectionTab }[] = [
     { label: 'Total', value: stats.total, Icon: FileText, tab: 'all' },
     { label: 'Pending', value: stats.pending, Icon: Clock, tab: 'pending' },
     { label: 'Approved', value: stats.approved, Icon: CheckCircle2, tab: 'approved' },
     { label: 'Rejected', value: stats.rejected, Icon: XCircle, tab: 'rejected' },
+    { label: 'Cancelled', value: stats.cancelled, Icon: Ban, tab: 'cancelled' },
   ];
 
   const filteredRequests = useMemo(() => {
-    const allowedStatuses = mode === 'tracking'
-      ? trackTabs.find(t => t.id === activeTab)!.statuses
+    const allowedStatuses = usesSections
+      ? sectionTabs.find(t => t.id === activeTab)!.statuses
       : cfg.statuses!;
 
     return requests.filter((req) => {
@@ -172,7 +194,14 @@ export default function RequestsView({ mode }: { mode: RequestsMode }) {
         refCode.toLowerCase().includes(q)
       );
     });
-  }, [requests, mode, activeTab, searchQuery, cfg.statuses]);
+  }, [requests, usesSections, activeTab, searchQuery, cfg.statuses]);
+
+  // Client-side pagination over the filtered set.
+  const totalPages = Math.max(1, Math.ceil(filteredRequests.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pagedRequests = filteredRequests.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const rangeStart = filteredRequests.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1;
+  const rangeEnd = Math.min(safePage * PAGE_SIZE, filteredRequests.length);
 
   if (loading) {
     return (
@@ -200,9 +229,9 @@ export default function RequestsView({ mode }: { mode: RequestsMode }) {
         <div className="bg-danger-50 border border-danger-100 text-danger-600 text-sm rounded-xl px-4 py-3">{error}</div>
       )}
 
-      {/* Stats (tracking only) */}
-      {mode === 'tracking' && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+      {/* Stats */}
+      {usesSections && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
           {statsCards.map(({ label, value, Icon, tab }) => (
             <button
               key={label}
@@ -219,11 +248,11 @@ export default function RequestsView({ mode }: { mode: RequestsMode }) {
         </div>
       )}
 
-      {/* Tabs (tracking) + Search */}
+      {/* Section tabs + Search */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        {mode === 'tracking' ? (
+        {usesSections ? (
           <div className="flex p-1 bg-neutral-100 rounded-full w-full sm:w-auto overflow-x-auto">
-            {trackTabs.map((tab) => (
+            {sectionTabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
@@ -243,7 +272,7 @@ export default function RequestsView({ mode }: { mode: RequestsMode }) {
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={1.5} />
           <input
             type="text"
-            placeholder="Search requests"
+            placeholder="Search by title, reference or category"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 h-10 bg-neutral-100 border border-transparent rounded-full text-sm text-text-primary placeholder:text-text-muted focus:bg-white focus:border-primary-300 focus:ring-2 focus:ring-primary-100 outline-none transition-all"
@@ -260,7 +289,11 @@ export default function RequestsView({ mode }: { mode: RequestsMode }) {
             </div>
             <h3 className="text-base font-semibold text-text-primary mb-1">No requests found</h3>
             <p className="text-sm text-text-secondary mb-5">
-              {searchQuery ? `No requests matching "${searchQuery}"` : `You have no ${cfg.title.toLowerCase()} yet.`}
+              {searchQuery
+                ? `No requests matching "${searchQuery}"`
+                : usesSections && activeTab !== 'all'
+                  ? `You have no ${sectionTabs.find(t => t.id === activeTab)!.label.toLowerCase()} requests.`
+                  : `You have no ${cfg.title.toLowerCase()} yet.`}
             </p>
             {mode !== 'drafts' && !searchQuery && (
               <Button variant="secondary" onClick={() => router.push('/requests/new')}>Start a New Request</Button>
@@ -269,7 +302,7 @@ export default function RequestsView({ mode }: { mode: RequestsMode }) {
         ) : (
           <div className="grid gap-3">
             <AnimatePresence mode="wait">
-              {filteredRequests.map((request, index) => {
+              {pagedRequests.map((request, index) => {
                 const statusInfo = statusConfig[request.status] || statusConfig['pending'];
                 const requestType = request.type || request.metadata?.requestType || 'approval';
                 const typeLabel = typeLabels[requestType] || 'Request';
@@ -364,6 +397,60 @@ export default function RequestsView({ mode }: { mode: RequestsMode }) {
           </div>
         )}
       </div>
+
+      {/* Pagination */}
+      {filteredRequests.length > PAGE_SIZE && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+          <span className="text-xs text-text-secondary">
+            Showing <span className="font-medium text-text-primary">{rangeStart}–{rangeEnd}</span> of{' '}
+            <span className="font-medium text-text-primary">{filteredRequests.length}</span>
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={safePage <= 1}
+              className="inline-flex items-center gap-1 px-3 h-9 rounded-lg border border-border bg-white text-sm font-medium text-text-secondary hover:text-text-primary hover:border-neutral-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" strokeWidth={1.5} />
+              Prev
+            </button>
+            {Array.from({ length: totalPages }).map((_, idx) => {
+              const pageNum = idx + 1;
+              // Compact window: first, last, and neighbours of the current page.
+              const isEdge = pageNum === 1 || pageNum === totalPages;
+              const isNear = Math.abs(pageNum - safePage) <= 1;
+              if (!isEdge && !isNear) {
+                // Render a single ellipsis at the gap boundaries.
+                if (pageNum === 2 || pageNum === totalPages - 1) {
+                  return <span key={pageNum} className="px-1.5 text-text-muted">…</span>;
+                }
+                return null;
+              }
+              return (
+                <button
+                  key={pageNum}
+                  onClick={() => setPage(pageNum)}
+                  className={`min-w-9 h-9 px-2 rounded-lg text-sm font-medium transition-colors ${
+                    pageNum === safePage
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-white border border-border text-text-secondary hover:text-text-primary hover:border-neutral-300'
+                  }`}
+                >
+                  {pageNum}
+                </button>
+              );
+            })}
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={safePage >= totalPages}
+              className="inline-flex items-center gap-1 px-3 h-9 rounded-lg border border-border bg-white text-sm font-medium text-text-secondary hover:text-text-primary hover:border-neutral-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Next
+              <ChevronRight className="w-4 h-4" strokeWidth={1.5} />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

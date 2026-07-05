@@ -6,7 +6,7 @@ import { generateReferenceCode } from '@/lib/requestCode';
 import { createCapexTrackerRow } from '@/lib/capexTrackerHooks';
 import { getUserRBACProfile, hasPermission, PERMISSIONS } from '@/lib/rbac';
 import { getUserAccessScope, scopeForResponse, AccessScope } from '@/lib/accessScope';
-import { audit } from '@/lib/auditLog';
+import { audit, auditApiError } from '@/lib/auditLog';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -207,6 +207,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: 'Title is required' });
       }
 
+      // Voucher requests are gated: only users with `vouchers.create` (or a
+      // super admin) may raise them.
+      const isVoucherRequest = requestType === 'voucher_request' || metadata?.type === 'voucher_request';
+      if (isVoucherRequest) {
+        const voucherProfile = await getUserRBACProfile(userId);
+        if (!hasPermission(voucherProfile, PERMISSIONS.VOUCHERS_CREATE)) {
+          return res.status(403).json({ error: 'You do not have permission to create vouchers' });
+        }
+      }
+
       // Allow draft or pending status, default to draft
       const validStatuses = ['draft', 'pending'];
       const finalStatus = validStatuses.includes(requestStatus) ? requestStatus : 'draft';
@@ -391,6 +401,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       }
 
+      // Voucher register side-effect: create a pending booklet row on submission
+      // so the voucher can be tracked before approval. The sequential number and
+      // email fulfilment are filled in on final approval. Fails silently.
+      if (finalStatus === 'pending' && isVoucherRequest) {
+        try {
+          await supabaseAdmin
+            .from('vouchers')
+            .upsert({
+              organization_id: organizationId,
+              request_id: data.id,
+              guest_names: finalMetadata.guestNames || null,
+              business_units: finalMetadata.selectedBusinessUnits || [],
+              reason: finalMetadata.reason || description || null,
+              created_by: userId,
+            }, { onConflict: 'request_id' });
+        } catch (voucherErr) {
+          console.error('Failed to create voucher register row:', voucherErr);
+        }
+      }
+
       // Notify watchers if any (for both draft and pending status, but mainly useful for pending)
       if (finalStatus === 'pending' && metadata?.watchers?.length > 0) {
         const watchers = metadata.watchers as string[];
@@ -449,6 +479,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error: any) {
     console.error('Requests API error:', error);
+    await auditApiError(req, 'system.error.requests_api', error);
     return res.status(500).json({ error: error.message || 'Failed to process request' });
   }
 }

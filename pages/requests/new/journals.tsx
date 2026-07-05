@@ -12,7 +12,7 @@ import {
 } from '../../../components/ui';
 import type { PreviewSection, DocumentHeader } from '../../../components/ui';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
-import { useUnsavedChangesPrompt } from '../../../hooks';
+import { useUnsavedChangesPrompt, useFormAutosave } from '../../../hooks';
 import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
 
 const CURRENCY_OPTIONS = ['USD', 'ZWG'];
@@ -106,6 +106,20 @@ export default function JournalEntryPage() {
     const [selectedWatchers, setSelectedWatchers] = useState<Array<{ id: string; display_name: string; email: string }>>([]);
     const [watcherSearch, setWatcherSearch] = useState('');
     const [showWatcherDropdown, setShowWatcherDropdown] = useState(false);
+
+    // Autosave / crash recovery (serializable slices only). Disabled in edit mode.
+    useFormAutosave({
+        formKey: 'journals',
+        enabled: !isEditMode,
+        data: { formData, lines, selectedApprovers, selectedWatchers },
+        onRestore: (saved) => {
+            if (saved.formData) setFormData(saved.formData);
+            if (Array.isArray(saved.lines) && saved.lines.length > 0) setLines(saved.lines);
+            if (saved.selectedApprovers) setSelectedApprovers(prev => ({ ...prev, ...saved.selectedApprovers }));
+            if (Array.isArray(saved.selectedWatchers)) setSelectedWatchers(saved.selectedWatchers);
+            setIsDirty(true);
+        },
+    });
 
     const [showPreview, setShowPreview] = useState(false);
     const [showConfirm, setShowConfirm] = useState(false);

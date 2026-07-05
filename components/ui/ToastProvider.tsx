@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react';
 import Toast, { ToastType } from './Toast';
 
 interface ToastData {
@@ -12,6 +12,10 @@ interface ToastData {
 interface ToastContextType {
     addToast: (toast: Omit<ToastData, 'id'>) => void;
     removeToast: (id: string) => void;
+    /** Register a modal as open. While any modal is open, toasts are suppressed. */
+    pushModal: () => void;
+    /** Unregister a previously-registered modal. */
+    popModal: () => void;
 }
 
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
@@ -24,20 +28,52 @@ export function useToast() {
     return context;
 }
 
+/**
+ * Suppresses toast notifications while the given modal is open. Mount this in
+ * every modal so the user never gets a toast at the same time as a modal —
+ * the modal itself is the notification. Safe to call before an early return:
+ * it's a single hook invoked unconditionally on every render.
+ */
+export function useSuppressToastsWhileOpen(isOpen: boolean) {
+    const context = useContext(ToastContext);
+    useEffect(() => {
+        if (!isOpen || !context) return;
+        context.pushModal();
+        return () => context.popModal();
+    }, [isOpen, context]);
+}
+
 export function ToastProvider({ children }: { children: ReactNode }) {
     const [toasts, setToasts] = useState<ToastData[]>([]);
+    // Number of modals currently open. While > 0, new toasts are suppressed.
+    const modalCountRef = useRef(0);
 
-    const addToast = (toast: Omit<ToastData, 'id'>) => {
+    const addToast = useCallback((toast: Omit<ToastData, 'id'>) => {
+        // Don't show a toast at the same time as a modal — the modal is the message.
+        if (modalCountRef.current > 0) return;
         const id = Math.random().toString(36).substring(2, 9);
         setToasts((prev) => [...prev, { ...toast, id }]);
-    };
+    }, []);
 
-    const removeToast = (id: string) => {
+    const removeToast = useCallback((id: string) => {
         setToasts((prev) => prev.filter((t) => t.id !== id));
-    };
+    }, []);
+
+    const pushModal = useCallback(() => {
+        modalCountRef.current += 1;
+    }, []);
+
+    const popModal = useCallback(() => {
+        modalCountRef.current = Math.max(0, modalCountRef.current - 1);
+    }, []);
+
+    const value = useMemo(
+        () => ({ addToast, removeToast, pushModal, popModal }),
+        [addToast, removeToast, pushModal, popModal]
+    );
 
     return (
-        <ToastContext.Provider value={{ addToast, removeToast }}>
+        <ToastContext.Provider value={value}>
             {children}
 
             {/* Toast Container */}

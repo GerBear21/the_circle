@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useSuppressToastsWhileOpen } from './ui/ToastProvider';
 
 interface PinVerificationModalProps {
   isOpen: boolean;
@@ -16,6 +17,7 @@ export default function PinVerificationModal({
   title = 'Enter Your PIN',
   description = 'Please enter your 4-digit PIN to confirm this action',
 }: PinVerificationModalProps) {
+  useSuppressToastsWhileOpen(isOpen);
   const [pin, setPin] = useState(['', '', '', '']);
   const [error, setError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);

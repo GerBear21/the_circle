@@ -18,6 +18,7 @@ import {
   PenLine,
   Fingerprint,
   Check,
+  CloudUpload,
 } from 'lucide-react';
 
 const SignaturePad = dynamic(() => import('@/components/SignaturePad'), {
@@ -34,9 +35,6 @@ interface Preferences {
   itemsPerPage: string;
   defaultPriority: string;
   density: string;
-  emailNotifications: boolean;
-  approvalReminders: boolean;
-  weeklyDigest: boolean;
 }
 
 const DEFAULT_PREFS: Preferences = {
@@ -44,12 +42,38 @@ const DEFAULT_PREFS: Preferences = {
   itemsPerPage: '25',
   defaultPriority: 'normal',
   density: 'comfortable',
-  emailNotifications: true,
-  approvalReminders: true,
-  weeklyDigest: false,
 };
 
 const PREFS_KEY = 'circle:preferences';
+
+/** Server-side preferences (user_preferences table) — drive real behaviour:
+ *  which emails the workflow engine sends and whether approved PDFs are
+ *  auto-saved to the user's OneDrive. */
+interface ServerPreferences {
+  emailRequestUpdates: boolean;
+  emailApprovalTasks: boolean;
+  emailCompletionPdf: boolean;
+  approvalReminders: boolean;
+  weeklyDigest: boolean;
+  autoArchiveOneDrive: boolean;
+  oneDriveFolder: string | null;
+}
+
+interface IntegrationStatus {
+  emailConfigured: boolean;
+  onedriveConfigured: boolean;
+  sharepointConfigured: boolean;
+}
+
+const DEFAULT_SERVER_PREFS: ServerPreferences = {
+  emailRequestUpdates: true,
+  emailApprovalTasks: true,
+  emailCompletionPdf: true,
+  approvalReminders: true,
+  weeklyDigest: false,
+  autoArchiveOneDrive: true,
+  oneDriveFolder: null,
+};
 
 export const getServerSideProps: GetServerSideProps<SettingsProps> = async (context) => {
   const session = await getServerSession(context.req, context.res, authOptions);
@@ -144,12 +168,17 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
 
   const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFS);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const [serverPrefs, setServerPrefs] = useState<ServerPreferences>(DEFAULT_SERVER_PREFS);
+  const [integration, setIntegration] = useState<IntegrationStatus | null>(null);
 
   const [biometricCredentials, setBiometricCredentials] = useState<any[]>([]);
   const [loadingBiometrics, setLoadingBiometrics] = useState(false);
   const [showBiometricSetup, setShowBiometricSetup] = useState(false);
 
-  // Load preferences (stored locally per device)
+  // Load interface preferences (stored locally per device)
   useEffect(() => {
     try {
       const raw = localStorage.getItem(PREFS_KEY);
@@ -157,8 +186,29 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
     } catch {}
   }, []);
 
+  // Load notification/auto-archiving preferences (stored server-side so the
+  // workflow engine can honour them when sending emails and syncing PDFs).
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/user/preferences');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.preferences) setServerPrefs({ ...DEFAULT_SERVER_PREFS, ...data.preferences });
+        if (data.integration) setIntegration(data.integration);
+      } catch (err) {
+        console.error('Failed to load preferences:', err);
+      }
+    })();
+  }, []);
+
   const setPref = <K extends keyof Preferences>(key: K, value: Preferences[K]) => {
     setPrefs((prev) => ({ ...prev, [key]: value }));
+    setSaved(false);
+  };
+
+  const setServerPref = <K extends keyof ServerPreferences>(key: K, value: ServerPreferences[K]) => {
+    setServerPrefs((prev) => ({ ...prev, [key]: value }));
     setSaved(false);
   };
 
@@ -205,12 +255,29 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
     reader.readAsDataURL(file);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    setSaving(true);
+    setSaveError(null);
     try {
       localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+    } catch {}
+    try {
+      const res = await fetch('/api/user/preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(serverPrefs),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to save preferences');
+      }
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
-    } catch {}
+    } catch (err: any) {
+      setSaveError(err.message || 'Failed to save preferences');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const fetchBiometricCredentials = async () => {
@@ -259,11 +326,17 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
                 Configure how the system works for you. Personal details are managed in HRIMS.
               </p>
             </div>
-            <Button variant="primary" onClick={handleSave} className="shrink-0 flex items-center gap-2">
+            <Button variant="primary" onClick={handleSave} disabled={saving} className="shrink-0 flex items-center gap-2">
               {saved ? <Check className="w-4 h-4" strokeWidth={2} /> : null}
-              {saved ? 'Saved' : 'Save Changes'}
+              {saving ? 'Saving…' : saved ? 'Saved' : 'Save Changes'}
             </Button>
           </div>
+
+          {saveError && (
+            <div className="mb-6 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
+              {saveError}
+            </div>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Left: configurable preferences */}
@@ -307,26 +380,84 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
                 </div>
               </SectionCard>
 
-              <SectionCard icon={Bell} title="Notifications" subtitle="Choose what you want to be notified about.">
+              <SectionCard icon={Bell} title="Email notifications" subtitle="Choose which emails The Circle sends you. In-app notifications are always on.">
+                {integration && !integration.emailConfigured && (
+                  <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-3.5 py-2.5 text-xs">
+                    Email delivery is not configured for this deployment yet — ask an administrator to set up the
+                    Microsoft 365 service mailbox (GRAPH_MAIL_SENDER) or Resend. Your choices below are saved and take
+                    effect as soon as email is enabled.
+                  </div>
+                )}
                 <div className="divide-y divide-border">
                   <Toggle
-                    checked={prefs.emailNotifications}
-                    onChange={(v) => setPref('emailNotifications', v)}
-                    label="Email notifications"
-                    description="Receive updates about your requests and approvals by email."
+                    checked={serverPrefs.emailRequestUpdates}
+                    onChange={(v) => setServerPref('emailRequestUpdates', v)}
+                    label="Review updates on my requests"
+                    description="Email me when my request is approved or rejected at each review step."
                   />
                   <Toggle
-                    checked={prefs.approvalReminders}
-                    onChange={(v) => setPref('approvalReminders', v)}
+                    checked={serverPrefs.emailCompletionPdf}
+                    onChange={(v) => setServerPref('emailCompletionPdf', v)}
+                    label="Completed request with signed PDF"
+                    description="When my request is fully approved, email me the signed approval document."
+                  />
+                  <Toggle
+                    checked={serverPrefs.emailApprovalTasks}
+                    onChange={(v) => setServerPref('emailApprovalTasks', v)}
+                    label="New approval tasks"
+                    description="Email me when a request is waiting on my approval."
+                  />
+                  <Toggle
+                    checked={serverPrefs.approvalReminders}
+                    onChange={(v) => setServerPref('approvalReminders', v)}
                     label="Approval reminders"
-                    description="Get nudged when an approval task is waiting on you."
+                    description="Nudge me by email while an approval task sits pending with me."
                   />
                   <Toggle
-                    checked={prefs.weeklyDigest}
-                    onChange={(v) => setPref('weeklyDigest', v)}
+                    checked={serverPrefs.weeklyDigest}
+                    onChange={(v) => setServerPref('weeklyDigest', v)}
                     label="Weekly summary digest"
-                    description="A weekly recap of your activity across the workspace."
+                    description="A weekly recap of your requests and approvals."
                   />
+                </div>
+              </SectionCard>
+
+              <SectionCard icon={CloudUpload} title="Auto-archiving" subtitle="Where your approved documents are saved automatically.">
+                {integration && !integration.onedriveConfigured && (
+                  <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-3.5 py-2.5 text-xs">
+                    OneDrive auto-archiving is not configured for this deployment yet — ask an administrator to enable
+                    the Microsoft 365 integration (GRAPH_ONEDRIVE_ENABLED). Your choices below are saved and take effect
+                    as soon as it is enabled.
+                  </div>
+                )}
+                <div className="divide-y divide-border">
+                  <Toggle
+                    checked={serverPrefs.autoArchiveOneDrive}
+                    onChange={(v) => setServerPref('autoArchiveOneDrive', v)}
+                    label="Save approved PDFs to my OneDrive"
+                    description="When a request completes review, automatically save the signed PDF into your OneDrive and link it on the request."
+                  />
+                  {serverPrefs.autoArchiveOneDrive && (
+                    <div className="py-3">
+                      <Field label="OneDrive folder">
+                        <input
+                          type="text"
+                          className={selectCls}
+                          placeholder="The Circle Approvals"
+                          value={serverPrefs.oneDriveFolder || ''}
+                          onChange={(e) => setServerPref('oneDriveFolder', e.target.value || null)}
+                        />
+                      </Field>
+                      <p className="text-xs text-text-secondary mt-1.5">
+                        Folder in your OneDrive where approved documents are filed. Leave blank for the default.
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <div className="mt-4 rounded-xl bg-neutral-50 border border-border px-3.5 py-3 text-xs text-text-secondary">
+                  Approved documents are always kept in The Circle&apos;s archive
+                  {integration?.sharepointConfigured ? ' and the organisation’s SharePoint library' : ''}, so you can
+                  download them from the request page at any time.
                 </div>
               </SectionCard>
 
@@ -355,10 +486,18 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
                             <Fingerprint className="w-5 h-5" strokeWidth={1.5} />
                           </span>
                           <div className="min-w-0">
-                            <p className="text-sm font-medium text-text-primary truncate">{cred.device_name || 'Biometric Device'}</p>
+                            <p className="text-sm font-medium text-text-primary truncate">
+                              {cred.device_name || 'Biometric Device'}
+                              {cred.usable_here === false && (
+                                <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 align-middle">
+                                  Different environment
+                                </span>
+                              )}
+                            </p>
                             <p className="text-xs text-text-secondary">
                               Added {new Date(cred.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                               {cred.last_used_at ? ` • Last used ${new Date(cred.last_used_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}` : ''}
+                              {cred.usable_here === false && cred.rp_id ? ` • Registered on ${cred.rp_id}` : ''}
                             </p>
                           </div>
                         </div>

@@ -1,6 +1,7 @@
 import React from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useSuppressToastsWhileOpen } from './ui/ToastProvider';
 
 const SignaturePad = dynamic(() => import('./SignaturePad'), {
   ssr: false,
@@ -13,6 +14,7 @@ interface SignatureRequiredModalProps {
 }
 
 export default function SignatureRequiredModal({ isOpen, onSignatureSaved }: SignatureRequiredModalProps) {
+  useSuppressToastsWhileOpen(isOpen);
   if (!isOpen) return null;
 
   return (

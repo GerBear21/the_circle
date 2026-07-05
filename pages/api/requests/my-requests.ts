@@ -24,7 +24,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === 'GET') {
-      const { status: statusFilter, limit = 50 } = req.query;
+      const { status: statusFilter, limit = 500 } = req.query;
       
       // Fetch requests created by the current user
       let query = supabaseAdmin
@@ -147,11 +147,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Calculate stats
       const stats = {
         total: enrichedRequests.length,
-        pending: enrichedRequests.filter(r => 
+        pending: enrichedRequests.filter(r =>
           r.status === 'pending' || r.status === 'in_review' || r.status === 'draft'
         ).length,
         approved: enrichedRequests.filter(r => r.status === 'approved').length,
         rejected: enrichedRequests.filter(r => r.status === 'rejected').length,
+        cancelled: enrichedRequests.filter(r => r.status === 'cancelled').length,
+        withdrawn: enrichedRequests.filter(r => r.status === 'withdrawn').length,
       };
 
       return res.status(200).json({ 

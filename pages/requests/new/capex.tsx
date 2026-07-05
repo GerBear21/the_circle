@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input, RequestPreviewModal, UnsavedChangesModal, ReferenceCodeBanner } from '../../../components/ui';
 import type { PreviewSection, DocumentHeader } from '../../../components/ui';
-import { useUnsavedChangesPrompt } from '../../../hooks';
+import { useUnsavedChangesPrompt, useFormAutosave } from '../../../hooks';
 import { useToast } from '../../../components/ui/ToastProvider';
 
 interface DocumentMetadata {
@@ -136,6 +136,19 @@ export default function NewCapexRequestPage() {
 
   // Unsaved-changes tracking — flipped true on first real user interaction via form onChange.
   const [isDirty, setIsDirty] = useState(false);
+
+  // Autosave / crash recovery (serializable slices only). Disabled in edit mode.
+  useFormAutosave({
+    formKey: 'capex',
+    enabled: !isEditMode,
+    data: { formData, selectedApprovers, selectedWatchers },
+    onRestore: (saved) => {
+      if (saved.formData) setFormData(saved.formData);
+      if (saved.selectedApprovers) setSelectedApprovers(prev => ({ ...prev, ...saved.selectedApprovers }));
+      if (Array.isArray(saved.selectedWatchers)) setSelectedWatchers(saved.selectedWatchers);
+      setIsDirty(true);
+    },
+  });
 
   const unsavedPrompt = useUnsavedChangesPrompt({
     isDirty,

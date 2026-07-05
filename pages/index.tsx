@@ -328,7 +328,6 @@ export default function Home() {
     e.preventDefault();
     setDemoError("");
     setDemoLoading(true);
-    sessionStorage.setItem("the_circle_active_session", "1");
     const res = await signIn("credentials", {
       email: demoEmail,
       password: demoPassword,
@@ -348,7 +347,6 @@ export default function Home() {
 
   useEffect(() => {
     if (status === "authenticated") {
-      sessionStorage.setItem("the_circle_active_session", "1");
       router.replace("/dashboard");
     }
   }, [status, router]);
@@ -360,7 +358,7 @@ export default function Home() {
   return (
     <>
       <Head>
-        <title>The Circle — Antigravity Workflow Engine</title>
+        <title>The Circle — Approval Workflow Engine</title>
         <meta
           name="description"
           content="The fast, reliable, audit-ready workflow engine powering Rainbow Tourism Group's digital transformation."
@@ -439,10 +437,7 @@ export default function Home() {
             className="flex flex-col items-center w-full max-w-sm mx-auto"
           >
             <button
-              onClick={() => {
-                sessionStorage.setItem("the_circle_active_session", "1");
-                signIn("azure-ad");
-              }}
+              onClick={() => signIn("azure-ad")}
               disabled={!done}
               className="group relative w-full overflow-hidden rounded-xl bg-gray-900 px-6 py-4 text-white font-semibold shadow-xl shadow-gray-900/10 transition-all hover:bg-gray-800 active:scale-[0.985] focus:outline-none focus:ring-2 focus:ring-[#9A7545] focus:ring-offset-2 disabled:pointer-events-none"
             >

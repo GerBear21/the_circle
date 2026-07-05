@@ -40,6 +40,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         field_name,
         old_value,
         new_value,
+        document_filename,
         request_id,
         modified_by,
         requests (
@@ -90,6 +91,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const { data: approvals, error: appError } = await queryApprovals;
         if (appError) throw appError;
 
+        // Human-readable label per modification type. Non-field events
+        // (resubmission, cancellation, document changes) carry a null
+        // field_name, so they must NOT be labelled "Changed Field".
+        const labelForModification = (mod: any): string => {
+            switch (mod.modification_type) {
+                case 'resubmission':
+                    return mod.new_value ? `Resubmitted the request as ${mod.new_value}` : 'Resubmitted the request';
+                case 'cancellation':
+                    return 'Cancelled the request';
+                case 'document_upload':
+                    return `Uploaded ${mod.document_filename || 'a document'}`;
+                case 'document_delete':
+                    return `Deleted ${mod.document_filename || 'a document'}`;
+                case 'field_edit':
+                default:
+                    return `Changed ${mod.field_name || 'a field'}`;
+            }
+        };
+
         // 3. Normalize and Combine
         const modificationLogs = (modifications || []).map((mod: any) => ({
             id: mod.id,
@@ -99,7 +119,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 email: mod.app_users?.email,
                 avatar: mod.app_users?.profile_picture_url
             },
-            action: `Changed ${mod.field_name || 'Field'}`,
+            action: labelForModification(mod),
             details: {
                 field: mod.field_name,
                 old: mod.old_value,

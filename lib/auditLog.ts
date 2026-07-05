@@ -107,6 +107,29 @@ export async function recordAuditEvent(input: AuditEventInput): Promise<void> {
 }
 
 /**
+ * Record an unexpected server-side failure as a critical system audit event.
+ * Safe to call from a catch block where the session/org may be out of scope —
+ * it only needs the request (for IP / user-agent) and never throws.
+ */
+export async function auditApiError(
+  req: NextApiRequest | undefined,
+  action: string,
+  error: any,
+  extra?: Partial<AuditEventInput>
+): Promise<void> {
+  await recordAuditEvent({
+    category: 'system',
+    action,
+    severity: 'critical',
+    outcome: 'failure',
+    ipAddress: getRequestIp(req),
+    userAgent: req ? (req.headers['user-agent'] as string) || null : null,
+    ...extra,
+    details: { ...(extra?.details || {}), error: error?.message || String(error) },
+  });
+}
+
+/**
  * Convenience wrapper: record an event with request/session context merged in.
  * Usage: await audit(req, user, { category: 'transaction', action: 'request.approved', ... })
  */

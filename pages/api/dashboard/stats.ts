@@ -31,9 +31,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (requestsError) throw requestsError;
 
-    // Other users' drafts are private — exclude them so the counts match the
-    // SSR computation on the dashboard page exactly.
-    const allRequests = (requests || []).filter(r => (r.status === 'draft' ? r.creator_id === userId : true));
+    // Per-user dashboard: count the signed-in user's OWN requests only, so the
+    // stat cards show each user's own numbers (matches the SSR computation on
+    // the dashboard page exactly).
+    const allRequests = (requests || []).filter(r => r.creator_id === userId);
 
     // Calculate stats (drafts are tracked separately, not as pending or total)
     const pending = allRequests.filter(r => r.status === 'pending').length;

@@ -10,10 +10,10 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { AppLayout } from '@/components/layout';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { useSignatureCheck } from '@/hooks';
 import { useState, useEffect } from 'react';
-import { Clock, CheckCircle2, XCircle, FileText, ArrowRight, TrendingUp, PenLine, AlertTriangle } from 'lucide-react';
+import { Clock, CheckCircle2, XCircle, FileText, ArrowRight, TrendingUp, AlertTriangle, Fingerprint, ShieldCheck } from 'lucide-react';
 import Lottie from 'lottie-react';
+import BiometricSetupModal from '@/components/approvals/BiometricSetupModal';
 import dashboardAnimation from '@/lotties/Dashboard.json';
 
 function cn(...inputs: ClassValue[]) {
@@ -115,14 +115,11 @@ export const getServerSideProps: GetServerSideProps<DashboardProps> = async (con
         .select('id, status, created_at, creator_id')
         .eq('organization_id', organizationId);
 
-      // Filter out drafts that don't belong to the current user
-      const allRequests = (requests || []).filter(r => {
-        if (r.status === 'draft') {
-          return r.creator_id === userId;
-        }
-        return true;
-      });
-      
+      // Per-user dashboard: the stat cards reflect the signed-in user's OWN
+      // requests (the ones they created), not organisation-wide totals — so
+      // each user sees their own numbers.
+      const allRequests = (requests || []).filter(r => r.creator_id === userId);
+
       // Calculate stats (drafts are NOT counted as pending - they are separate)
       stats.pending = allRequests.filter(r => r.status === 'pending').length;
       stats.approved = allRequests.filter(r => r.status === 'approved').length;
@@ -226,7 +223,35 @@ export default function Dashboard({
 }: DashboardProps) {
   const { data: session } = useSession();
   const router = useRouter();
-  const { signatureUrl, hasSignature } = useSignatureCheck();
+
+  // Device (passkey / biometric) registration status for the security card.
+  const [deviceRegistered, setDeviceRegistered] = useState<boolean | null>(null);
+  const [deviceCount, setDeviceCount] = useState(0);
+  const [showBiometricSetup, setShowBiometricSetup] = useState(false);
+
+  const loadDevices = async () => {
+    try {
+      const res = await fetch('/api/webauthn/credentials');
+      // Leave state as "unknown" (null) on failure — reporting "no device
+      // registered" off a transient error both misleads the user and would
+      // fire the enrollment prompt at people who ARE registered.
+      if (!res.ok) return;
+      const data = await res.json();
+      // Count only credentials usable on THIS domain (usable_here === false
+      // means the passkey was registered for a different environment).
+      const active = (data.credentials || []).filter(
+        (c: any) => c.is_active && c.usable_here !== false
+      );
+      setDeviceCount(active.length);
+      setDeviceRegistered(active.length > 0);
+    } catch {
+      /* network hiccup — keep the loading/unknown state */
+    }
+  };
+
+  useEffect(() => {
+    loadDevices();
+  }, []);
 
   // Seed from SSR for an instant first paint, then keep the cards live by
   // refetching whenever the dashboard mounts or the tab regains focus — so the
@@ -460,16 +485,33 @@ export default function Dashboard({
                 </div>
               </section>
 
-              {/* Signature */}
+              {/* Device Registration (passkey / biometric) */}
               <section className="bg-white rounded-xl border border-[#C9B896] p-6">
                 <div className="flex items-center gap-2 mb-4">
-                  <PenLine className="w-4 h-4 text-neutral-700" strokeWidth={1.5} />
-                  <h3 className="text-sm font-semibold text-gray-900">Digital Signature</h3>
+                  <Fingerprint className="w-4 h-4 text-neutral-700" strokeWidth={1.5} />
+                  <h3 className="text-sm font-semibold text-gray-900">Device Registration</h3>
                 </div>
-                {signatureUrl ? (
-                  <div className="bg-gray-50 rounded-lg border border-gray-100 p-4 flex items-center justify-center">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={signatureUrl} alt="Your Signature" className="max-h-14 opacity-80" />
+                {deviceRegistered === null ? (
+                  <div className="flex items-center justify-center py-4">
+                    <div className="w-5 h-5 border-2 border-gray-300 border-t-gray-700 rounded-full animate-spin" />
+                  </div>
+                ) : deviceRegistered ? (
+                  <div className="flex items-start gap-3">
+                    <div className="p-1.5 bg-emerald-50 border border-emerald-200 rounded-md text-emerald-600">
+                      <ShieldCheck className="w-4 h-4" strokeWidth={1.5} />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-900">Device registered</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {deviceCount} {deviceCount === 1 ? 'device is' : 'devices are'} set up for biometric verification.
+                      </p>
+                      <button
+                        onClick={() => setShowBiometricSetup(true)}
+                        className="mt-2.5 inline-flex items-center gap-1 text-xs font-medium text-gray-900 hover:text-gray-700"
+                      >
+                        Register another <ArrowRight className="w-3 h-3" />
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <div className="flex items-start gap-3">
@@ -477,11 +519,14 @@ export default function Dashboard({
                       <AlertTriangle className="w-4 h-4" strokeWidth={1.5} />
                     </div>
                     <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-900">Signature not set</p>
-                      <p className="text-xs text-gray-500 mt-0.5 mb-2.5">Add your signature to approve requests.</p>
-                      <Link href="/profile/settings" className="inline-flex items-center gap-1 text-xs font-medium text-gray-900 hover:text-gray-700">
-                        Set up now <ArrowRight className="w-3 h-3" />
-                      </Link>
+                      <p className="text-sm font-medium text-gray-900">No device registered</p>
+                      <p className="text-xs text-gray-500 mt-0.5 mb-2.5">Register this device to verify sensitive approvals with biometrics.</p>
+                      <button
+                        onClick={() => setShowBiometricSetup(true)}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-gray-900 hover:text-gray-700"
+                      >
+                        Register now <ArrowRight className="w-3 h-3" />
+                      </button>
                     </div>
                   </div>
                 )}
@@ -490,6 +535,12 @@ export default function Dashboard({
           </div>
 
         </div>
+
+        <BiometricSetupModal
+          isOpen={showBiometricSetup}
+          onClose={() => setShowBiometricSetup(false)}
+          onSuccess={() => { setShowBiometricSetup(false); loadDevices(); }}
+        />
       </AppLayout>
     </>
   );

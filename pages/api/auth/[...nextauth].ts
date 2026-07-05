@@ -83,12 +83,25 @@ if (DEMO_MODE) {
 
         // 3. Link to the app_users row (seeded with a matching email). This row
         //    supplies the org/role and is what the rest of the app keys on.
-        const { data: appUser } = await supabaseAdmin
+        //    IMPORTANT: the resolved id must be STABLE across logins — user data
+        //    (biometric credentials, signatures, requests) hangs off it. If the
+        //    email matches more than one row (e.g. a real Azure identity plus a
+        //    seeded demo identity), prefer the demo-seeded row, then the oldest.
+        const { data: appUserRows } = await supabaseAdmin
           .from("app_users")
-          .select("id, organization_id, role, display_name, email")
+          .select("id, organization_id, role, display_name, email, azure_oid, created_at")
           .ilike("email", demo.email)
-          .limit(1)
-          .single();
+          .order("created_at", { ascending: true });
+
+        const demoOid = `demo:${demo.email}`.toLowerCase();
+        const appUser =
+          (appUserRows || []).find(
+            (u) => (u.azure_oid || "").toLowerCase() === demoOid
+          ) ||
+          (appUserRows || []).find((u) =>
+            (u.azure_oid || "").toLowerCase().startsWith("demo:")
+          ) ||
+          (appUserRows || [])[0];
 
         if (!appUser) {
           console.error(`Demo authorize: no app_users row for ${demo.email}`);

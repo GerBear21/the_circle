@@ -132,8 +132,8 @@ async function uploadToSharePoint(token: string, fileName: string, pdf: Buffer):
  * Upload into a specific user's OneDrive (app permission Files.ReadWrite.All).
  * Lands under "The Circle Approvals/" (configurable via GRAPH_ONEDRIVE_FOLDER).
  */
-async function uploadToUserOneDrive(token: string, userEmail: string, fileName: string, pdf: Buffer): Promise<string | null> {
-  const folder = sanitizeFileName(process.env.GRAPH_ONEDRIVE_FOLDER || 'The Circle Approvals');
+async function uploadToUserOneDrive(token: string, userEmail: string, fileName: string, pdf: Buffer, folderOverride?: string | null): Promise<string | null> {
+  const folder = sanitizeFileName(folderOverride || process.env.GRAPH_ONEDRIVE_FOLDER || 'The Circle Approvals');
   try {
     return await putPdf(
       token,
@@ -173,6 +173,7 @@ function approvalEmailHtml(params: {
   title: string;
   referenceCode?: string | null;
   links: MicrosoftSyncResult['links'];
+  requestUrl?: string | null;
 }): string {
   const linkRows = [
     params.links.onedrive && `<li><a href="${params.links.onedrive}">Open in your OneDrive</a></li>`,
@@ -187,7 +188,8 @@ function approvalEmailHtml(params: {
         has completed its review. The signed approval document is attached as a PDF.
       </p>
       ${linkRows ? `<p>It has also been saved to your Microsoft 365:</p><ul>${linkRows}</ul>` : ''}
-      <p style="color:#6b7280;font-size:12px">This is an automated message from The Circle.</p>
+      ${params.requestUrl ? `<p><a href="${params.requestUrl}" style="display:inline-block;padding:10px 24px;background-color:#9A7545;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;border-radius:8px">View request in The Circle</a></p>` : ''}
+      <p style="color:#6b7280;font-size:12px">This is an automated message from The Circle. You can change which emails you receive under My Settings &rarr; Notifications.</p>
     </div>`;
 }
 
@@ -203,6 +205,14 @@ export async function syncApprovedPdfToMicrosoft(params: {
   title?: string | null;
   /** Requester (or current user) — receives the OneDrive copy + email. */
   recipientEmail?: string | null;
+  /** In-app URL of the request, linked from the email. */
+  requestUrl?: string | null;
+  /** Per-user opt-outs (from user_preferences). Default: everything on. */
+  options?: {
+    includeOneDrive?: boolean;
+    includeEmail?: boolean;
+    oneDriveFolder?: string | null;
+  };
 }): Promise<MicrosoftSyncResult> {
   const result = EMPTY_RESULT();
   try {
@@ -226,16 +236,19 @@ export async function syncApprovedPdfToMicrosoft(params: {
     const spUrl = await uploadToSharePoint(token, fileName, pdf);
     if (spUrl !== null) { result.sharepoint = true; if (spUrl) result.links.sharepoint = spUrl; }
 
-    if (params.recipientEmail && process.env.GRAPH_ONEDRIVE_ENABLED === 'true') {
-      const odUrl = await uploadToUserOneDrive(token, params.recipientEmail, fileName, pdf);
+    const includeOneDrive = params.options?.includeOneDrive !== false;
+    const includeEmail = params.options?.includeEmail !== false;
+
+    if (params.recipientEmail && includeOneDrive && process.env.GRAPH_ONEDRIVE_ENABLED === 'true') {
+      const odUrl = await uploadToUserOneDrive(token, params.recipientEmail, fileName, pdf, params.options?.oneDriveFolder);
       if (odUrl !== null) { result.onedrive = true; if (odUrl) result.links.onedrive = odUrl; }
     }
 
-    if (params.recipientEmail && process.env.GRAPH_MAIL_SENDER) {
+    if (params.recipientEmail && includeEmail && process.env.GRAPH_MAIL_SENDER) {
       const mail = await sendAppGraphMail({
         to: params.recipientEmail,
         subject: `Approved: ${params.title || 'Your request'}${params.referenceCode ? ` (${params.referenceCode})` : ''}`,
-        html: approvalEmailHtml({ title: params.title || 'Your request', referenceCode: params.referenceCode, links: result.links }),
+        html: approvalEmailHtml({ title: params.title || 'Your request', referenceCode: params.referenceCode, links: result.links, requestUrl: params.requestUrl }),
         attachments: [{ name: fileName, contentType: 'application/pdf', content: pdf }],
       });
       result.email = mail.success;

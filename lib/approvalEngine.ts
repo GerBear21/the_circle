@@ -18,8 +18,10 @@ import {
   resolveApprovalChainFromOrganogram,
   findEmployeeByPositionTitle,
 } from './hrimsClient';
-import { onCapexApproved, onCapexRejected } from './capexTrackerHooks';
+import { onCapexApproved, onCapexRejected, onCapexResubmitted, onCapexCancelled } from './capexTrackerHooks';
 import { autoCreatePettyCashFromTravelAuth } from './autoPettyCash';
+import { sendUserNotificationEmail, escapeHtml, appBaseUrl } from './notificationEmail';
+import { getUserPreferences } from './userPreferences';
 
 // ============================================================================
 // Types
@@ -738,7 +740,7 @@ export class ApprovalEngine {
             request.organization_id,
             `Your request ${requestRef} has been fully approved. All ${totalSteps} approvers have signed off — the request is now finalised and the approved document is available to download.`,
             requestType,
-            { title: 'Request fully approved', senderId: approverId }
+            { title: 'Request fully approved', senderId: approverId, sendEmail: false }
           );
 
           // Travel-auth: prompt requester to optionally process a petty cash voucher.
@@ -870,7 +872,7 @@ export class ApprovalEngine {
           request.organization_id,
           `Your request ${requestRef} has been fully approved. Final sign-off by ${approverLabel}. The approved document is available to preview and download.${commentSuffix}`,
           requestType,
-          { title: 'Request fully approved', senderId: approverId }
+          { title: 'Request fully approved', senderId: approverId, sendEmail: false }
         );
 
         // Travel-auth: prompt requester to optionally process a petty cash voucher.
@@ -1013,6 +1015,180 @@ export class ApprovalEngine {
   }
   
   /**
+   * Resubmit a previously REJECTED request.
+   *
+   * Snapshots the rejected round into `metadata.resubmissionHistory` (so the
+   * request detail page can show the full submission→rejection→resubmission
+   * story), versions the reference code (`<base>-R{n}`), clears the old steps
+   * and rebuilds the approval chain from the workflow definition — which
+   * re-notifies the approver(s) — returns the request to `pending`, records a
+   * `resubmission` modification, and resets the CAPEX tracker.
+   *
+   * Callers persist any field edits into `metadata` BEFORE calling this, so we
+   * read the freshly-saved request here.
+   */
+  static async resubmitRequest(
+    requestId: string,
+    userId: string
+  ): Promise<{ success: boolean; error?: string; newReference?: string | null; version?: number }> {
+
+    const { data: request, error: requestError } = await supabaseAdmin
+      .from('requests')
+      .select('*, request_steps(*)')
+      .eq('id', requestId)
+      .single();
+
+    if (requestError || !request) {
+      return { success: false, error: 'Request not found' };
+    }
+
+    if (request.creator_id !== userId) {
+      return { success: false, error: 'Only the requester can resubmit this request' };
+    }
+
+    const existingSteps = (request.request_steps as any[]) || [];
+    const isRejected =
+      request.status === 'rejected' || existingSteps.some((s) => s.status === 'rejected');
+    if (!isRejected) {
+      return { success: false, error: 'Only rejected requests can be resubmitted' };
+    }
+
+    if (!request.workflow_definition_id) {
+      return { success: false, error: 'Request has no workflow definition' };
+    }
+
+    const workflow = await this.getWorkflowDefinition(request.workflow_definition_id);
+    if (!workflow) {
+      return { success: false, error: 'Workflow definition not found' };
+    }
+
+    const metadata: Record<string, any> = { ...(request.metadata || {}) };
+
+    // --- Version the reference: <base>-R{n} ---------------------------------
+    // Strip any existing -R suffix so the base stays stable across rounds.
+    const currentRef: string | null =
+      typeof metadata.referenceCode === 'string' ? metadata.referenceCode : null;
+    const priorCount: number =
+      typeof metadata.resubmissionCount === 'number' ? metadata.resubmissionCount : 0;
+    const rejectedRoundNumber = priorCount + 1; // the round that just got rejected
+    const newCount = priorCount + 1;            // this resubmission's index
+    const baseRef = currentRef ? currentRef.replace(/-R\d+$/, '') : null;
+    const newReference = baseRef ? `${baseRef}-R${newCount}` : currentRef;
+
+    // --- Snapshot the rejected round into resubmissionHistory ---------------
+    // Rejection details (who/comment/when) live in the `approvals` table.
+    const { data: rejections } = await supabaseAdmin
+      .from('approvals')
+      .select('step_id, approver_id, comment, signed_at')
+      .eq('request_id', requestId)
+      .eq('decision', 'rejected')
+      .order('signed_at', { ascending: false })
+      .limit(1);
+    const rejection = (rejections && rejections[0]) || null;
+
+    const rejectedStep =
+      existingSteps.find((s) => rejection && s.id === rejection.step_id) ||
+      existingSteps.find((s) => s.status === 'rejected') ||
+      null;
+
+    let rejectedByName: string | null = null;
+    let rejectedByRole: string | null = null;
+    if (rejection?.approver_id) {
+      const { data: approver } = await supabaseAdmin
+        .from('app_users')
+        .select('display_name, first_name, last_name, email, role')
+        .eq('id', rejection.approver_id)
+        .maybeSingle();
+      if (approver) {
+        rejectedByName =
+          approver.display_name ||
+          [approver.first_name, approver.last_name].filter(Boolean).join(' ') ||
+          approver.email ||
+          null;
+        rejectedByRole = approver.role || null;
+      }
+    }
+
+    const round = {
+      version: rejectedRoundNumber,
+      referenceCode: currentRef,
+      rejectedByName,
+      rejectedByRole,
+      rejectedAtStep: rejectedStep?.step_index ?? null,
+      stepLabel: (rejectedStep?.step_definition as any)?.name ?? null,
+      rejectedAt: rejection?.signed_at ?? new Date().toISOString(),
+      comment: rejection?.comment ?? null,
+    };
+
+    const history = Array.isArray(metadata.resubmissionHistory) ? metadata.resubmissionHistory : [];
+    history.push(round);
+    metadata.resubmissionHistory = history;
+    metadata.resubmissionCount = newCount;
+    if (newReference) metadata.referenceCode = newReference;
+
+    const { error: metaErr } = await supabaseAdmin
+      .from('requests')
+      .update({ metadata, updated_at: new Date().toISOString() })
+      .eq('id', requestId);
+    if (metaErr) {
+      console.error('Failed to persist resubmission metadata:', metaErr);
+      return { success: false, error: 'Failed to save resubmission' };
+    }
+
+    // --- Rebuild the approval chain ----------------------------------------
+    // Clear the old steps (cascades to any redirections) so the engine can
+    // re-initialize a fresh chain and re-notify the approver(s).
+    const { error: delErr } = await supabaseAdmin
+      .from('request_steps')
+      .delete()
+      .eq('request_id', requestId);
+    if (delErr) {
+      console.error('Failed to clear old steps on resubmit:', delErr);
+      return { success: false, error: 'Failed to reset approval steps' };
+    }
+
+    const stepsResult = await this.initializeWorkflowSteps(
+      requestId,
+      workflow,
+      metadata,
+      request.organization_id,
+      userId
+    );
+    if (!stepsResult.success) {
+      return { success: false, error: stepsResult.error };
+    }
+
+    // Return the request to the pending queue.
+    await supabaseAdmin
+      .from('requests')
+      .update({ status: 'pending' })
+      .eq('id', requestId);
+
+    // Timeline entry (best-effort — never blocks the resubmission).
+    try {
+      await supabaseAdmin.from('request_modifications').insert({
+        request_id: requestId,
+        modified_by: userId,
+        modification_type: 'resubmission',
+        field_name: null,
+        old_value: currentRef,
+        new_value: newReference ?? null,
+      });
+    } catch (e) {
+      console.error('Failed to record resubmission modification:', e);
+    }
+
+    // Return the CAPEX tracker row to the active pipeline (no-op otherwise).
+    try {
+      await onCapexResubmitted(requestId, userId);
+    } catch (e) {
+      console.error('onCapexResubmitted failed on resubmit:', e);
+    }
+
+    return { success: true, newReference: newReference ?? null, version: newCount };
+  }
+
+  /**
    * Withdraw a request
    */
   static async withdrawRequest(
@@ -1056,6 +1232,116 @@ export class ApprovalEngine {
   
 
   /**
+   * Cancel a request with a mandatory reason.
+   *
+   * Either the requester OR any approver on the request may cancel, at any stage
+   * — including after full approval. The record is preserved: the status flips
+   * to `cancelled`, a cancellation snapshot is written to metadata, the CAPEX
+   * tracker (if any) is taken out of the funding pipeline, and the other party
+   * is notified.
+   */
+  static async cancelRequest(
+    requestId: string,
+    userId: string,
+    reason: string
+  ): Promise<{ success: boolean; error?: string }> {
+
+    const trimmedReason = (reason || '').trim();
+    if (!trimmedReason) {
+      return { success: false, error: 'A cancellation reason is required' };
+    }
+
+    const { data: request, error: requestError } = await supabaseAdmin
+      .from('requests')
+      .select('*, request_steps(*)')
+      .eq('id', requestId)
+      .single();
+
+    if (requestError || !request) {
+      return { success: false, error: 'Request not found' };
+    }
+
+    if (request.status === 'cancelled') {
+      return { success: false, error: 'Request is already cancelled' };
+    }
+    if (request.status === 'withdrawn') {
+      return { success: false, error: 'Cannot cancel a withdrawn request' };
+    }
+
+    const steps = (request.request_steps as any[]) || [];
+    const isCreator = request.creator_id === userId;
+    const isApprover = steps.some((s) => s.approver_user_id === userId);
+    if (!isCreator && !isApprover) {
+      return { success: false, error: 'Only the requester or an approver on this request can cancel it' };
+    }
+
+    const previousStatus = request.status;
+    const metadata: Record<string, any> = { ...(request.metadata || {}) };
+    metadata.cancellation = {
+      reason: trimmedReason,
+      cancelledBy: userId,
+      cancelledByRole: isCreator ? 'requester' : 'approver',
+      cancelledAt: new Date().toISOString(),
+      previousStatus,
+    };
+
+    const { error: updateError } = await supabaseAdmin
+      .from('requests')
+      .update({ status: 'cancelled', metadata, updated_at: new Date().toISOString() })
+      .eq('id', requestId);
+    if (updateError) {
+      console.error('Failed to cancel request:', updateError);
+      return { success: false, error: 'Failed to cancel request' };
+    }
+
+    // Take the CAPEX tracker row out of the active pipeline (no-op otherwise).
+    try {
+      await onCapexCancelled(requestId, userId);
+    } catch (e) {
+      console.error('onCapexCancelled failed on cancel:', e);
+    }
+
+    // Notify the other party (best-effort).
+    const orgId = request.organization_id;
+    const requestRef = (metadata as any)?.referenceCode || request.title || 'a request';
+    try {
+      if (isCreator) {
+        // Requester cancelled — tell any approver still expected to act.
+        const pendingApprovers = Array.from(
+          new Set(
+            steps
+              .filter((s) => (s.status === 'pending' || s.status === 'waiting') && s.approver_user_id)
+              .map((s) => s.approver_user_id as string)
+          )
+        );
+        for (const approverId of pendingApprovers) {
+          await this.notifyApprover(
+            requestId,
+            approverId,
+            orgId,
+            userId,
+            `The requester cancelled ${requestRef}. No further action is needed.`
+          );
+        }
+      } else {
+        // Approver cancelled — tell the requester.
+        await this.notifyRequester(
+          requestId,
+          request.creator_id,
+          orgId,
+          `${requestRef} was cancelled by an approver.\n\nReason: "${trimmedReason}"`,
+          undefined,
+          { title: 'Request cancelled', senderId: userId }
+        );
+      }
+    } catch (e) {
+      console.error('Failed to send cancellation notifications:', e);
+    }
+
+    return { success: true };
+  }
+
+  /**
    * Notify an approver about a pending request
    */
   private static async notifyApprover(
@@ -1085,6 +1371,17 @@ export class ApprovalEngine {
     } catch (error) {
       console.error('Failed to notify approver:', error);
     }
+
+    // Mirror the in-app task by email (gated by the approver's preferences).
+    await sendUserNotificationEmail({
+      userId: approverId,
+      kind: 'approval_tasks',
+      subject: 'Approval required — The Circle',
+      heading: 'A request is waiting for your approval',
+      bodyHtml: `<p>${escapeHtml(message).replace(/\n/g, '<br>')}</p>`,
+      actionUrl: `/requests/${requestId}`,
+      actionLabel: 'Review Request',
+    });
   }
   
   /**
@@ -1101,13 +1398,24 @@ export class ApprovalEngine {
     organizationId: string,
     message: string,
     requestType?: string,
-    options?: { title?: string; actionLabel?: string; senderId?: string | null }
+    options?: {
+      title?: string;
+      actionLabel?: string;
+      senderId?: string | null;
+      /**
+       * Whether to mirror this update by email. Defaults to true (gated by
+       * the requester's "request updates" preference). Full-approval events
+       * pass false because the richer completion email — with the signed PDF
+       * attached — is sent from pushApprovedPdfToMicrosoft instead.
+       */
+      sendEmail?: boolean;
+    }
   ): Promise<void> {
-    try {
-      // Determine the correct URL based on request type
-      const isComplimentaryRequest = requestType === 'hotel_booking' || requestType === 'voucher_request';
-      const actionUrl = isComplimentaryRequest ? `/requests/comp/${requestId}` : `/requests/${requestId}`;
+    // Determine the correct URL based on request type
+    const isComplimentaryRequest = requestType === 'hotel_booking' || requestType === 'voucher_request';
+    const actionUrl = isComplimentaryRequest ? `/requests/comp/${requestId}` : `/requests/${requestId}`;
 
+    try {
       await supabaseAdmin
         .from('notifications')
         .insert({
@@ -1130,6 +1438,18 @@ export class ApprovalEngine {
         });
     } catch (error) {
       console.error('Failed to notify requester:', error);
+    }
+
+    if (options?.sendEmail !== false) {
+      await sendUserNotificationEmail({
+        userId: requesterId,
+        kind: 'request_updates',
+        subject: `${options?.title || 'Request update'} — The Circle`,
+        heading: options?.title || 'Request update',
+        bodyHtml: `<p>${escapeHtml(message).replace(/\n/g, '<br>')}</p>`,
+        actionUrl,
+        actionLabel: options?.actionLabel || 'View Request',
+      });
     }
   }
 
@@ -1240,7 +1560,8 @@ export class ApprovalEngine {
       const storagePath = archiveResult?.archive?.storage_path;
       if (!archiveResult?.success || !storagePath) return;
 
-      // Resolve the requester's email for the OneDrive copy + Outlook mail.
+      // Resolve the requester's email for the OneDrive copy + Outlook mail,
+      // and their preferences for the per-user opt-outs.
       let recipientEmail: string | null = null;
       if (request.creator_id) {
         const { data: creator } = await supabaseAdmin
@@ -1250,13 +1571,62 @@ export class ApprovalEngine {
           .single();
         recipientEmail = creator?.email || null;
       }
+      const prefs = request.creator_id
+        ? await getUserPreferences(request.creator_id)
+        : null;
+
+      const referenceCode = request.metadata?.referenceCode || null;
+      const requestUrl = `${appBaseUrl()}/requests/${requestId}`;
 
       const res = await syncApprovedPdfToMicrosoft({
         storagePath,
-        referenceCode: request.metadata?.referenceCode || null,
+        referenceCode,
         title: request.title || null,
         recipientEmail,
+        requestUrl,
+        options: {
+          includeOneDrive: prefs?.autoArchiveOneDrive !== false,
+          includeEmail: prefs?.emailCompletionPdf !== false,
+          oneDriveFolder: prefs?.oneDriveFolder || null,
+        },
       });
+
+      // Remember where the document landed so the request page and archive
+      // view can offer "Open in OneDrive / SharePoint" links.
+      if (archiveResult?.archive?.id && (res.links.onedrive || res.links.sharepoint || res.links.teams)) {
+        const { error: linkError } = await supabaseAdmin
+          .from('archived_documents')
+          .update({
+            microsoft_links: res.links,
+            microsoft_synced_at: new Date().toISOString(),
+          })
+          .eq('id', archiveResult.archive.id);
+        if (linkError) console.error('Failed to persist Microsoft links on archive:', linkError);
+      }
+
+      // Completion email fallback: when Graph mail didn't send it (Graph not
+      // configured, or the send failed), deliver a link-only completion email
+      // through the shared transport (Graph → Resend) so the requester still
+      // hears about the outcome. Preference-gated inside.
+      if (!res.email && request.creator_id && prefs?.emailCompletionPdf !== false) {
+        const linkRows = [
+          res.links.onedrive && `<li><a href="${res.links.onedrive}">Open in your OneDrive</a></li>`,
+          res.links.sharepoint && `<li><a href="${res.links.sharepoint}">Open in SharePoint</a></li>`,
+        ].filter(Boolean).join('');
+        await sendUserNotificationEmail({
+          userId: request.creator_id,
+          email: recipientEmail,
+          kind: 'completion',
+          subject: `Approved: ${request.title || 'Your request'}${referenceCode ? ` (${referenceCode})` : ''}`,
+          heading: 'Request fully approved',
+          bodyHtml: `
+            <p><strong>${escapeHtml(request.title || 'Your request')}</strong>${referenceCode ? ` (${escapeHtml(referenceCode)})` : ''}
+            has completed its review. The signed approval document is ready to download from the request page.</p>
+            ${linkRows ? `<p>It has also been saved to your Microsoft 365:</p><ul>${linkRows}</ul>` : ''}`,
+          actionUrl: `/requests/${requestId}`,
+          actionLabel: 'View & download the approved PDF',
+        });
+      }
 
       if (res.teams || res.sharepoint || res.onedrive || res.email) {
         console.log(`Approved PDF synced for ${requestId} → teams:${res.teams} sharepoint:${res.sharepoint} onedrive:${res.onedrive} email:${res.email}`);

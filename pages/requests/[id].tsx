@@ -58,7 +58,7 @@ interface RequestDetail {
     id: string;
     title: string;
     description: string;
-    status: 'pending' | 'approved' | 'rejected' | 'in_review' | 'withdrawn' | 'draft';
+    status: 'pending' | 'approved' | 'rejected' | 'in_review' | 'withdrawn' | 'draft' | 'cancelled';
     created_at: string;
     updated_at: string;
     current_step: number;
@@ -121,6 +121,7 @@ const statusConfig: Record<string, { label: string; bg: string; text: string; ic
     approved: { label: 'Approved', bg: 'bg-emerald-100/50', text: 'text-emerald-700', icon: 'check-circle' },
     rejected: { label: 'Rejected', bg: 'bg-rose-100/50', text: 'text-rose-700', icon: 'x-circle' },
     withdrawn: { label: 'Withdrawn', bg: 'bg-gray-100/50', text: 'text-gray-500', icon: 'minus-circle' },
+    cancelled: { label: 'Cancelled', bg: 'bg-gray-100/50', text: 'text-gray-500', icon: 'minus-circle' },
     draft: { label: 'Draft', bg: 'bg-slate-100/50', text: 'text-slate-500', icon: 'document' },
 };
 
@@ -650,7 +651,7 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                                         </svg>
-                                                        Reviewed at {formatDateTime(approver.first_viewed_at)}
+                                                        Request opened at {formatDateTime(approver.first_viewed_at)}
                                                     </span>
                                                 ) : isActive ? (
                                                     <span className="inline-flex items-center gap-1 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5">
@@ -856,6 +857,124 @@ function WatchersCard({ watcherData }: { watcherData?: (string | WatcherData)[] 
                                 </p>
                             )}
                         </div>
+                    </div>
+                ))}
+            </div>
+        </Card>
+    );
+}
+
+// Inline editor used when a requester edits a REJECTED request before
+// resubmitting it. Renders the scalar form fields (skipping nested
+// objects/arrays and internal fields) as editable inputs. Nested structures
+// like budget tables aren't editable here — the requester adjusts the simple
+// fields to address the rejection, and title/description in the page header.
+function ResubmitFieldsEditor({
+    metadata,
+    onChange,
+}: {
+    metadata: Record<string, any> | undefined;
+    onChange: (key: string, value: any) => void;
+}) {
+    const formData = getFormData(metadata);
+    const entries = Object.entries(formData).filter(
+        ([key, value]) =>
+            !excludedFields.includes(key) &&
+            (value === null || value === undefined || typeof value !== 'object')
+    );
+
+    if (entries.length === 0) {
+        return (
+            <p className="text-sm text-gray-500">
+                This request has no inline-editable fields. You can still update the title and
+                description above, then resubmit.
+            </p>
+        );
+    }
+
+    return (
+        <div className="space-y-4">
+            {entries.map(([key, value]) => {
+                const str = value === null || value === undefined ? '' : String(value);
+                const isLong = str.length > 60 || key === 'description' || key === 'justification' || key === 'notes';
+                return (
+                    <div key={key}>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                            {getFieldLabel(key)}
+                        </label>
+                        {isLong ? (
+                            <textarea
+                                value={str}
+                                onChange={(e) => onChange(key, e.target.value)}
+                                className="w-full px-4 py-2.5 rounded-xl border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent min-h-[90px]"
+                            />
+                        ) : (
+                            <input
+                                type="text"
+                                value={str}
+                                onChange={(e) => onChange(key, e.target.value)}
+                                className="w-full px-4 py-2.5 rounded-xl border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                            />
+                        )}
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
+// Timeline card listing every prior submission round that ended in rejection,
+// reconstructed from metadata.resubmissionHistory. Together with the live
+// ApprovalTimeline (current round) and the Modification History this gives a
+// full chronological picture: original submission → rejection → resubmission.
+function ResubmissionHistoryCard({ history }: { history?: any[] }) {
+    if (!Array.isArray(history) || history.length === 0) return null;
+
+    return (
+        <Card className="!p-0 overflow-hidden border-rose-100 shadow-sm">
+            <div className="bg-rose-50/50 px-6 py-4 border-b border-rose-100 flex items-center justify-between">
+                <h3 className="font-semibold text-rose-800 flex items-center gap-2">
+                    <svg className="w-5 h-5 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M3 6h18M3 14h18M3 18h18" />
+                    </svg>
+                    Previous Submission Rounds
+                </h3>
+                <span className="text-sm text-rose-600 font-medium">
+                    {history.length} round{history.length !== 1 ? 's' : ''}
+                </span>
+            </div>
+            <div className="p-4 space-y-3">
+                {history.map((round: any, index: number) => (
+                    <div
+                        key={index}
+                        className="p-4 bg-white rounded-xl border border-gray-100"
+                    >
+                        <div className="flex items-center gap-2 flex-wrap mb-2">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-700">
+                                Round {round.version ?? index + 1} — Rejected
+                            </span>
+                            {round.referenceCode && (
+                                <span className="font-mono text-xs font-semibold text-gray-600 bg-gray-100 px-2 py-0.5 rounded border border-gray-200 tracking-wider">
+                                    {round.referenceCode}
+                                </span>
+                            )}
+                        </div>
+                        <p className="text-sm text-gray-700">
+                            Rejected by{' '}
+                            <span className="font-medium text-gray-900">
+                                {round.rejectedByName || 'An approver'}
+                            </span>
+                            {round.rejectedByRole ? ` (${round.rejectedByRole})` : ''}
+                            {round.rejectedAtStep ? ` at step ${round.rejectedAtStep}` : ''}
+                            {round.stepLabel ? ` (${round.stepLabel})` : ''}
+                            {round.rejectedAt ? ` on ${formatDateTime(round.rejectedAt)}` : ''}.
+                        </p>
+                        {round.comment && (
+                            <div className="mt-2 bg-rose-50/60 rounded-lg p-3 text-sm text-gray-700 border border-rose-100">
+                                <span className="text-xs font-semibold text-rose-700 uppercase tracking-wide">Reason</span>
+                                <p className="italic mt-1">&ldquo;{round.comment}&rdquo;</p>
+                            </div>
+                        )}
                     </div>
                 ))}
             </div>
@@ -1075,6 +1194,8 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     const [showReviewModal, setShowReviewModal] = useState(false);
     const [showApprovedPreview, setShowApprovedPreview] = useState(false);
     const [downloadingArchive, setDownloadingArchive] = useState(false);
+    // Where the approved PDF landed in Microsoft 365 (OneDrive/SharePoint webUrls).
+    const [archiveLinks, setArchiveLinks] = useState<{ onedrive?: string; sharepoint?: string; teams?: string } | null>(null);
     const [reviewComment, setReviewComment] = useState('');
     const [reviewProcessing, setReviewProcessing] = useState(false);
     const [reviewError, setReviewError] = useState<string | null>(null);
@@ -1112,6 +1233,15 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
         isSelectedSupplier: false,
         selectionReason: '',
     });
+    // Resubmission: tracks the in-flight POST while a rejected request is being
+    // edited and resent through its approvers. The edit UI itself reuses the
+    // existing `isEditing` / `editedRequest` state.
+    const [submittingResubmit, setSubmittingResubmit] = useState(false);
+    // Cancellation: a requester or approver can cancel at any stage (with a
+    // mandatory reason), including after full approval.
+    const [showCancelModal, setShowCancelModal] = useState(false);
+    const [cancelReason, setCancelReason] = useState('');
+    const [cancelling, setCancelling] = useState(false);
 
     const currentUserId = (session?.user as any)?.id;
     const isCreator = request?.creator?.id === currentUserId;
@@ -1245,6 +1375,32 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
         return request.status;
     };
     const actualStatus = computeActualStatus();
+
+    // Resubmission affordance: the creator of a rejected request may edit it
+    // and send it back through the approval chain (see /api/requests/[id]/resubmit).
+    const canResubmit = isCreator && (actualStatus || request?.status) === 'rejected';
+    const isResubmitting = isEditing && canResubmit;
+
+    // Details of the rejection that is currently blocking the request — used to
+    // surface the reason to the requester and inside the resubmission editor.
+    const rejectedStepInfo = (() => {
+        const step = (request?.request_steps || []).find(s => s.status === 'rejected');
+        if (!step) return null;
+        const approval = step.approvals?.find((a: any) => a.decision === 'rejected') || step.approvals?.[0];
+        return {
+            comment: approval?.comment || null,
+            approverName: step.approver?.display_name || approval?.approver?.display_name || 'An approver',
+            signedAt: approval?.signed_at || null,
+        };
+    })();
+
+    // Cancellation: either the requester or any approver on the request may
+    // cancel it, at any stage — including after it is fully approved. The only
+    // states that can't be cancelled are already-cancelled and withdrawn.
+    const isApprover = (request?.request_steps || []).some(s => s.approver?.id === currentUserId);
+    const cancellableStatus = !!request && !['cancelled', 'withdrawn', 'draft'].includes(actualStatus || request.status);
+    const canCancel = (isCreator || isApprover) && cancellableStatus;
+    const cancellationInfo = (request?.metadata?.cancellation as any) || null;
 
     // Seed HRD cost allocation from existing metadata when opening modal
     useEffect(() => {
@@ -1590,6 +1746,171 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
             setPublishError(err.message || 'Failed to save draft');
         } finally {
             setSavingDraft(false);
+        }
+    };
+
+    // Request types whose dedicated form page supports `?edit=<id>` creator
+    // editing. For these we route the requester through the full structured
+    // form (which PUTs to /api/requests/[id]; the API treats a rejected-request
+    // edit as a resubmission). Types not listed here fall back to the inline
+    // editor below.
+    const RESUBMIT_FORM_ROUTES: Record<string, string> = {
+        capex: 'capex',
+        travel_authorization: 'travel-auth',
+        petty_cash: 'petty-cash',
+        journal_entry: 'journals',
+        journals: 'journals',
+        inter_unit_debit_note: 'inter-unit-debit-note',
+        inter_unit_credit_note: 'inter-unit-credit-note',
+        external_hotel_booking: 'external-comp-booking',
+        external_comp_booking: 'external-comp-booking',
+    };
+
+    // Enter the inline "edit & resubmit" flow for a rejected request. Reuses the
+    // existing inline-edit state (title/description in the header, form fields
+    // in the Details tab) and jumps the user straight to the editable fields.
+    const startResubmit = () => {
+        if (!request || !canResubmit) return;
+        setPublishError(null);
+        setEditedRequest(JSON.parse(JSON.stringify(request)));
+        setIsEditing(true);
+        setActiveTab('details');
+    };
+
+    // Entry point for "Edit & Resubmit". Prefer the request's full form (so the
+    // requester can re-edit structured data like budgets and itineraries);
+    // fall back to the lightweight inline editor for types without an
+    // edit-capable form page.
+    const beginResubmit = () => {
+        if (!request || !canResubmit) return;
+        const requestType = request.metadata?.type || request.metadata?.requestType;
+        const route = requestType ? RESUBMIT_FORM_ROUTES[requestType] : undefined;
+        if (route) {
+            router.push(`/requests/new/${route}?edit=${id}`);
+            return;
+        }
+        startResubmit();
+    };
+
+    const cancelResubmit = () => {
+        setIsEditing(false);
+        setEditedRequest(null);
+        setPublishError(null);
+    };
+
+    // Collect the edits and resubmit the rejected request. The server versions
+    // the reference (-R{n}), preserves the rejection history, rebuilds the
+    // approval steps and re-notifies the approver(s).
+    const handleResubmit = async () => {
+        if (!id || !canResubmit || !editedRequest || !request) return;
+
+        setSubmittingResubmit(true);
+        setPublishError(null);
+
+        try {
+            // Diff the editable (scalar) form fields against the original.
+            const originalFormData = getFormData(request.metadata);
+            const editedFormData = getFormData(editedRequest.metadata);
+            const fieldChanges: { fieldName: string; oldValue: any; newValue: any }[] = [];
+            for (const key of Object.keys(editedFormData)) {
+                const value = editedFormData[key];
+                if (value !== null && value !== undefined && typeof value === 'object') continue;
+                if (String(value ?? '') !== String(originalFormData[key] ?? '')) {
+                    fieldChanges.push({ fieldName: key, oldValue: originalFormData[key], newValue: value });
+                }
+            }
+
+            const response = await fetch(`/api/requests/${id}/resubmit`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: editedRequest.title,
+                    description: editedRequest.description,
+                    fieldChanges,
+                }),
+            });
+
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to resubmit request');
+            }
+
+            addToast({
+                type: 'success',
+                title: 'Request resubmitted',
+                message: data.newReference
+                    ? `Sent back to your approvers as ${data.newReference}.`
+                    : 'Sent back to your approvers for review.',
+            });
+
+            // Refresh the request and its modification history.
+            const refreshResponse = await fetch(`/api/requests/${id}`);
+            if (refreshResponse.ok) {
+                const refreshData = await refreshResponse.json();
+                setRequest(refreshData.request);
+            }
+            await fetchModifications();
+
+            setIsEditing(false);
+            setEditedRequest(null);
+            setActiveTab('timeline');
+        } catch (err: any) {
+            console.error('Error resubmitting request:', err);
+            setPublishError(err.message || 'Failed to resubmit request');
+            addToast({
+                type: 'error',
+                title: 'Resubmission failed',
+                message: err.message || 'Failed to resubmit request',
+            });
+        } finally {
+            setSubmittingResubmit(false);
+        }
+    };
+
+    // Cancel the request (requester or approver) with a mandatory reason.
+    const handleCancel = async () => {
+        if (!id || !canCancel) return;
+        const reason = cancelReason.trim();
+        if (!reason) {
+            addToast({ type: 'error', title: 'Reason required', message: 'Please provide a reason for cancelling.' });
+            return;
+        }
+        setCancelling(true);
+        try {
+            const response = await fetch(`/api/requests/${id}/cancel`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reason }),
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to cancel request');
+            }
+
+            addToast({
+                type: 'success',
+                title: 'Request cancelled',
+                message: 'The request has been cancelled and the other parties notified.',
+            });
+
+            const refreshResponse = await fetch(`/api/requests/${id}`);
+            if (refreshResponse.ok) {
+                const refreshData = await refreshResponse.json();
+                setRequest(refreshData.request);
+            }
+            await fetchModifications();
+
+            setShowCancelModal(false);
+            setCancelReason('');
+        } catch (err: any) {
+            console.error('Error cancelling request:', err);
+            addToast({
+                type: 'error',
+                title: 'Cancellation failed',
+                message: err.message || 'Failed to cancel request',
+            });
+        } finally {
+            setCancelling(false);
         }
     };
 
@@ -1942,6 +2263,29 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
         window.open(`/api/requests/${id}/pdf`, '_blank');
     };
 
+    // Once fully approved, fetch the archive record so we can surface the
+    // OneDrive/SharePoint copies alongside the manual download. This also
+    // pre-warms the archive for older requests (the endpoint generates it on
+    // demand when missing).
+    useEffect(() => {
+        if (!id || request?.status !== 'approved') return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetch(`/api/requests/${id}/archive`);
+                if (!res.ok) return;
+                const data = await res.json();
+                if (!cancelled && data?.archive?.microsoft_links) {
+                    setArchiveLinks(data.archive.microsoft_links);
+                }
+            } catch {
+                // Non-fatal — the Download button still works via its own fetch.
+            }
+        })();
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [id, request?.status]);
+
     /**
      * Download the archived (auto-generated) PDF of a fully-approved request.
      * The endpoint will mint the archive on demand if it doesn't exist yet
@@ -2066,8 +2410,12 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     const statusInfo = statusConfig[actualStatus || request.status] || statusConfig.pending;
 
     const priority = request.metadata?.priority || 'normal';
-    const isCritical = priority === 'critical';
-    const isHighPriority = priority === 'high';
+    // Urgency banner + pulsing border should only run while the request still
+    // needs action — stop it once the request is resolved (approved/rejected/etc).
+    const displayStatus = actualStatus || request.status;
+    const isResolvedStatus = ['approved', 'rejected', 'withdrawn', 'cancelled', 'completed'].includes(displayStatus);
+    const isCritical = priority === 'critical' && !isResolvedStatus;
+    const isHighPriority = priority === 'high' && !isResolvedStatus;
 
     return (
         <AppLayout title={`Request #${request.id.substring(0, 8)}`}>
@@ -2359,6 +2707,33 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                 <span style={{ color: '#ffffff' }}>{downloadingArchive ? 'Preparing…' : 'Download'}</span>
                             </Button>
                         )}
+                        {/* Microsoft 365 copies — appear once the approved PDF has been
+                            auto-archived to the requester's OneDrive / the organisation's
+                            SharePoint library. */}
+                        {request.status === 'approved' && archiveLinks?.onedrive && (
+                            <Button
+                                variant="outline"
+                                className="gap-2 bg-white text-[#0364B8] border-[#B3D4EE] hover:bg-[#EFF6FC]"
+                                onClick={() => window.open(archiveLinks.onedrive, '_blank', 'noopener,noreferrer')}
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+                                </svg>
+                                Open in OneDrive
+                            </Button>
+                        )}
+                        {request.status === 'approved' && archiveLinks?.sharepoint && (
+                            <Button
+                                variant="outline"
+                                className="gap-2 bg-white text-[#036C70] border-[#A5D2D4] hover:bg-[#EBF5F5]"
+                                onClick={() => window.open(archiveLinks.sharepoint, '_blank', 'noopener,noreferrer')}
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+                                </svg>
+                                Open in SharePoint
+                            </Button>
+                        )}
                         {/* Edit Draft button - navigates to the form page */}
                         {canPublish && (
                             <Button
@@ -2412,8 +2787,124 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                 Review Request
                             </Button>
                         )}
+                        {/* Edit & Resubmit — only for the creator of a rejected request */}
+                        {canResubmit && !isResubmitting && (
+                            <Button
+                                variant="primary"
+                                className="gap-2 shadow-lg shadow-primary-500/20"
+                                onClick={beginResubmit}
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                                Edit &amp; Resubmit
+                            </Button>
+                        )}
+                        {/* Resubmission edit mode: cancel / submit */}
+                        {isResubmitting && (
+                            <>
+                                <Button
+                                    variant="outline"
+                                    className="gap-2 bg-white text-text-secondary border-gray-200 hover:bg-gray-50"
+                                    onClick={cancelResubmit}
+                                    disabled={submittingResubmit}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    variant="primary"
+                                    className="gap-2 shadow-lg shadow-primary-500/20"
+                                    onClick={handleResubmit}
+                                    disabled={submittingResubmit}
+                                    isLoading={submittingResubmit}
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                                    </svg>
+                                    {submittingResubmit ? 'Resubmitting…' : 'Submit Resubmission'}
+                                </Button>
+                            </>
+                        )}
+                        {/* Cancel Request — requester or approver, at any stage (incl. approved) */}
+                        {canCancel && !isResubmitting && (
+                            <Button
+                                variant="outline"
+                                className="gap-2 bg-white text-danger-600 border-danger-200 hover:bg-danger-50"
+                                onClick={() => { setCancelReason(''); setShowCancelModal(true); }}
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                                </svg>
+                                Cancel Request
+                            </Button>
+                        )}
                     </div>
                 </div>
+
+                {/* Rejection banner — shown to the requester on a rejected request so the
+                    reason is front-and-centre alongside the resubmit affordance. */}
+                {canResubmit && (
+                    <Card className="!p-5 border-rose-200 bg-rose-50/50 shadow-sm">
+                        <div className="flex items-start gap-3">
+                            <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center flex-shrink-0">
+                                <svg className="w-5 h-5 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="font-semibold text-rose-800">
+                                    This request was rejected{rejectedStepInfo?.approverName ? ` by ${rejectedStepInfo.approverName}` : ''}
+                                    {rejectedStepInfo?.signedAt ? ` on ${formatDateTime(rejectedStepInfo.signedAt)}` : ''}.
+                                </p>
+                                {rejectedStepInfo?.comment ? (
+                                    <div className="mt-2 bg-white rounded-lg p-3 text-sm text-gray-700 border border-rose-100">
+                                        <span className="text-xs font-semibold text-rose-700 uppercase tracking-wide">Rejection reason</span>
+                                        <p className="italic mt-1">&ldquo;{rejectedStepInfo.comment}&rdquo;</p>
+                                    </div>
+                                ) : (
+                                    <p className="text-sm text-rose-600 mt-1">No reason was provided.</p>
+                                )}
+                                <p className="text-sm text-rose-700 mt-2">
+                                    {isResubmitting
+                                        ? 'Edit the fields below to address the feedback, then choose “Submit Resubmission”. A new versioned reference will be generated and your approvers re-notified.'
+                                        : 'Use “Edit & Resubmit” to address the feedback and send it back through the approval chain.'}
+                                </p>
+                            </div>
+                        </div>
+                    </Card>
+                )}
+
+                {/* Cancellation banner — shown once a request has been cancelled. */}
+                {(actualStatus || request.status) === 'cancelled' && cancellationInfo && (
+                    <Card className="!p-5 border-gray-300 bg-gray-50 shadow-sm">
+                        <div className="flex items-start gap-3">
+                            <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
+                                <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                                </svg>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="font-semibold text-gray-800">
+                                    This request was cancelled
+                                    {cancellationInfo.cancelledByName ? ` by ${cancellationInfo.cancelledByName}` : ''}
+                                    {cancellationInfo.cancelledByKind ? ` (${cancellationInfo.cancelledByKind})` : ''}
+                                    {cancellationInfo.cancelledAt ? ` on ${formatDateTime(cancellationInfo.cancelledAt)}` : ''}.
+                                </p>
+                                {cancellationInfo.previousStatus && (
+                                    <p className="text-sm text-gray-500 mt-0.5">
+                                        Cancelled from status: <span className="font-medium">{cancellationInfo.previousStatus}</span>
+                                    </p>
+                                )}
+                                {cancellationInfo.reason && (
+                                    <div className="mt-2 bg-white rounded-lg p-3 text-sm text-gray-700 border border-gray-200">
+                                        <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Cancellation reason</span>
+                                        <p className="italic mt-1">&ldquo;{cancellationInfo.reason}&rdquo;</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </Card>
+                )}
 
                 {/* Main Content Grid */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -2480,17 +2971,36 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                         </Card>
                                     )}
 
-                                    {/* Dynamic Form Details - renders all form fields based on configuration */}
-                                    <DynamicFormDetails 
-                                        metadata={request.metadata || {}}
-                                        requestType={request.metadata?.type || 'approval'}
-                                        description={request.description}
-                                    />
+                                    {/* Resubmission edit mode: editable form fields for the requester */}
+                                    {isResubmitting && editedRequest ? (
+                                        <Card className="!p-6 border-primary-200 bg-primary-50/30 shadow-sm">
+                                            <div className="flex items-center gap-2 mb-4">
+                                                <svg className="w-5 h-5 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                                </svg>
+                                                <h3 className="font-semibold text-primary-800">Edit request fields</h3>
+                                            </div>
+                                            <ResubmitFieldsEditor
+                                                metadata={editedRequest.metadata}
+                                                onChange={handleMetadataChange}
+                                            />
+                                        </Card>
+                                    ) : (
+                                        /* Dynamic Form Details - renders all form fields based on configuration */
+                                        <DynamicFormDetails
+                                            metadata={request.metadata || {}}
+                                            requestType={request.metadata?.type || 'approval'}
+                                            description={request.description}
+                                        />
+                                    )}
                                 </div>
                             )}
 
                             {activeTab === 'timeline' && (
                                 <div className="space-y-6">
+                                    {/* Prior rejected rounds (original submission → rejection history) */}
+                                    <ResubmissionHistoryCard history={request.metadata?.resubmissionHistory} />
+
                                     <ApprovalTimeline
                                         request={isEditing && editedRequest ? editedRequest : request}
                                         isEditing={isEditing && canPublish}
@@ -2531,15 +3041,21 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                                             <div className="flex items-center gap-2 flex-wrap">
                                                                 <span className="font-semibold text-gray-900 text-sm">{mod.modified_by?.display_name || 'Unknown User'}</span>
                                                                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                                                                    mod.modification_type === 'field_edit' 
-                                                                        ? 'bg-[#F3EADC] text-[#5E4426]' 
+                                                                    mod.modification_type === 'field_edit'
+                                                                        ? 'bg-[#F3EADC] text-[#5E4426]'
                                                                         : mod.modification_type === 'document_upload'
                                                                             ? 'bg-green-100 text-green-700'
-                                                                            : 'bg-red-100 text-red-700'
+                                                                            : mod.modification_type === 'resubmission'
+                                                                                ? 'bg-blue-100 text-blue-700'
+                                                                                : mod.modification_type === 'cancellation'
+                                                                                    ? 'bg-gray-200 text-gray-700'
+                                                                                    : 'bg-red-100 text-red-700'
                                                                 }`}>
                                                                     {mod.modification_type === 'field_edit' && 'Edited Field'}
                                                                     {mod.modification_type === 'document_upload' && 'Uploaded Document'}
                                                                     {mod.modification_type === 'document_delete' && 'Deleted Document'}
+                                                                    {mod.modification_type === 'resubmission' && 'Resubmitted'}
+                                                                    {mod.modification_type === 'cancellation' && 'Cancelled'}
                                                                 </span>
                                                             </div>
                                                             <div className="text-sm text-gray-600 mt-1">
@@ -2559,6 +3075,22 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                                                 )}
                                                                 {mod.modification_type === 'document_delete' && (
                                                                     <>Deleted <span className="font-medium text-gray-800">{mod.document_filename}</span></>
+                                                                )}
+                                                                {mod.modification_type === 'resubmission' && (
+                                                                    <>
+                                                                        Resubmitted the request
+                                                                        {mod.new_value && (
+                                                                            <> as <span className="font-medium text-gray-800">{mod.new_value}</span></>
+                                                                        )}
+                                                                    </>
+                                                                )}
+                                                                {mod.modification_type === 'cancellation' && (
+                                                                    <>
+                                                                        Cancelled the request
+                                                                        {mod.new_value && (
+                                                                            <>: <span className="italic text-gray-700">&ldquo;{mod.new_value}&rdquo;</span></>
+                                                                        )}
+                                                                    </>
                                                                 )}
                                                             </div>
                                                             <div className="text-xs text-gray-400 mt-1">
@@ -3177,6 +3709,57 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                     isLoading={deleting}
                                 >
                                     {deleting ? 'Deleting...' : 'Delete Request'}
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Cancel Request Modal — requires a reason */}
+                {showCancelModal && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[120] p-4">
+                        <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl">
+                            <div className="flex items-center gap-4 mb-4">
+                                <div className="w-12 h-12 rounded-full bg-danger-100 flex items-center justify-center flex-shrink-0">
+                                    <svg className="w-6 h-6 text-danger-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-bold text-text-primary">Cancel Request</h3>
+                                    <p className="text-sm text-text-secondary">The record is kept; the request is marked cancelled</p>
+                                </div>
+                            </div>
+                            <p className="text-text-secondary mb-3 text-sm">
+                                Cancelling &ldquo;<span className="font-medium text-text-primary">{request.title}</span>&rdquo;
+                                {(actualStatus || request.status) === 'approved' ? ' (currently approved)' : ''}. The requester and
+                                approvers will be notified. Please explain why this request is being cancelled.
+                            </p>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Reason for cancellation <span className="text-danger-600">*</span>
+                            </label>
+                            <textarea
+                                value={cancelReason}
+                                onChange={(e) => setCancelReason(e.target.value)}
+                                placeholder="e.g. Project shelved / duplicate request / no longer required…"
+                                className="w-full px-4 py-2.5 rounded-xl border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-danger-500 focus:border-transparent min-h-[100px] mb-5"
+                                autoFocus
+                            />
+                            <div className="flex gap-3 justify-end">
+                                <Button
+                                    variant="outline"
+                                    onClick={() => { setShowCancelModal(false); setCancelReason(''); }}
+                                    disabled={cancelling}
+                                >
+                                    Keep Request
+                                </Button>
+                                <Button
+                                    variant="danger"
+                                    onClick={handleCancel}
+                                    disabled={cancelling || !cancelReason.trim()}
+                                    isLoading={cancelling}
+                                >
+                                    {cancelling ? 'Cancelling…' : 'Cancel Request'}
                                 </Button>
                             </div>
                         </div>

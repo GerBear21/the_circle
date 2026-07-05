@@ -450,7 +450,8 @@ export const getServerSideProps: GetServerSideProps<AllRequestsPageProps> = asyn
             id,
             status,
             approver_user_id
-          )
+          ),
+          documents ( id )
         `)
         .eq('organization_id', organizationId)
         .order('created_at', { ascending: false })
@@ -508,8 +509,13 @@ export const getServerSideProps: GetServerSideProps<AllRequestsPageProps> = asyn
         },
         current_approver: req.metadata?.current_approver || null,
         due_date: req.metadata?.due_date || null,
-        reference_number: req.metadata?.reference_number || `REQ-${req.id?.substring(0, 8)?.toUpperCase() || ''}`,
-        attachments_count: req.metadata?.attachments_count || 0,
+        // Use the real, persisted reference code (e.g. CPX-…, PCV-…) so the
+        // card shows the same id seen on the request / preview / PDF.
+        reference_number: req.metadata?.referenceCode || req.metadata?.reference_number || `REQ-${req.id?.substring(0, 8)?.toUpperCase() || ''}`,
+        // Real attachment count = uploaded documents + any supporting docs
+        // recorded in metadata (covers both storage paths).
+        attachments_count: (Array.isArray(req.documents) ? req.documents.length : 0)
+          + (Array.isArray(req.metadata?.supportingDocuments) ? req.metadata.supportingDocuments.length : 0),
         comments_count: req.metadata?.comments_count || 0,
       }));
     }
@@ -574,7 +580,6 @@ export default function AllRequestsPage({ initialRequests }: AllRequestsPageProp
     pending: requests.filter((r) => r.status === 'pending' || r.status === 'in_review').length,
     approved: requests.filter((r) => r.status === 'approved').length,
     rejected: requests.filter((r) => r.status === 'rejected').length,
-    totalAmount: requests.reduce((sum, r) => sum + (r.amount || 0), 0),
   };
 
   const formatDate = (dateString: string) => {
@@ -690,7 +695,7 @@ export default function AllRequestsPage({ initialRequests }: AllRequestsPageProp
         )}
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
           <Card className="!p-4">
             <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
             <div className="text-sm text-gray-500">Total Requests</div>
@@ -706,10 +711,6 @@ export default function AllRequestsPage({ initialRequests }: AllRequestsPageProp
           <Card className="!p-4">
             <div className="text-2xl font-bold text-red-600">{stats.rejected}</div>
             <div className="text-sm text-gray-500">Rejected</div>
-          </Card>
-          <Card className="!p-4 col-span-2 sm:col-span-1">
-            <div className="text-2xl font-bold text-gray-900">{formatCurrency(stats.totalAmount)}</div>
-            <div className="text-sm text-gray-500">Total Value</div>
           </Card>
         </div>
 
@@ -899,9 +900,10 @@ export default function AllRequestsPage({ initialRequests }: AllRequestsPageProp
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <h3 className="font-medium text-gray-900 truncate">{request.title}</h3>
-                            <span className="text-xs text-gray-400 font-mono">{request.reference_number}</span>
+                            <span className="text-[11px] font-mono font-semibold text-[#5E4426] bg-[#F3EADC] border border-[#C9B896] px-1.5 py-0.5 rounded">{request.reference_number}</span>
+                            <span className="text-[10px] uppercase tracking-wide text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded">{typeInfo.label}</span>
                           </div>
-                          <p className="text-sm text-gray-500 mt-0.5 line-clamp-1">{request.description}</p>
+                          <p className="text-sm text-gray-500 mt-1 line-clamp-2">{request.description}</p>
                         </div>
                         <div className="flex flex-col items-end gap-1 flex-shrink-0">
                           <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${statusInfo.bg} ${statusInfo.text}`}>

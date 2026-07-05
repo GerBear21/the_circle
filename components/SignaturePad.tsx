@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import SignatureCanvas from 'react-signature-canvas';
+import { useSignatureCanvasAutosize } from '../hooks/useSignatureCanvasAutosize';
 import { QRCodeSVG } from 'qrcode.react';
 import { v4 as uuidv4 } from 'uuid';
 import Button from './ui/Button'; // Assuming Button component exists or I'll use standard button
@@ -27,6 +28,10 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
     const [activeTab, setActiveTab] = useState<'draw' | 'upload' | 'mobile'>('draw');
     const [currentSignature, setCurrentSignature] = useState<string | null>(initialUrl || null);
     const sigCanvas = useRef<SignatureCanvas>(null);
+
+    // Keep the canvas backing store matched to its CSS size so strokes land
+    // exactly under the pen/finger.
+    useSignatureCanvasAutosize(() => sigCanvas.current, [activeTab, currentSignature]);
 
     const [statusMessage, setStatusMessage] = useState<string>('');
 
@@ -217,6 +222,8 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
                                     ref={sigCanvas}
                                     canvasProps={{
                                         className: 'w-full h-40 cursor-crosshair rounded-lg',
+                                        // Stop touch scrolling from hijacking pen/finger strokes.
+                                        style: { touchAction: 'none' },
                                     }}
                                     backgroundColor="rgba(255, 255, 255, 0)"
                                 />

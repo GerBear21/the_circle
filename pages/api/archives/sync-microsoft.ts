@@ -4,6 +4,8 @@ import { authOptions } from '../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { syncApprovedPdfToMicrosoft, isDocumentUploadConfigured } from '@/lib/graphDocumentUpload';
 import { audit } from '@/lib/auditLog';
+import { getUserPreferences } from '@/lib/userPreferences';
+import { appBaseUrl } from '@/lib/notificationEmail';
 
 /**
  * POST /api/archives/sync-microsoft { archiveId }
@@ -45,12 +47,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(403).json({ error: 'Forbidden' });
     }
 
+    // Manual, user-triggered sync — always attempt every leg, but respect the
+    // caller's custom OneDrive folder.
+    const prefs = await getUserPreferences(user.id);
     const result = await syncApprovedPdfToMicrosoft({
       storagePath: archive.storage_path,
       referenceCode: archive.request_reference,
       title: archive.request_title,
       recipientEmail: user.email || null,
+      requestUrl: archive.request_id ? `${appBaseUrl()}/requests/${archive.request_id}` : null,
+      options: { oneDriveFolder: prefs.oneDriveFolder },
     });
+
+    if (result.links.onedrive || result.links.sharepoint || result.links.teams) {
+      await supabaseAdmin
+        .from('archived_documents')
+        .update({ microsoft_links: result.links, microsoft_synced_at: new Date().toISOString() })
+        .eq('id', archive.id);
+    }
 
     await audit(req, user, {
       category: 'activity',

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input, RequestPreviewModal, UnsavedChangesModal } from '../../../components/ui';
 import type { PreviewSection } from '../../../components/ui';
-import { useUnsavedChangesPrompt } from '../../../hooks';
+import { useUnsavedChangesPrompt, useFormAutosave } from '../../../hooks';
 
 export default function NewApprovalRequestPage() {
   const { data: session, status } = useSession();
@@ -22,6 +22,16 @@ export default function NewApprovalRequestPage() {
   // Unsaved-changes tracking — flipped true on first real user interaction via form onChange.
   const [isDirty, setIsDirty] = useState(false);
   const unsavedPrompt = useUnsavedChangesPrompt({ isDirty, disabled: loading });
+
+  // Autosave / crash recovery (serializable slices only).
+  useFormAutosave({
+    formKey: 'approval',
+    data: { formData },
+    onRestore: (saved) => {
+      if (saved.formData) setFormData(saved.formData);
+      setIsDirty(true);
+    },
+  });
 
   useEffect(() => {
     if (status === 'unauthenticated') {

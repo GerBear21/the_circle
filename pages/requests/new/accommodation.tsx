@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import { useEffect } from 'react';
 import { AppLayout } from '../../../components/layout';
 import { Users, Building2, Ticket, Check, ArrowRight, type LucideIcon } from 'lucide-react';
+import { useRBAC } from '../../../contexts/RBACContext';
 
 interface AccommodationOptionCardProps {
   onClick: () => void;
@@ -59,6 +60,8 @@ function AccommodationOptionCard({ onClick, badge, title, subtitle, tags, Icon }
 export default function AccommodationPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const { hasPermission } = useRBAC();
+  const canCreateVoucher = hasPermission('vouchers.create');
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -113,14 +116,16 @@ export default function AccommodationPage() {
             tags={['External guests', 'Guest details required']}
             Icon={Building2}
           />
-          <AccommodationOptionCard
-            onClick={() => router.push('/requests/new/voucher')}
-            badge="Voucher"
-            title="Voucher Request"
-            subtitle="Secure an accommodation voucher for external use."
-            tags={['Prepaid voucher', 'Flexible redemption']}
-            Icon={Ticket}
-          />
+          {canCreateVoucher && (
+            <AccommodationOptionCard
+              onClick={() => router.push('/requests/new/voucher')}
+              badge="Voucher"
+              title="Voucher Request"
+              subtitle="Secure an accommodation voucher for external use."
+              tags={['Prepaid voucher', 'Flexible redemption']}
+              Icon={Ticket}
+            />
+          )}
         </div>
       </div>
     </AppLayout>

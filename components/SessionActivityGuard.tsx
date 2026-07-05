@@ -1,76 +1,76 @@
-import { useEffect, useRef } from 'react';
-import { useSession, signOut } from 'next-auth/react';
-import {
-  IDLE_TIMEOUT_MS,
-  ABSOLUTE_TIMEOUT_MS,
-  ACTIVE_SESSION_FLAG,
-} from '../lib/sessionTimeout';
+import { useEffect, useRef, useState } from 'react';
+import { useSession, signOut, getSession } from 'next-auth/react';
+import { IDLE_TIMEOUT_MS, ABSOLUTE_TIMEOUT_MS } from '../lib/sessionTimeout';
 
-// How often the watchdog checks the idle / absolute deadlines.
-const CHECK_INTERVAL_MS = 15 * 1000;
+// How often the watchdog re-evaluates the idle / absolute deadlines. Runs every
+// second so the warning countdown stays accurate.
+const CHECK_INTERVAL_MS = 1000;
 // Minimum gap between server-side session refreshes triggered by activity.
 const REFRESH_THROTTLE_MS = 60 * 1000;
+// How long before a deadline we warn the user, giving them a chance to stay
+// signed in (idle) or save their work (absolute) instead of losing it.
+const WARNING_LEAD_MS = 60 * 1000;
 
 const ACTIVITY_EVENTS = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click'];
+
+type WarningType = 'idle' | 'absolute';
 
 /**
  * Client-side enforcement of the session policy (see lib/sessionTimeout.ts):
  *
  *   - Idle timeout (15 min): on user activity we refresh the next-auth session
  *     (throttled), which rolls the JWT `exp` forward. With no activity the
- *     token lapses server-side and the user is signed out.
- *   - Absolute timeout (30 min): a hard cap measured from `loginAt`; we sign
- *     the user out when it elapses regardless of activity.
- *   - Page-close termination: sessionStorage is wiped when the tab/page closes.
- *     If we load authenticated but the flag is gone, the page was re-opened on a
- *     surviving cookie — force a fresh login.
+ *     token lapses server-side and the user is signed out. We surface a warning
+ *     60s before the deadline; any activity (or the "Stay signed in" button)
+ *     extends the session so active users never lose their work.
+ *   - Absolute timeout (30 min): a hard cap measured from `loginAt`; activity
+ *     cannot extend it, so we warn 60s ahead to let the user save/submit before
+ *     they are signed out.
  *
- * Renders nothing.
+ * Renders a warning modal when a deadline is near; otherwise renders nothing.
+ *
+ * Note: browser-close termination is enforced by the session cookie (it has no
+ * maxAge, so it is dropped when the browser closes). We deliberately do NOT use
+ * a per-tab sessionStorage flag to force sign-out, because that signed users
+ * out whenever they opened the app in a second tab — and signOut clears the
+ * cookie for every tab, wiping work in progress.
  */
 export default function SessionActivityGuard() {
-  const { data: session, status, update } = useSession();
+  const { data: session, status } = useSession();
   const lastActivityRef = useRef<number>(Date.now());
   const lastRefreshRef = useRef<number>(0);
   const signingOutRef = useRef<boolean>(false);
 
+  const [warning, setWarning] = useState<{ type: WarningType; remaining: number } | null>(null);
+
   const loginAt = (session as any)?.loginAt as number | undefined;
 
   useEffect(() => {
-    if (status !== 'authenticated') return;
+    if (status !== 'authenticated') {
+      setWarning(null);
+      return;
+    }
 
     const endSession = (reason: string) => {
       if (signingOutRef.current) return;
       signingOutRef.current = true;
-      try {
-        sessionStorage.removeItem(ACTIVE_SESSION_FLAG);
-      } catch {
-        /* ignore */
-      }
       // eslint-disable-next-line no-console
       console.info(`[session] signing out: ${reason}`);
       signOut({ callbackUrl: '/' });
     };
 
-    // Page-close termination: authenticated cookie survived but the per-tab
-    // flag did not ⇒ the page was closed and re-opened.
-    let hasFlag = false;
-    try {
-      hasFlag = sessionStorage.getItem(ACTIVE_SESSION_FLAG) === '1';
-    } catch {
-      hasFlag = true; // if sessionStorage is unavailable, don't lock the user out
-    }
-    if (!hasFlag) {
-      endSession('page reopened (sessionStorage flag missing)');
-      return;
-    }
-
     const markActivity = () => {
       lastActivityRef.current = Date.now();
       // Roll the server-side session forward, but no more than once a minute.
+      // We use getSession() rather than next-auth's update(): update() flips the
+      // global session status to "loading" while it revalidates, which makes
+      // every `status === 'loading'` guard swap the page for a loader and remount
+      // it (resetting scroll position mid-form). getSession() rolls the cookie
+      // (updateAge re-issues the JWT) without ever toggling the loading state.
       const now = Date.now();
       if (now - lastRefreshRef.current > REFRESH_THROTTLE_MS) {
         lastRefreshRef.current = now;
-        update();
+        void getSession();
       }
     };
 
@@ -85,12 +85,24 @@ export default function SessionActivityGuard() {
 
     const interval = setInterval(() => {
       const now = Date.now();
-      if (now - lastActivityRef.current >= IDLE_TIMEOUT_MS) {
-        endSession('idle timeout');
+      const idleDeadline = lastActivityRef.current + IDLE_TIMEOUT_MS;
+      const absoluteDeadline =
+        typeof loginAt === 'number' ? loginAt + ABSOLUTE_TIMEOUT_MS : Infinity;
+
+      // Whichever deadline comes first governs.
+      const deadline = Math.min(idleDeadline, absoluteDeadline);
+      const type: WarningType = idleDeadline <= absoluteDeadline ? 'idle' : 'absolute';
+
+      if (now >= deadline) {
+        endSession(type === 'idle' ? 'idle timeout' : 'absolute timeout');
         return;
       }
-      if (typeof loginAt === 'number' && now - loginAt >= ABSOLUTE_TIMEOUT_MS) {
-        endSession('absolute timeout');
+
+      if (deadline - now <= WARNING_LEAD_MS) {
+        setWarning({ type, remaining: Math.ceil((deadline - now) / 1000) });
+      } else {
+        // setState bails out cheaply when the value is already null.
+        setWarning((prev) => (prev ? null : prev));
       }
     }, CHECK_INTERVAL_MS);
 
@@ -99,7 +111,67 @@ export default function SessionActivityGuard() {
       document.removeEventListener('visibilitychange', onVisibility);
       clearInterval(interval);
     };
-  }, [status, loginAt, update]);
+  }, [status, loginAt]);
 
-  return null;
+  const staySignedIn = () => {
+    lastActivityRef.current = Date.now();
+    lastRefreshRef.current = Date.now();
+    void getSession();
+    setWarning(null);
+  };
+
+  if (!warning) return null;
+
+  const mins = Math.floor(warning.remaining / 60);
+  const secs = warning.remaining % 60;
+  const countdown = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+
+  return (
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="session-warning-title"
+    >
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+        <h2 id="session-warning-title" className="text-lg font-semibold text-gray-900">
+          {warning.type === 'idle' ? 'Still there?' : 'Your secure session is ending'}
+        </h2>
+        <p className="mt-2 text-sm text-gray-600">
+          {warning.type === 'idle' ? (
+            <>
+              You&apos;ll be signed out in <span className="font-semibold">{countdown}</span> due to
+              inactivity. Choose &ldquo;Stay signed in&rdquo; to continue — your work won&apos;t be
+              lost.
+            </>
+          ) : (
+            <>
+              For security, sessions end {Math.round(ABSOLUTE_TIMEOUT_MS / 60000)} minutes after
+              sign-in. You&apos;ll be signed out in <span className="font-semibold">{countdown}</span>.
+              Please save or submit your work now — you&apos;ll need to sign in again to continue.
+            </>
+          )}
+        </p>
+        <div className="mt-6 flex justify-end gap-3">
+          {warning.type === 'idle' ? (
+            <button
+              type="button"
+              onClick={staySignedIn}
+              className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
+            >
+              Stay signed in
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setWarning(null)}
+              className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
+            >
+              Got it
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }

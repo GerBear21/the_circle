@@ -110,6 +110,9 @@ export const PERMISSIONS = {
   ARCHIVES_VIEW_ALL: 'archives.view_all',
   ARCHIVES_DOWNLOAD: 'archives.download',
   ARCHIVES_MANAGE: 'archives.manage',
+  // Vouchers
+  VOUCHERS_CREATE: 'vouchers.create',
+  VOUCHERS_VIEW_REGISTER: 'vouchers.view_register',
 } as const;
 
 export const ROLE_SLUGS = {

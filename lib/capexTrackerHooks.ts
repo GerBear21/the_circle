@@ -236,3 +236,19 @@ export async function onCapexApproved(requestId: string, actorId: string): Promi
 export async function onCapexRejected(requestId: string, actorId: string): Promise<void> {
   await updateCapexTrackerStatus(requestId, 'CAPEX Rejected', actorId);
 }
+
+// Fired when a previously-rejected CAPEX request is resubmitted. Returns the
+// tracker row from 'CAPEX Rejected' back into the active approval pipeline so
+// the tracker reflects that the request is live again. No-ops for non-CAPEX
+// requests (guarded inside updateCapexTrackerStatus).
+export async function onCapexResubmitted(requestId: string, actorId: string): Promise<void> {
+  await updateCapexTrackerStatus(requestId, 'CAPEX Approval in Progress', actorId);
+}
+
+// Fired when a CAPEX request is cancelled (by the requester or an approver,
+// at any stage including after full approval). There is no dedicated
+// 'Cancelled' tracker state, so the row is moved to 'On Hold' to take it out
+// of the active funding pipeline. No-ops for non-CAPEX requests.
+export async function onCapexCancelled(requestId: string, actorId: string): Promise<void> {
+  await updateCapexTrackerStatus(requestId, 'On Hold', actorId);
+}

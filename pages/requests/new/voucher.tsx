@@ -5,7 +5,7 @@ import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input, RequestPreviewModal, UnsavedChangesModal, ReferenceCodeBanner } from '../../../components/ui';
 import type { PreviewSection } from '../../../components/ui';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
-import { useUnsavedChangesPrompt } from '../../../hooks';
+import { useUnsavedChangesPrompt, useFormAutosave } from '../../../hooks';
 import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
 import { Span } from 'next/dist/trace';
 
@@ -103,19 +103,8 @@ export default function VoucherRequestPage() {
     // Unsaved-changes tracking — flipped true on first real user interaction via form onChange.
     const [isDirty, setIsDirty] = useState(false);
 
-    // Auto-generate voucher number
-    useEffect(() => {
-        if (!isEditMode && !formData.voucherNumber) {
-            const now = new Date();
-            const dd = String(now.getDate()).padStart(2, '0');
-            const mm = String(now.getMonth() + 1).padStart(2, '0');
-            const yy = String(now.getFullYear()).slice(-2);
-            const hh = String(now.getHours()).padStart(2, '0');
-            const min = String(now.getMinutes()).padStart(2, '0');
-            const ts = `${hh}${min}`;
-            setFormData(prev => ({ ...prev, voucherNumber: `TC-${dd}${mm}${yy}${ts}` }));
-        }
-    }, [isEditMode, formData.voucherNumber]);
+    // Voucher numbers are issued sequentially by the server at final approval
+    // (see approvalEngine.onVoucherFullyApproved), so none is generated here.
 
     // Approver selection state - 2 fixed roles
     const approvalRoles = [
@@ -140,6 +129,19 @@ export default function VoucherRequestPage() {
     const [selectedWatchers, setSelectedWatchers] = useState<Array<{ id: string; display_name: string; email: string }>>([]);
     const [watcherSearch, setWatcherSearch] = useState('');
     const [showWatcherDropdown, setShowWatcherDropdown] = useState(false);
+
+    // Autosave / crash recovery (serializable slices only). Disabled in edit mode.
+    useFormAutosave({
+        formKey: 'voucher',
+        enabled: !isEditMode,
+        data: { formData, selectedApprovers, selectedWatchers },
+        onRestore: (saved) => {
+            if (saved.formData) setFormData(saved.formData);
+            if (saved.selectedApprovers) setSelectedApprovers(prev => ({ ...prev, ...saved.selectedApprovers }));
+            if (Array.isArray(saved.selectedWatchers)) setSelectedWatchers(saved.selectedWatchers);
+            setIsDirty(true);
+        },
+    });
 
     // Travel document state
     const [travelData, setTravelData] = useState({
@@ -1178,8 +1180,8 @@ export default function VoucherRequestPage() {
                             </div>
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Voucher Number</label>
-                                <div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-600 font-mono tracking-wider font-bold">
-                                    {formData.voucherNumber || 'Generating...'}
+                                <div className="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-500 text-sm italic">
+                                    {formData.voucherNumber || 'Assigned automatically on final approval'}
                                 </div>
                             </div>
                         </div>

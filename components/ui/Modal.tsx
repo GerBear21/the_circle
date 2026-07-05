@@ -1,5 +1,6 @@
 import { Fragment, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useSuppressToastsWhileOpen } from './ToastProvider';
 
 interface ModalProps {
   isOpen: boolean;
@@ -10,6 +11,7 @@ interface ModalProps {
 }
 
 export default function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalProps) {
+  useSuppressToastsWhileOpen(isOpen);
   if (!isOpen) return null;
 
   const sizes = {
