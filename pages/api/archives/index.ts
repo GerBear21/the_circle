@@ -50,6 +50,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         folder_name,
         template_id,
         category,
+        microsoft_links,
+        microsoft_synced_at,
         creator_id,
         approver_ids,
         watcher_ids

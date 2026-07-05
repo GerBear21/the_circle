@@ -358,7 +358,7 @@ export default function Home() {
   return (
     <>
       <Head>
-        <title>The Circle — Antigravity Workflow Engine</title>
+        <title>The Circle — Approval Workflow Engine</title>
         <meta
           name="description"
           content="The fast, reliable, audit-ready workflow engine powering Rainbow Tourism Group's digital transformation."

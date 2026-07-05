@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { startRegistration, browserSupportsWebAuthn } from '@simplewebauthn/browser';
 import { useSuppressToastsWhileOpen } from '../ui/ToastProvider';
+import { friendlyWebauthnError } from '@/lib/webauthnErrors';
 
 /**
  * BiometricSetupModal
@@ -47,12 +48,9 @@ export default function BiometricSetupModal({ isOpen, onClose, onSuccess, requir
       try {
         attestationResponse = await startRegistration({ optionsJSON: options });
       } catch (err: any) {
-        // User cancelled, device not available, or policy refused.
-        throw new Error(
-          err?.name === 'InvalidStateError'
-            ? 'This device is already registered.'
-            : err?.message || 'Biometric setup was cancelled.'
-        );
+        // User cancelled, device not available, or policy refused. Surface a
+        // calm, plain-English message — never the raw WebAuthn/spec error.
+        throw new Error(friendlyWebauthnError(err, 'register'));
       }
 
       const verifyRes = await fetch('/api/webauthn/register/verify', {
@@ -97,8 +95,8 @@ export default function BiometricSetupModal({ isOpen, onClose, onSuccess, requir
             <h2 className="text-lg font-semibold text-gray-900">Set up biometric verification</h2>
             <p className="text-sm text-gray-500 mt-1">
               {required
-                ? 'This approval requires biometric verification. Register this device once — future approvals will be a single touch.'
-                : 'Use Windows Hello, Touch ID, or Face ID to approve high-risk requests quickly and securely.'}
+                ? 'This approval requires verification. Register this device once — future approvals will be a single touch.'
+                : 'Use your device’s fingerprint, face, or screen lock — Windows Hello, Touch ID, Face ID, Android, or a passkey on your phone — to approve high-risk requests quickly and securely.'}
             </p>
           </div>
 

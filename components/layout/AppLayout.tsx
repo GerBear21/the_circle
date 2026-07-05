@@ -1,10 +1,48 @@
-import { ReactNode, useState, useEffect } from 'react';
+import { ReactNode, useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import AppHeader from './AppHeader';
 import Sidebar from './Sidebar';
-import SignatureRequiredModal from '../SignatureRequiredModal';
-import ProfileSetupModal from '../ProfileSetupModal';
+import OnboardingFlow from '../onboarding/OnboardingFlow';
+import FeatureTour, { TourStep } from '../onboarding/FeatureTour';
 import { useSignatureCheck, useCurrentUser } from '@/hooks';
+
+// Post-onboarding walkthrough of the everyday features. Each step anchors to a
+// real element via its `data-tour` attribute; missing targets are skipped.
+const TOUR_STEPS: TourStep[] = [
+  {
+    selector: '[data-tour="requests"]',
+    title: 'Raise a request',
+    body: 'Start here to submit anything for approval — travel request,CAPEX form, complimentary hotel bookings and more. The Circle routes it to the right approvers automatically.',
+    placement: 'right',
+    sidebar: true,
+  },
+  {
+    selector: '[data-tour="esign"]',
+    title: 'Sign PDFs electronically',
+    body: 'Need a signature on a document? Upload a PDF here to sign it yourself or send it to others for a legally binding e-signature — no printing required.',
+    placement: 'right',
+    sidebar: true,
+  },
+  {
+    selector: '[data-tour="notifications"]',
+    title: 'Stay in the loop',
+    body: 'Approvals waiting on you, updates on your requests, and system alerts all land here. A dot means something new needs your attention.',
+    placement: 'bottom',
+  },
+  {
+    selector: '[data-tour="profile"]',
+    title: 'Your profile & settings',
+    body: 'Update your details, manage your signature, and register or remove devices used for verification — all from your profile menu.',
+    placement: 'bottom',
+  },
+  {
+    selector: '[data-tour="bugs"]',
+    title: 'Spot something off?',
+    body: 'Report a bug or share feedback anytime. It goes straight to the team so we can keep The Circle running smoothly.',
+    placement: 'right',
+    sidebar: true,
+  },
+];
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -47,37 +85,76 @@ export default function AppLayout({
   const { hasSignature, loading: signatureLoading, refetch } = useSignatureCheck();
   const { user, loading: userLoading, needsProfileSetup, refetch: refetchUser } = useCurrentUser();
 
-  // Pages that should skip signature check
+  // Pages that opt out of the first-login onboarding / signature gate
+  // (e.g. mobile signature capture, public e-sign, profile settings).
   const isSettingsPage = router.pathname === '/profile/settings';
-  const shouldCheckSignature = !skipSignatureCheck && !isSettingsPage;
+  const shouldOnboard = !skipSignatureCheck && !isSettingsPage;
 
-  const handleSignatureSaved = async (url: string) => {
-    await refetch();
+  // Decide ONCE whether to run the onboarding wizard. We must not re-evaluate
+  // the data trigger on every render: as the user completes the profile and
+  // signature steps mid-wizard, those flags flip and would unmount the flow
+  // before they reach the device / "all set" screens. `null` = undecided.
+  const [runOnboarding, setRunOnboarding] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!shouldOnboard) { setRunOnboarding(false); return; }
+    if (runOnboarding !== null) return;              // already decided this session
+    if (userLoading || signatureLoading || !user) return;
+
+    let done = false;
+    try { done = localStorage.getItem(`onboarding:done:${user.id}`) === 'true'; } catch {}
+
+    setRunOnboarding(!done && (needsProfileSetup || !hasSignature));
+  }, [shouldOnboard, runOnboarding, userLoading, signatureLoading, user, needsProfileSetup, hasSignature]);
+
+  const handleOnboardingComplete = async () => {
+    try { if (user) localStorage.setItem(`onboarding:done:${user.id}`, 'true'); } catch {}
+    setRunOnboarding(false);
+    await Promise.all([refetch(), refetchUser()]);
   };
 
-  const handleProfileSetupComplete = async () => {
-    await refetchUser();
+  // ---- Post-onboarding feature tour ---------------------------------------
+  // Runs once per user, only where the nav chrome (its anchor targets) exists.
+  const canTour = !hideSidebar && !hideNav;
+  const [runTour, setRunTour] = useState(false);
+  const tourDecided = useRef(false);
+
+  useEffect(() => {
+    if (runOnboarding !== false) return;   // still onboarding (or undecided) — wait
+    if (tourDecided.current || !user || !canTour) return;
+    tourDecided.current = true;
+    let done = false;
+    try { done = localStorage.getItem(`tour:done:${user.id}`) === 'true'; } catch {}
+    if (done) return;
+    // Small delay so the onboarding overlay is gone and the anchors are painted.
+    const t = setTimeout(() => setRunTour(true), 600);
+    return () => clearTimeout(t);
+  }, [runOnboarding, user, canTour]);
+
+  const finishTour = () => {
+    try { if (user) localStorage.setItem(`tour:done:${user.id}`, 'true'); } catch {}
+    setRunTour(false);
   };
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Profile Setup Modal - shown first if user needs to set up profile */}
-      {!userLoading && user && needsProfileSetup && (
-        <ProfileSetupModal
-          isOpen={true}
-          userId={user.id}
-          currentOrganizationId={user.organization_id}
-          currentDepartmentId={user.department_id ?? undefined}
-          currentBusinessUnitId={user.business_unit_id ?? undefined}
-          onComplete={handleProfileSetupComplete}
+      {/* First-login onboarding wizard — welcome, HRIMS, signature, device, ready */}
+      {runOnboarding && user && (
+        <OnboardingFlow
+          user={user}
+          needsProfileSetup={needsProfileSetup}
+          hasSignature={hasSignature}
+          onComplete={handleOnboardingComplete}
         />
       )}
 
-      {/* Signature Required Modal - shown after profile is set up */}
-      {shouldCheckSignature && !signatureLoading && !hasSignature && !needsProfileSetup && (
-        <SignatureRequiredModal
-          isOpen={true}
-          onSignatureSaved={handleSignatureSaved}
+      {/* Post-onboarding guided tour of the everyday features */}
+      {runTour && (
+        <FeatureTour
+          steps={TOUR_STEPS}
+          run={runTour}
+          onFinish={finishTour}
+          onSidebar={setSidebarOpen}
         />
       )}
 

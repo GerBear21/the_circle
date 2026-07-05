@@ -141,6 +141,7 @@ export default function AppHeader({
               <Link
                 href="/notifications"
                 aria-label="Notifications"
+                data-tour="notifications"
                 className={`relative p-2 rounded-lg transition-colors ${router.pathname === '/notifications' ? 'bg-neutral-100 text-text-primary' : 'text-text-secondary hover:text-text-primary hover:bg-neutral-100'}`}
               >
                 <Bell className="w-5 h-5" strokeWidth={1.5} />
@@ -153,6 +154,7 @@ export default function AppHeader({
               <div className="relative" ref={profileRef}>
                 <button
                   onClick={() => setIsProfileOpen(!isProfileOpen)}
+                  data-tour="profile"
                   className="flex items-center gap-2 p-1.5 hover:bg-neutral-100 rounded-lg transition-colors"
                 >
                   <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 font-semibold text-sm overflow-hidden ring-1 ring-border">

@@ -40,6 +40,8 @@ interface NavItem {
   children?: NavItem[];
   requiredPermissions?: string[];
   requireAny?: boolean;
+  /** Anchor id for the post-onboarding feature tour. */
+  dataTour?: string;
 }
 
 interface NavSection {
@@ -68,6 +70,7 @@ const navSections: NavSection[] = [
         href: '/requests/new',
         label: 'New Request',
         icon: <FilePlus2 {...iconProps} />,
+        dataTour: 'requests',
       },
       {
         href: '/requests/my-requests',
@@ -95,6 +98,7 @@ const navSections: NavSection[] = [
         href: '/requests/esign',
         label: 'E-Sign PDF',
         icon: <FileSignature {...iconProps} />,
+        dataTour: 'esign',
       },
       {
         href: '/requests/new/form',
@@ -256,6 +260,7 @@ const navSections: NavSection[] = [
         href: '/bugs',
         label: 'Report a Bug',
         icon: <Bug {...iconProps} />,
+        dataTour: 'bugs',
       },
     ],
   },
@@ -414,6 +419,7 @@ export default function Sidebar({ isOpen, onClose, collapsed = false, onToggleCo
                       <Link
                         key={item.href}
                         href={item.href!}
+                        data-tour={item.dataTour}
                         onClick={() => {
                           if (window.innerWidth < 1024) {
                             onClose();
