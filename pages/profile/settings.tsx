@@ -2,6 +2,7 @@ import { signOut } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import { useEffect, useState, useRef } from 'react';
 import { AppLayout } from '../../components/layout';
+import Loader from '@/components/Loader';
 
 import { Card, Button } from '../../components/ui';
 import dynamic from 'next/dynamic';
@@ -103,9 +104,7 @@ export default function SettingsPage() {
   if (userLoading) {
     return (
       <AppLayout title="Settings">
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500" />
-        </div>
+        <Loader fullScreen={false} />
       </AppLayout>
     );
   }

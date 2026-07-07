@@ -2,7 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { generateReferenceCode } from '@/lib/requestCode';
+import { generateReferenceCode, getRequestTypeLabel } from '@/lib/requestCode';
 import { createCapexTrackerRow } from '@/lib/capexTrackerHooks';
 import { getUserRBACProfile, hasPermission, PERMISSIONS } from '@/lib/rbac';
 import { getUserAccessScope, scopeForResponse, AccessScope } from '@/lib/accessScope';
@@ -319,6 +319,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .single();
 
         const requesterName = requesterData?.display_name || 'A user';
+        const requestTypeLabel = getRequestTypeLabel(requestType || metadata?.type);
 
         if (useParallelApprovals) {
           // PARALLEL NOTIFICATION: Notify ALL approvers immediately
@@ -328,7 +329,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             sender_id: userId,
             type: 'task',
             title: 'New Approval Request',
-            message: `${requesterName} has submitted a ${requestType?.toUpperCase() || 'CAPEX'} request "${title}" for your approval. (Parallel approval - ${approvers.length} approvers)`,
+            message: `${requesterName} has submitted a ${requestTypeLabel} request "${title}" for your approval. (Parallel approval - ${approvers.length} approvers)`,
             metadata: {
               request_id: data.id,
               request_type: requestType,
@@ -361,7 +362,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 sender_id: userId,
                 type: 'task',
                 title: 'New Approval Request',
-                message: `${requesterName} has submitted a ${requestType?.toUpperCase() || 'CAPEX'} request "${title}" for your approval. (Step 1 of ${approvers.length})`,
+                message: `${requesterName} has submitted a ${requestTypeLabel} request "${title}" for your approval. (Step 1 of ${approvers.length})`,
                 metadata: {
                   request_id: data.id,
                   request_type: requestType,
@@ -444,7 +445,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           sender_id: userId,
           type: 'info',
           title: 'Added as Watcher',
-          message: `${requesterName} has added you as a watcher on their ${requestType?.toUpperCase() || 'CAPEX'} request "${title}".`,
+          message: `${requesterName} has added you as a watcher on their ${getRequestTypeLabel(requestType || metadata?.type)} request "${title}".`,
           metadata: {
             request_id: data.id,
             request_type: requestType,

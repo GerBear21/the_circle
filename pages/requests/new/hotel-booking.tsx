@@ -38,12 +38,16 @@ interface TollgateEntry {
     totalCost: string;
 }
 
-// AA Rate table based on engine capacity and fuel type (USD per km)
-const AA_RATES: Record<string, { petrol: number; diesel: number }> = {
-    '1.1L-1.5L': { petrol: 0.28, diesel: 0.26 },
-    '1.6L-2.0L': { petrol: 0.35, diesel: 0.32 },
-    '2.1L-3.0L': { petrol: 0.48, diesel: 0.45 },
-    'Above 3.0L': { petrol: 0.59, diesel: 0.56 },
+// AA Rate table based on engine capacity and fuel type (USD per km).
+// Defaults mirror the AA Zimbabwe "Estimated Vehicle Operating Costs" schedule
+// (wet rate). Administrators can override these in Admin → Financial Rates; the
+// live values are loaded from /api/settings/rates at runtime.
+type AARateTable = Record<string, { petrol: number; diesel: number }>;
+const AA_RATES_DEFAULTS: AARateTable = {
+    '1.1L-1.5L': { petrol: 0.32, diesel: 0.30 },
+    '1.6L-2.0L': { petrol: 0.40, diesel: 0.36 },
+    '2.1L-3.0L': { petrol: 0.54, diesel: 0.50 },
+    'Above 3.0L': { petrol: 0.66, diesel: 0.62 },
 };
 
 interface CostAllocation {
@@ -137,7 +141,7 @@ export default function HotelBookingPage() {
     const approvalRoles = [
         { key: 'line_manager', label: 'Line Manager', description: 'Recommendation' },
         { key: 'functional_head', label: 'Functional Head', description: 'Functional Approval' },
-        { key: 'hrd', label: 'HR Director', description: 'HR Director Approval' },
+        { key: 'hrd', label: 'Chief Human Capital Officer', description: 'Human Capital Approval' },
         { key: 'ceo', label: 'CEO', description: 'Authorisation' },
     ];
     const [users, setUsers] = useState<Array<{ id: string; display_name: string; email: string; job_title?: string }>>([]);
@@ -164,9 +168,28 @@ export default function HotelBookingPage() {
         fuelType: 'petrol',
     });
 
+    // Live AA rate table — starts from the AA Zimbabwe defaults and is replaced
+    // with any admin overrides configured in Admin → Financial Rates.
+    const [aaRates, setAaRates] = useState<AARateTable>(AA_RATES_DEFAULTS);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetch('/api/settings/rates');
+                if (!res.ok) return;
+                const data = await res.json();
+                if (!cancelled && data?.aa) setAaRates((prev) => ({ ...prev, ...data.aa }));
+            } catch {
+                // Keep defaults on failure.
+            }
+        })();
+        return () => { cancelled = true; };
+    }, []);
+
     // Get AA Rate based on engine capacity and fuel type
     const getAARate = (): number => {
-        const rates = AA_RATES[aaCalculator.engineCapacity];
+        const rates = aaRates[aaCalculator.engineCapacity];
         if (!rates) return 0;
         return rates[aaCalculator.fuelType];
     };
@@ -2170,26 +2193,18 @@ export default function HotelBookingPage() {
                                                             </tr>
                                                         </thead>
                                                         <tbody>
-                                                            <tr className={`border-b border-gray-100 ${aaCalculator.engineCapacity === '1.1L-1.5L' ? 'bg-[#F3EADC]' : ''}`}>
-                                                                <td className="py-1 px-2">1.1L – 1.5L</td>
-                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.1L-1.5L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-[#5E4426]' : ''}`}>0.28</td>
-                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.1L-1.5L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-[#5E4426]' : ''}`}>0.26</td>
-                                                            </tr>
-                                                            <tr className={`border-b border-gray-100 ${aaCalculator.engineCapacity === '1.6L-2.0L' ? 'bg-[#F3EADC]' : ''}`}>
-                                                                <td className="py-1 px-2">1.6L – 2.0L</td>
-                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.6L-2.0L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-[#5E4426]' : ''}`}>0.35</td>
-                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.6L-2.0L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-[#5E4426]' : ''}`}>0.32</td>
-                                                            </tr>
-                                                            <tr className={`border-b border-gray-100 ${aaCalculator.engineCapacity === '2.1L-3.0L' ? 'bg-[#F3EADC]' : ''}`}>
-                                                                <td className="py-1 px-2">2.1L – 3.0L</td>
-                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '2.1L-3.0L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-[#5E4426]' : ''}`}>0.48</td>
-                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '2.1L-3.0L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-[#5E4426]' : ''}`}>0.45</td>
-                                                            </tr>
-                                                            <tr className={`${aaCalculator.engineCapacity === 'Above 3.0L' ? 'bg-[#F3EADC]' : ''}`}>
-                                                                <td className="py-1 px-2">Above 3.0L</td>
-                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === 'Above 3.0L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-[#5E4426]' : ''}`}>0.59</td>
-                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === 'Above 3.0L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-[#5E4426]' : ''}`}>0.56</td>
-                                                            </tr>
+                                                            {([
+                                                                ['1.1L-1.5L', '1.1L – 1.5L'],
+                                                                ['1.6L-2.0L', '1.6L – 2.0L'],
+                                                                ['2.1L-3.0L', '2.1L – 3.0L'],
+                                                                ['Above 3.0L', 'Above 3.0L'],
+                                                            ] as const).map(([key, label], idx, arr) => (
+                                                                <tr key={key} className={`${idx < arr.length - 1 ? 'border-b border-gray-100 ' : ''}${aaCalculator.engineCapacity === key ? 'bg-[#F3EADC]' : ''}`}>
+                                                                    <td className="py-1 px-2">{label}</td>
+                                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === key && aaCalculator.fuelType === 'petrol' ? 'font-bold text-[#5E4426]' : ''}`}>{(aaRates[key]?.petrol ?? 0).toFixed(2)}</td>
+                                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === key && aaCalculator.fuelType === 'diesel' ? 'font-bold text-[#5E4426]' : ''}`}>{(aaRates[key]?.diesel ?? 0).toFixed(2)}</td>
+                                                                </tr>
+                                                            ))}
                                                         </tbody>
                                                     </table>
                                                 </div>

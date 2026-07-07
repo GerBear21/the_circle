@@ -5,6 +5,7 @@ import { verifyDemoPassword } from "../../../lib/demoPassword";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { recordAuditEvent } from "../../../lib/auditLog";
 import { IDLE_TIMEOUT_SECONDS } from "../../../lib/sessionTimeout";
+import { saveMsTokens } from "../../../lib/msTokenStore";
 
 // DEMO MODE — staging only. When DEMO_MODE=true (set ONLY on the staging
 // deployment, never in production) we additionally enable an email/password
@@ -223,52 +224,21 @@ export const authOptions: NextAuthOptions = {
           return token;
         }
 
-        // On first sign in, capture Microsoft Graph tokens for downstream
-        // delegated calls (e.g. /me/sendMail used by the e-sign invite flow).
-        if (account?.access_token) {
-          token.ms_access_token = account.access_token;
-          token.ms_refresh_token = account.refresh_token ?? token.ms_refresh_token;
-          token.ms_expires_at = account.expires_at
-            ? account.expires_at * 1000
-            : Date.now() + 55 * 60 * 1000;
-        } else if (
-          token.ms_refresh_token &&
-          typeof token.ms_expires_at === "number" &&
-          Date.now() > token.ms_expires_at - 60 * 1000
-        ) {
-          // Token expired (or about to) — refresh silently using offline_access
-          try {
-            const tenant = process.env.AZURE_TENANT || "common";
-            const params = new URLSearchParams({
-              client_id: process.env.AZURE_CLIENT_ID || "",
-              client_secret: process.env.AZURE_CLIENT_SECRET || "",
-              grant_type: "refresh_token",
-              refresh_token: token.ms_refresh_token as string,
-              scope: "openid profile email offline_access User.Read Mail.Send",
-            });
-            const resp = await fetch(
-              `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                body: params.toString(),
-              }
-            );
-            if (resp.ok) {
-              const refreshed = await resp.json();
-              token.ms_access_token = refreshed.access_token;
-              token.ms_expires_at = Date.now() + refreshed.expires_in * 1000;
-              if (refreshed.refresh_token) {
-                token.ms_refresh_token = refreshed.refresh_token;
-              }
-            } else {
-              console.error("MS token refresh failed:", await resp.text());
-              token.ms_access_token = undefined;
+        // On first sign in, capture the Microsoft Graph tokens so downstream
+        // delegated calls (e.g. /me/sendMail used by the e-sign invite flow) can
+        // use them. These are NOT stored on the JWT/cookie — they're persisted
+        // server-side in `ms_oauth_tokens` once we've resolved the app_users id
+        // below (see the appUser block). Silent refresh now happens lazily at
+        // consumption time via getValidMsAccessToken().
+        const capturedMsTokens = account?.access_token
+          ? {
+              accessToken: account.access_token,
+              refreshToken: account.refresh_token ?? null,
+              expiresAt: account.expires_at
+                ? account.expires_at * 1000
+                : Date.now() + 55 * 60 * 1000,
             }
-          } catch (refreshErr) {
-            console.error("MS token refresh error:", refreshErr);
-          }
-        }
+          : null;
 
         // On first sign in, always capture the email from all possible Azure AD sources
         if (profile || user) {
@@ -384,6 +354,12 @@ export const authOptions: NextAuthOptions = {
               token.role = appUser.role;
               // Note: profile_picture_url and display_name are NOT stored in JWT to reduce cookie size
               // They should be fetched from the database when needed via useCurrentUser hook
+
+              // Persist the freshly-captured Graph tokens server-side (keyed by
+              // app_users.id) instead of on the cookie.
+              if (capturedMsTokens) {
+                await saveMsTokens(appUser.id, capturedMsTokens);
+              }
             }
           }
         }

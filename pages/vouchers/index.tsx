@@ -2,6 +2,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 import { AppLayout } from '../../components/layout';
+import Loader from '@/components/Loader';
 import { Card } from '../../components/ui';
 import { useRBAC } from '../../contexts/RBACContext';
 
@@ -99,9 +100,7 @@ export default function VoucherRegisterPage() {
   if (status === 'loading' || rbacLoading) {
     return (
       <AppLayout title="Voucher Register">
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500" />
-        </div>
+        <Loader fullScreen={false} />
       </AppLayout>
     );
   }

@@ -12,7 +12,7 @@
  *  - the elevation cookie is interchangeable with a freshly issued step-up
  *    token at the approval endpoint — neither path is privileged over the other.
  *
- * Default TTL is 15 minutes; admins can override via the `preferences.
+ * Default TTL is 30 minutes; admins can override via the `preferences.
  * elevation_session_minutes` system_settings value.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -21,7 +21,7 @@ import { signStepUpToken, verifyStepUpToken, type StepUpPayload } from './stepUp
 import { supabaseAdmin } from './supabaseAdmin';
 
 export const ELEVATION_COOKIE = 'elevation_session';
-export const DEFAULT_ELEVATION_MINUTES = 15;
+export const DEFAULT_ELEVATION_MINUTES = 30;
 const MIN_ELEVATION_MINUTES = 1;
 const MAX_ELEVATION_MINUTES = 240; // 4 hours hard ceiling — even if an admin sets something silly.
 

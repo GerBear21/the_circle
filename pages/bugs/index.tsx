@@ -2,6 +2,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useState } from 'react';
 import { AppLayout } from '../../components/layout';
+import Loader from '@/components/Loader';
 import { useRBAC } from '../../contexts/RBACContext';
 import { Bug, Plus, RefreshCw, CheckCircle2, Clock, CircleDot, XCircle } from 'lucide-react';
 
@@ -288,9 +289,7 @@ export default function BugReportsPage() {
   if (authStatus === 'loading') {
     return (
       <AppLayout title="Bug Reports">
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500" />
-        </div>
+        <Loader fullScreen={false} />
       </AppLayout>
     );
   }

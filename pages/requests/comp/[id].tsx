@@ -298,16 +298,24 @@ function ApprovalTimeline({ request, onRedirect, canRedirect }: { request: Reque
                                                     </span>
                                                 ) : null}
                                             </div>
-                                            {/* Show redirection indicator */}
+                                            {/* Show redirection / delegation indicator */}
                                             {(() => {
-                                                const step = request.request_steps?.find(s => s.approver?.id === approver.id);
+                                                const step = request.request_steps?.find(s => s.approver?.id === approver.id)
+                                                    || request.request_steps?.find(s => (s as any).original_approver_id === approver.id);
                                                 if (step && (step as any).is_redirected) {
+                                                    const isDelegation = !!(step as any).delegation_id;
+                                                    const reason = (step as any).redirect_reason;
                                                     return (
-                                                        <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 border border-amber-200">
+                                                        <div
+                                                            className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 border border-amber-200"
+                                                            title={reason ? `Reason: ${reason}` : undefined}
+                                                        >
                                                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
                                                             </svg>
-                                                            pp {(step as any).redirect_job_title || 'Redirected'}
+                                                            {isDelegation
+                                                                ? `Delegated to ${(step as any).approver?.display_name || 'a delegate'}`
+                                                                : `pp ${(step as any).redirect_job_title || 'Redirected'}`}
                                                         </div>
                                                     );
                                                 }
@@ -433,6 +441,7 @@ export const getServerSideProps: GetServerSideProps<CompHotelBookingDetailsPageP
           redirected_at,
           redirect_reason,
           redirect_job_title,
+          delegation_id,
           approver:app_users!request_steps_approver_user_id_fkey (
             id,
             display_name,
@@ -793,9 +802,10 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
         if (!id || !effectivePendingStep || !pendingApprovalAction) return;
 
         if (result.elevation && !result.elevation.reused) {
+            const minutes = Math.max(1, Math.round((result.elevation.expiresAt - Date.now()) / 60000));
             addToast({
                 type: 'success',
-                title: 'You are verified for 15 minutes',
+                title: `You are verified for ${minutes} minute${minutes === 1 ? '' : 's'}`,
                 message: `You can approve without re-authentication.`,
                 duration: 8000,
             });

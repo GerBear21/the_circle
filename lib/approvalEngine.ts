@@ -22,6 +22,7 @@ import { onCapexApproved, onCapexRejected, onCapexResubmitted, onCapexCancelled 
 import { autoCreatePettyCashFromTravelAuth } from './autoPettyCash';
 import { sendUserNotificationEmail, escapeHtml, appBaseUrl } from './notificationEmail';
 import { getUserPreferences } from './userPreferences';
+import { getActiveDelegateFor } from './delegations';
 
 // ============================================================================
 // Types
@@ -284,12 +285,32 @@ export class ApprovalEngine {
       );
       
       if (!approverId && stepDef.type === 'approval') {
-        return { 
-          success: false, 
-          error: `Could not resolve approver for step: ${stepDef.name}` 
+        return {
+          success: false,
+          error: `Could not resolve approver for step: ${stepDef.name}`
         };
       }
-      
+
+      // Delegation: if an active delegation covers this approver, route the
+      // step to the delegate and stamp the redirect columns so the workflow
+      // timeline shows it as delegated (and links back to the delegation).
+      let effectiveApproverId = approverId;
+      let delegationFields: Record<string, any> = {};
+      if (approverId) {
+        const delegation = await getActiveDelegateFor(approverId, organizationId);
+        if (delegation) {
+          effectiveApproverId = delegation.delegate_id;
+          delegationFields = {
+            is_redirected: true,
+            original_approver_id: approverId,
+            redirected_by_id: delegation.created_by,
+            redirected_at: new Date().toISOString(),
+            redirect_reason: delegation.reason,
+            delegation_id: delegation.id,
+          };
+        }
+      }
+
       // Calculate due date if escalation is configured
       let dueAt: string | null = null;
       if (stepDef.settings?.escalation?.enabled && stepDef.settings.escalation.hours) {
@@ -297,17 +318,18 @@ export class ApprovalEngine {
         dueDate.setHours(dueDate.getHours() + stepDef.settings.escalation.hours);
         dueAt = dueDate.toISOString();
       }
-      
+
       stepsToCreate.push({
         request_id: requestId,
         step_index: stepsToCreate.length + 1,
         step_type: stepDef.type,
-        approver_user_id: approverId,
+        approver_user_id: effectiveApproverId,
         approver_role: stepDef.approverType === 'role' ? stepDef.approverValue : null,
         // PARALLEL: All steps are pending; SEQUENTIAL: Only first step is pending
         status: useParallelApprovals ? 'pending' : (stepsToCreate.length === 0 ? 'pending' : 'waiting'),
         due_at: dueAt,
         step_definition: stepDef, // Store the step config snapshot
+        ...delegationFields,
       });
     }
     
@@ -758,6 +780,10 @@ export class ApprovalEngine {
 
           // CAPEX Tracker: flip status to awaiting funding. Safe for all types — hook guards internally.
           await onCapexApproved(requestId, approverId);
+
+          // Price Variation: if this was a variation raised against an approved
+          // CAPEX, stamp + notify the parent. No-op for other request types.
+          await this.linkPriceVariationToParent(requestId, request, approverId);
         }
 
         return { success: true, message: 'Request fully approved (parallel)' };
@@ -770,16 +796,35 @@ export class ApprovalEngine {
     // Get the next step
     const { data: nextStep } = await supabaseAdmin
       .from('request_steps')
-      .select('id, approver_user_id, status')
+      .select('id, approver_user_id, status, delegation_id')
       .eq('request_id', requestId)
       .eq('step_index', currentStep.step_index + 1)
       .single();
-    
+
     if (nextStep && nextStep.status === 'waiting') {
+      // Delegation: if an active delegation now covers the next approver,
+      // route this step to the delegate as it becomes actionable. Skip steps
+      // already stamped with a delegation (created during the window).
+      let nextApproverId = nextStep.approver_user_id;
+      const activation: Record<string, any> = { status: 'pending' };
+      if (nextApproverId && !nextStep.delegation_id) {
+        const delegation = await getActiveDelegateFor(nextApproverId, request?.organization_id);
+        if (delegation && delegation.delegate_id !== nextApproverId) {
+          activation.approver_user_id = delegation.delegate_id;
+          activation.is_redirected = true;
+          activation.original_approver_id = nextApproverId;
+          activation.redirected_by_id = delegation.created_by;
+          activation.redirected_at = new Date().toISOString();
+          activation.redirect_reason = delegation.reason;
+          activation.delegation_id = delegation.id;
+          nextApproverId = delegation.delegate_id;
+        }
+      }
+
       // Activate the next step - SEQUENTIAL APPROVAL
       await supabaseAdmin
         .from('request_steps')
-        .update({ status: 'pending' })
+        .update(activation)
         .eq('id', nextStep.id);
       
       // Update current_step in request metadata
@@ -801,7 +846,7 @@ export class ApprovalEngine {
           .eq('id', requestId);
       }
       
-      if (request && nextStep.approver_user_id) {
+      if (request && nextApproverId) {
         // Get total steps for the notification message
         const { count: totalSteps } = await supabaseAdmin
           .from('request_steps')
@@ -814,7 +859,7 @@ export class ApprovalEngine {
         // SEQUENTIAL NOTIFICATION: Notify the next approver only when their turn comes
         await this.notifyApprover(
           requestId,
-          nextStep.approver_user_id,
+          nextApproverId,
           request.organization_id,
           approverId,
           `Request "${request.title}" is ready for your approval${stepsInfo}`
@@ -824,7 +869,7 @@ export class ApprovalEngine {
         const { data: nextApprover } = await supabaseAdmin
           .from('app_users')
           .select('display_name, job_title')
-          .eq('id', nextStep.approver_user_id)
+          .eq('id', nextApproverId)
           .single();
         const nextApproverName = nextApprover?.display_name || 'the next approver';
         const nextApproverLabel = nextApprover?.job_title
@@ -890,6 +935,10 @@ export class ApprovalEngine {
 
         // CAPEX Tracker: flip status to awaiting funding. Safe for all types — hook guards internally.
         await onCapexApproved(requestId, approverId);
+
+        // Price Variation: if this was a variation raised against an approved
+        // CAPEX, stamp + notify the parent. No-op for other request types.
+        await this.linkPriceVariationToParent(requestId, request, approverId);
       }
 
       return { success: true, message: 'Request fully approved' };
@@ -1524,6 +1573,96 @@ export class ApprovalEngine {
         });
     } catch (error) {
       console.error('Failed to send petty cash CTA notification:', error);
+    }
+  }
+
+  /**
+   * Hook fired when a Price Variation request reaches fully-approved.
+   *
+   * A price variation is raised against an already-approved CAPEX (see
+   * pages/requests/new/price-variation.tsx). Once fully signed off we stamp the
+   * parent CAPEX's metadata with a `priceVariations` entry — so anyone opening
+   * the CAPEX can see a pricing variation exists — and notify the CAPEX
+   * creator, its approvers and its watchers.
+   *
+   * No-op for any other request type. Fully guarded; a failure here must never
+   * affect the approval outcome.
+   */
+  private static async linkPriceVariationToParent(
+    variationRequestId: string,
+    request: { creator_id: string; organization_id: string; title: string; metadata?: any },
+    approverId: string
+  ): Promise<void> {
+    const type = request.metadata?.type || request.metadata?.requestType;
+    if (type !== 'price-variation') return;
+
+    const parentId = request.metadata?.parentRequestId;
+    if (!parentId) return;
+
+    try {
+      const { data: parent } = await supabaseAdmin
+        .from('requests')
+        .select('id, creator_id, organization_id, title, metadata, request_steps(approver_user_id)')
+        .eq('id', parentId)
+        .single();
+      if (!parent) return;
+
+      const existing = Array.isArray(parent.metadata?.priceVariations) ? parent.metadata.priceVariations : [];
+      // Idempotent: don't double-record if the hook runs twice.
+      if (existing.some((v: any) => v.id === variationRequestId)) return;
+
+      const updatedVariations = [
+        ...existing,
+        {
+          id: variationRequestId,
+          amount: request.metadata?.amount ?? null,
+          variance: request.metadata?.variance ?? null,
+          supplierName: request.metadata?.supplierName ?? null,
+          approvedAt: new Date().toISOString(),
+        },
+      ];
+
+      await supabaseAdmin
+        .from('requests')
+        .update({ metadata: { ...parent.metadata, priceVariations: updatedVariations } })
+        .eq('id', parentId);
+
+      // Notify everyone attached to the parent CAPEX: creator, approvers, watchers.
+      const recipientIds = new Set<string>();
+      if (parent.creator_id) recipientIds.add(parent.creator_id);
+      for (const step of (parent.request_steps as any[] | undefined) || []) {
+        if (step.approver_user_id) recipientIds.add(step.approver_user_id);
+      }
+      const watchers = Array.isArray(parent.metadata?.watchers) ? parent.metadata.watchers : [];
+      for (const w of watchers) {
+        const id = typeof w === 'string' ? w : w?.id;
+        if (id) recipientIds.add(id);
+      }
+
+      const message = `A price variation has been approved for "${parent.title}". Open the CAPEX request to review the pricing variation.`;
+      for (const recipientId of recipientIds) {
+        try {
+          await supabaseAdmin.from('notifications').insert({
+            organization_id: parent.organization_id,
+            recipient_id: recipientId,
+            sender_id: approverId || null,
+            type: 'info',
+            title: 'Price variation recorded',
+            message,
+            metadata: {
+              request_id: parentId,
+              action_label: 'View CAPEX',
+              action_url: `/requests/${parentId}`,
+              variation_request_id: variationRequestId,
+            },
+            is_read: false,
+          });
+        } catch (err) {
+          console.error('Failed to notify recipient about price variation:', err);
+        }
+      }
+    } catch (error) {
+      console.error('linkPriceVariationToParent failed:', error);
     }
   }
 

@@ -48,7 +48,7 @@ export default function ConfirmDialog({
       <div className="relative bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100">
         <div className="flex items-center gap-4 mb-4">
           <div className="w-14 h-14 flex items-center justify-center flex-shrink-0">
-            <FeedbackLottie type={variant === 'danger' ? 'error' : 'warning'} size={56} />
+            <FeedbackLottie type={variant === 'danger' ? 'error' : 'warning'} size={56} loop={false} />
           </div>
           <div>
             <h3 className="text-lg font-bold text-gray-900">{title}</h3>

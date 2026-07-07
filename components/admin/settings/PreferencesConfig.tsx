@@ -6,7 +6,7 @@ export function PreferencesConfig({ getSetting, queueChange }: ConfigTabProps) {
   const timezone = getSetting('preferences', 'timezone', 'Africa/Harare (GMT+2)');
   const currency = getSetting('preferences', 'currency', 'USD ($)');
   const sessionTimeout = getSetting('preferences', 'session_timeout_minutes', 30);
-  const elevationMinutes = getSetting('preferences', 'elevation_session_minutes', 15);
+  const elevationMinutes = getSetting('preferences', 'elevation_session_minutes', 30);
   const require2FA = getSetting('preferences', 'require_2fa', true);
   const maintenanceMode = getSetting('preferences', 'maintenance_mode', false);
   const dateFormat = getSetting('preferences', 'date_format', 'DD/MM/YYYY');

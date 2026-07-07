@@ -235,13 +235,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       }
 
-      // HRD = find by position title
-      approvers.hrd = await resolveByPositionTitle('Human Resources Director');
+      // HRD = find by position title.
+      // 2026 organogram: "HR Director" is now "Chief Human Capital Officer".
+      // Search the new title first, fall back to the legacy titles.
+      approvers.hrd = await resolveByPositionTitle('Chief Human Capital Officer');
 
       // CEO = find by position title
       approvers.ceo = await resolveByPositionTitle('CEO');
 
       // Fallback title searches for HRD
+      if (!approvers.hrd) {
+        approvers.hrd = await resolveByPositionTitle('Human Resources Director');
+      }
       if (!approvers.hrd) {
         approvers.hrd = await resolveByPositionTitle('HR Director');
       }
@@ -378,14 +383,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         approvers.projects_manager = await resolveByPositionTitle('Project Manager');
       }
 
-      // Managing Director
-      approvers.managing_director = await resolveByPositionTitle('Managing Director');
+      // Managing Director — 2026 organogram: the MD role is now "Chief Operating Officer".
+      approvers.managing_director = await resolveByPositionTitle('Chief Operating Officer');
+      if (!approvers.managing_director) {
+        approvers.managing_director = await resolveByPositionTitle('COO');
+      }
+      if (!approvers.managing_director) {
+        approvers.managing_director = await resolveByPositionTitle('Managing Director');
+      }
       if (!approvers.managing_director) {
         approvers.managing_director = await resolveByPositionTitle('MD');
       }
 
-      // Finance Director
-      approvers.finance_director = await resolveByPositionTitle('Finance Director');
+      // Finance Director — 2026 organogram: now "Chief Finance Officer".
+      approvers.finance_director = await resolveByPositionTitle('Chief Finance Officer');
+      if (!approvers.finance_director) {
+        approvers.finance_director = await resolveByPositionTitle('CFO');
+      }
+      if (!approvers.finance_director) {
+        approvers.finance_director = await resolveByPositionTitle('Finance Director');
+      }
       if (!approvers.finance_director) {
         approvers.finance_director = await resolveByPositionTitle('Director of Finance');
       }
@@ -397,13 +414,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
     } else if (formType === 'voucher') {
-      // Commercial Director = find by position title
-      approvers.commercial_director = await resolveByPositionTitle('Commercial Director');
+      // Commercial Director — 2026 organogram: now "Chief Commercial Officer".
+      approvers.commercial_director = await resolveByPositionTitle('Chief Commercial Officer');
 
       // CEO = find by position title
       approvers.ceo = await resolveByPositionTitle('CEO');
 
       // Fallback title searches
+      if (!approvers.commercial_director) {
+        approvers.commercial_director = await resolveByPositionTitle('Commercial Director');
+      }
       if (!approvers.commercial_director) {
         approvers.commercial_director = await resolveByPositionTitle('Director of Commercial');
       }

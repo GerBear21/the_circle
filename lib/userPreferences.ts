@@ -8,6 +8,9 @@
 
 import { supabaseAdmin } from './supabaseAdmin';
 
+export type ReminderChannel = 'email' | 'in_app' | 'both' | 'none';
+export type ReminderFrequency = 'daily' | 'every_2_days' | 'weekly' | 'off';
+
 export interface UserPreferences {
   /** Email me when my request is approved/rejected at a review step. */
   emailRequestUpdates: boolean;
@@ -15,14 +18,26 @@ export interface UserPreferences {
   emailApprovalTasks: boolean;
   /** Email me the signed PDF when my request completes review. */
   emailCompletionPdf: boolean;
-  /** Remind me by email while an approval task sits pending with me. */
+  /**
+   * Email gate for pending-approval reminders (checked by notificationEmail
+   * for kind='reminder'). Kept in sync with reminderChannel on save
+   * (email/both ⇒ true) so existing email gating keeps working.
+   */
   approvalReminders: boolean;
+  /** How reminders reach me: email | in_app | both | none. */
+  reminderChannel: ReminderChannel;
+  /** How often to remind me about stale work: daily | every_2_days | weekly | off. */
+  reminderFrequency: ReminderFrequency;
+  /** Also remind me about my own unsubmitted drafts. */
+  draftReminders: boolean;
   /** Weekly summary of my activity. */
   weeklyDigest: boolean;
   /** Auto-save my approved PDFs into my OneDrive. */
   autoArchiveOneDrive: boolean;
   /** Custom OneDrive folder name (null = deployment default). */
   oneDriveFolder: string | null;
+  /** Default page to open after login (path, null = /dashboard). */
+  landingPage: string | null;
 }
 
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
@@ -30,9 +45,13 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   emailApprovalTasks: true,
   emailCompletionPdf: true,
   approvalReminders: true,
+  reminderChannel: 'both',
+  reminderFrequency: 'daily',
+  draftReminders: true,
   weeklyDigest: false,
   autoArchiveOneDrive: true,
   oneDriveFolder: null,
+  landingPage: null,
 };
 
 function rowToPrefs(row: any): UserPreferences {
@@ -42,9 +61,13 @@ function rowToPrefs(row: any): UserPreferences {
     emailApprovalTasks: row.email_approval_tasks ?? true,
     emailCompletionPdf: row.email_completion_pdf ?? true,
     approvalReminders: row.approval_reminders ?? true,
+    reminderChannel: (row.reminder_channel as ReminderChannel) || 'both',
+    reminderFrequency: (row.reminder_frequency as ReminderFrequency) || 'daily',
+    draftReminders: row.draft_reminders ?? true,
     weeklyDigest: row.weekly_digest ?? false,
     autoArchiveOneDrive: row.auto_archive_onedrive ?? true,
     oneDriveFolder: row.onedrive_folder || null,
+    landingPage: row.landing_page || null,
   };
 }
 
@@ -92,11 +115,31 @@ export async function saveUserPreferences(
   if (prefs.emailApprovalTasks !== undefined) row.email_approval_tasks = !!prefs.emailApprovalTasks;
   if (prefs.emailCompletionPdf !== undefined) row.email_completion_pdf = !!prefs.emailCompletionPdf;
   if (prefs.approvalReminders !== undefined) row.approval_reminders = !!prefs.approvalReminders;
+  if (prefs.reminderChannel !== undefined) {
+    const allowed: ReminderChannel[] = ['email', 'in_app', 'both', 'none'];
+    const channel = allowed.includes(prefs.reminderChannel as ReminderChannel)
+      ? (prefs.reminderChannel as ReminderChannel)
+      : 'both';
+    row.reminder_channel = channel;
+    // Keep the legacy email gate in sync so notificationEmail still honours it.
+    row.approval_reminders = channel === 'email' || channel === 'both';
+  }
+  if (prefs.reminderFrequency !== undefined) {
+    const allowed: ReminderFrequency[] = ['daily', 'every_2_days', 'weekly', 'off'];
+    row.reminder_frequency = allowed.includes(prefs.reminderFrequency as ReminderFrequency)
+      ? (prefs.reminderFrequency as ReminderFrequency)
+      : 'daily';
+  }
+  if (prefs.draftReminders !== undefined) row.draft_reminders = !!prefs.draftReminders;
   if (prefs.weeklyDigest !== undefined) row.weekly_digest = !!prefs.weeklyDigest;
   if (prefs.autoArchiveOneDrive !== undefined) row.auto_archive_onedrive = !!prefs.autoArchiveOneDrive;
   if (prefs.oneDriveFolder !== undefined) {
     const folder = (prefs.oneDriveFolder || '').trim();
     row.onedrive_folder = folder ? folder.slice(0, 120) : null;
+  }
+  if (prefs.landingPage !== undefined) {
+    const lp = (prefs.landingPage || '').trim();
+    row.landing_page = lp ? lp.slice(0, 120) : null;
   }
 
   const { error } = await supabaseAdmin

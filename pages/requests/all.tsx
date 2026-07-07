@@ -6,6 +6,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../api/auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { AppLayout } from '../../components/layout';
+import Loader from '@/components/Loader';
 import { Card, Button } from '../../components/ui';
 
 interface Request {
@@ -639,9 +640,7 @@ export default function AllRequestsPage({ initialRequests }: AllRequestsPageProp
   if (status === 'loading' || loading) {
     return (
       <AppLayout title="All Requests">
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500" />
-        </div>
+        <Loader fullScreen={false} />
       </AppLayout>
     );
   }

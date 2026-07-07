@@ -227,7 +227,7 @@ export const formConfigs: Record<string, FormTypeConfig> = {
                 existing_supplier: 'Existing supplier — continuity required',
                 sole_supplier: 'Sole supplier — no alternatives available',
                 specialized: 'Specialized service requiring specific expertise',
-                other: 'Other reason — requires MD pre-approval first',
+                other: 'Other reason — requires COO pre-approval first',
             }},
             { key: 'justification', label: 'Business Justification', type: 'textarea', section: 'justification', colSpan: 2 },
         ],

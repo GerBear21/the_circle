@@ -8,6 +8,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { parseAmount } from '@/lib/money';
 import dynamic from 'next/dynamic';
 import { AppLayout } from '../../components/layout';
+import Loader from '@/components/Loader';
 import { Card, Button } from '../../components/ui';
 import { useApprovals } from '../../hooks';
 import tickAnimation from '../../tick.json';
@@ -375,9 +376,7 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
   if (status === 'loading' || loading) {
     return (
       <AppLayout title="Approvals">
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500" />
-        </div>
+        <Loader fullScreen={false} />
       </AppLayout>
     );
   }
@@ -656,9 +655,7 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
 
         {/* Loading State for Tab */}
         {isTabLoading() ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500" />
-          </div>
+          <Loader fullScreen={false} size={120} />
         ) : filteredData.length === 0 && !error ? (
           /* Empty State */
           <Card className="text-center py-12">

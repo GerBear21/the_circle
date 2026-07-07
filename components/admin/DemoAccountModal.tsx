@@ -24,6 +24,14 @@ interface CreatedResult {
   positionTitle: string;
 }
 
+interface DemoAccount {
+  id: string;
+  email: string;
+  displayName: string | null;
+  createdAt: string;
+  isActive: boolean;
+}
+
 const DEFAULT_PASSWORD = 'Demo@2026!';
 
 export default function DemoAccountModal({ isOpen, onClose, roles, onCreated }: DemoAccountModalProps) {
@@ -42,15 +50,29 @@ export default function DemoAccountModal({ isOpen, onClose, roles, onCreated }: 
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<CreatedResult | null>(null);
 
+  const [accounts, setAccounts] = useState<DemoAccount[]>([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [deletingEmail, setDeletingEmail] = useState<string | null>(null);
+
   const reset = () => {
     setFirstName(''); setLastName(''); setEmail(''); setPassword(DEFAULT_PASSWORD);
     setJobTitle(''); setDepartmentId(''); setParentPositionId(''); setAppRoleId('');
     setResult(null);
   };
 
+  const loadAccounts = () => {
+    setLoadingAccounts(true);
+    fetch('/api/demo/accounts')
+      .then((r) => r.json())
+      .then((d) => setAccounts(d.accounts || []))
+      .catch(() => {})
+      .finally(() => setLoadingAccounts(false));
+  };
+
   useEffect(() => {
     if (!isOpen) return;
     reset();
+    loadAccounts();
     Promise.all([
       fetch('/api/hrims/departments').then((r) => r.json()).catch(() => ({ departments: [] })),
       fetch('/api/hrims/organogram').then((r) => r.json()).catch(() => ({ positions: [] })),
@@ -59,6 +81,27 @@ export default function DemoAccountModal({ isOpen, onClose, roles, onCreated }: 
       setPositions(p.positions || []);
     });
   }, [isOpen]);
+
+  const handleDelete = async (account: DemoAccount) => {
+    if (!confirm(`Delete demo account for ${account.displayName || account.email}? They will no longer be able to sign in.`)) return;
+    setDeletingEmail(account.email);
+    try {
+      const res = await fetch('/api/demo/accounts', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: account.email }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete demo account');
+      setAccounts((prev) => prev.filter((a) => a.email !== account.email));
+      addToast({ type: 'success', message: `Demo account for ${account.displayName || account.email} removed` });
+      onCreated?.();
+    } catch (err: any) {
+      addToast({ type: 'error', message: err.message });
+    } finally {
+      setDeletingEmail(null);
+    }
+  };
 
   const derivedEmail = `${(firstName.trim()[0] || '').toLowerCase()}${lastName.trim().toLowerCase().replace(/[^a-z0-9.]/g, '')}@rtg.demo`;
 
@@ -88,6 +131,7 @@ export default function DemoAccountModal({ isOpen, onClose, roles, onCreated }: 
       setResult({ email: data.email, password: data.password, displayName: data.displayName, positionTitle: data.positionTitle });
       addToast({ type: 'success', message: `Demo account created for ${data.displayName}` });
       onCreated?.();
+      loadAccounts();
     } catch (err: any) {
       addToast({ type: 'error', message: err.message });
     } finally {
@@ -188,6 +232,42 @@ export default function DemoAccountModal({ isOpen, onClose, roles, onCreated }: 
             <Button variant="primary" onClick={handleCreate} disabled={saving}>
               {saving ? 'Creating…' : 'Create demo account'}
             </Button>
+          </div>
+
+          {/* Existing demo accounts — manage / remove */}
+          <div className="pt-4 border-t border-gray-100">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-sm font-semibold text-gray-800">Existing demo accounts</h4>
+              <span className="text-xs text-gray-400">{accounts.length} account{accounts.length === 1 ? '' : 's'}</span>
+            </div>
+            {loadingAccounts ? (
+              <p className="text-sm text-gray-400">Loading…</p>
+            ) : accounts.length === 0 ? (
+              <p className="text-sm text-gray-400">No demo accounts yet.</p>
+            ) : (
+              <div className="border border-gray-200 rounded-xl divide-y divide-gray-100 max-h-56 overflow-y-auto">
+                {accounts.map((a) => (
+                  <div key={a.id} className="flex items-center gap-3 px-3 py-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-800 truncate">{a.displayName || 'Unnamed'}</p>
+                      <p className="text-xs text-gray-400 truncate font-mono">{a.email}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(a)}
+                      disabled={deletingEmail === a.email}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                      title="Delete demo account"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                      {deletingEmail === a.email ? 'Removing…' : 'Delete'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
