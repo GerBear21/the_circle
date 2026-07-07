@@ -89,6 +89,11 @@ export function useUnsavedChangesPrompt({ isDirty, disabled = false }: Options) 
     };
 
     const discardAndContinue = () => {
+        // Tell any mounted autosave snapshot to drop itself — a deliberate
+        // discard must not resurrect the abandoned entries the next time this
+        // form is opened. Decoupled via a window event so the prompt doesn't
+        // need to know the form's storage key.
+        try { window.dispatchEvent(new Event('form-autosave-discard')); } catch { /* SSR */ }
         proceedWithPendingExit();
     };
 

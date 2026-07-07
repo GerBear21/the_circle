@@ -415,7 +415,7 @@ export default function ApprovalConfirmModal({
           {error && (
             <div className="px-6 pb-2">
               <div className="p-3 bg-danger-50 border border-danger-200 rounded-lg text-sm text-danger-700 flex items-center gap-2.5">
-                <FeedbackLottie type="error" size={36} />
+                <FeedbackLottie type="error" size={36} loop={false} />
                 <span>{error}</span>
               </div>
             </div>

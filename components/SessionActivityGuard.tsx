@@ -40,6 +40,11 @@ export default function SessionActivityGuard() {
   const lastActivityRef = useRef<number>(Date.now());
   const lastRefreshRef = useRef<number>(0);
   const signingOutRef = useRef<boolean>(false);
+  // Once the user acknowledges the absolute-timeout warning we keep it closed
+  // for the rest of this session. The absolute deadline can't be extended, so
+  // without this flag the 1s watchdog re-opens the modal every tick. Reset on a
+  // new login (the effect re-runs when loginAt changes).
+  const absoluteAckedRef = useRef<boolean>(false);
 
   const [warning, setWarning] = useState<{ type: WarningType; remaining: number } | null>(null);
 
@@ -50,6 +55,9 @@ export default function SessionActivityGuard() {
       setWarning(null);
       return;
     }
+
+    // Fresh session (or new loginAt): allow the absolute warning again.
+    absoluteAckedRef.current = false;
 
     const endSession = (reason: string) => {
       if (signingOutRef.current) return;
@@ -99,7 +107,14 @@ export default function SessionActivityGuard() {
       }
 
       if (deadline - now <= WARNING_LEAD_MS) {
-        setWarning({ type, remaining: Math.ceil((deadline - now) / 1000) });
+        // The absolute warning is dismissible: once acknowledged, stay closed
+        // until the deadline actually signs the user out. (Idle warnings clear
+        // themselves via activity / "Stay signed in", so they don't need this.)
+        if (type === 'absolute' && absoluteAckedRef.current) {
+          setWarning((prev) => (prev ? null : prev));
+        } else {
+          setWarning({ type, remaining: Math.ceil((deadline - now) / 1000) });
+        }
       } else {
         // setState bails out cheaply when the value is already null.
         setWarning((prev) => (prev ? null : prev));
@@ -164,7 +179,7 @@ export default function SessionActivityGuard() {
           ) : (
             <button
               type="button"
-              onClick={() => setWarning(null)}
+              onClick={() => { absoluteAckedRef.current = true; setWarning(null); }}
               className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
             >
               Got it

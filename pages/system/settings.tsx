@@ -30,33 +30,24 @@ interface SettingsProps {
   initialSignatureUrl: string | null;
 }
 
-interface Preferences {
-  landingPage: string;
-  itemsPerPage: string;
-  defaultPriority: string;
-  density: string;
-}
-
-const DEFAULT_PREFS: Preferences = {
-  landingPage: '/dashboard',
-  itemsPerPage: '25',
-  defaultPriority: 'normal',
-  density: 'comfortable',
-};
-
-const PREFS_KEY = 'circle:preferences';
-
 /** Server-side preferences (user_preferences table) — drive real behaviour:
  *  which emails the workflow engine sends and whether approved PDFs are
  *  auto-saved to the user's OneDrive. */
+type ReminderChannel = 'email' | 'in_app' | 'both' | 'none';
+type ReminderFrequency = 'daily' | 'every_2_days' | 'weekly' | 'off';
+
 interface ServerPreferences {
   emailRequestUpdates: boolean;
   emailApprovalTasks: boolean;
   emailCompletionPdf: boolean;
   approvalReminders: boolean;
+  reminderChannel: ReminderChannel;
+  reminderFrequency: ReminderFrequency;
+  draftReminders: boolean;
   weeklyDigest: boolean;
   autoArchiveOneDrive: boolean;
   oneDriveFolder: string | null;
+  landingPage: string | null;
 }
 
 interface IntegrationStatus {
@@ -70,10 +61,22 @@ const DEFAULT_SERVER_PREFS: ServerPreferences = {
   emailApprovalTasks: true,
   emailCompletionPdf: true,
   approvalReminders: true,
+  reminderChannel: 'both',
+  reminderFrequency: 'daily',
+  draftReminders: true,
   weeklyDigest: false,
   autoArchiveOneDrive: true,
   oneDriveFolder: null,
+  landingPage: null,
 };
+
+const LANDING_PAGE_OPTIONS: { value: string; label: string }[] = [
+  { value: '/dashboard', label: 'Dashboard' },
+  { value: '/requests/my-requests', label: 'Track Requests' },
+  { value: '/requests/drafts', label: 'My Drafts' },
+  { value: '/approvals', label: 'My Approval Tasks' },
+  { value: '/notifications', label: 'Notifications' },
+];
 
 export const getServerSideProps: GetServerSideProps<SettingsProps> = async (context) => {
   const session = await getServerSession(context.req, context.res, authOptions);
@@ -166,7 +169,6 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
   const [uploadingPicture, setUploadingPicture] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFS);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -177,14 +179,6 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
   const [biometricCredentials, setBiometricCredentials] = useState<any[]>([]);
   const [loadingBiometrics, setLoadingBiometrics] = useState(false);
   const [showBiometricSetup, setShowBiometricSetup] = useState(false);
-
-  // Load interface preferences (stored locally per device)
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(PREFS_KEY);
-      if (raw) setPrefs({ ...DEFAULT_PREFS, ...JSON.parse(raw) });
-    } catch {}
-  }, []);
 
   // Load notification/auto-archiving preferences (stored server-side so the
   // workflow engine can honour them when sending emails and syncing PDFs).
@@ -201,11 +195,6 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
       }
     })();
   }, []);
-
-  const setPref = <K extends keyof Preferences>(key: K, value: Preferences[K]) => {
-    setPrefs((prev) => ({ ...prev, [key]: value }));
-    setSaved(false);
-  };
 
   const setServerPref = <K extends keyof ServerPreferences>(key: K, value: ServerPreferences[K]) => {
     setServerPrefs((prev) => ({ ...prev, [key]: value }));
@@ -258,9 +247,6 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
   const handleSave = async () => {
     setSaving(true);
     setSaveError(null);
-    try {
-      localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
-    } catch {}
     try {
       const res = await fetch('/api/user/preferences', {
         method: 'PUT',
@@ -341,46 +327,56 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Left: configurable preferences */}
             <div className="lg:col-span-2 space-y-6">
-              <SectionCard icon={SlidersHorizontal} title="Preferences" subtitle="Tune the interface and defaults to suit how you work.">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                  <Field label="Default landing page">
-                    <select className={selectCls} value={prefs.landingPage} onChange={(e) => setPref('landingPage', e.target.value)}>
-                      <option value="/dashboard">Dashboard</option>
-                      <option value="/requests/my-requests">Track Requests</option>
-                      <option value="/requests/drafts">My Drafts</option>
-                      <option value="/approvals">My Approval Tasks</option>
-                      <option value="/notifications">Notifications</option>
-                    </select>
-                  </Field>
-                  <Field label="Default request priority">
-                    <select className={selectCls} value={prefs.defaultPriority} onChange={(e) => setPref('defaultPriority', e.target.value)}>
-                      <option value="low">Low</option>
-                      <option value="normal">Normal</option>
-                      <option value="high">High</option>
-                      <option value="urgent">Urgent</option>
-                    </select>
-                  </Field>
-                  <Field label="Items per page">
-                    <select className={selectCls} value={prefs.itemsPerPage} onChange={(e) => setPref('itemsPerPage', e.target.value)}>
-                      <option value="10">10</option>
-                      <option value="25">25</option>
-                      <option value="50">50</option>
-                    </select>
-                  </Field>
-                  <Field label="List density">
-                    <select className={selectCls} value={prefs.density} onChange={(e) => setPref('density', e.target.value)}>
-                      <option value="comfortable">Comfortable</option>
-                      <option value="compact">Compact</option>
-                    </select>
-                  </Field>
-                </div>
-                <div className="mt-4 flex items-center justify-between rounded-xl bg-neutral-50 border border-border px-3.5 py-3">
-                  <span className="text-sm text-text-secondary">Date format</span>
-                  <span className="text-sm font-medium text-text-primary">DD/MM/YYYY</span>
-                </div>
+              <SectionCard icon={SlidersHorizontal} title="Preferences" subtitle="Tune the defaults to suit how you work.">
+                <Field label="Default landing page">
+                  <select className={selectCls} value={serverPrefs.landingPage || '/dashboard'} onChange={(e) => setServerPref('landingPage', e.target.value)}>
+                    {LANDING_PAGE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-text-secondary mt-1.5">The page The Circle opens for you after you sign in.</p>
+                </Field>
               </SectionCard>
 
-              <SectionCard icon={Bell} title="Email notifications" subtitle="Choose which emails The Circle sends you. In-app notifications are always on.">
+              <SectionCard icon={Bell} title="Reminders" subtitle="How and how often The Circle nudges you about work that&apos;s waiting.">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                  <Field label="Send reminders via">
+                    <select className={selectCls} value={serverPrefs.reminderChannel} onChange={(e) => setServerPref('reminderChannel', e.target.value as ReminderChannel)}>
+                      <option value="both">Email &amp; in-app</option>
+                      <option value="email">Email only</option>
+                      <option value="in_app">In-app only</option>
+                      <option value="none">Don&apos;t remind me</option>
+                    </select>
+                  </Field>
+                  <Field label="How often">
+                    <select
+                      className={selectCls}
+                      value={serverPrefs.reminderFrequency}
+                      disabled={serverPrefs.reminderChannel === 'none'}
+                      onChange={(e) => setServerPref('reminderFrequency', e.target.value as ReminderFrequency)}
+                    >
+                      <option value="daily">Daily</option>
+                      <option value="every_2_days">Every 2 days</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="off">Off</option>
+                    </select>
+                  </Field>
+                </div>
+                <div className="mt-2 divide-y divide-border">
+                  <Toggle
+                    checked={serverPrefs.draftReminders}
+                    onChange={(v) => setServerPref('draftReminders', v)}
+                    label="Remind me about my drafts"
+                    description="Nudge me about my own requests that are still unsubmitted after a while."
+                  />
+                </div>
+                <p className="text-xs text-text-secondary mt-3">
+                  Reminders cover approval tasks waiting on you and, if enabled above, your stale drafts. Administrators set the standard
+                  timing (how long before the first reminder) under Admin → SLAs.
+                </p>
+              </SectionCard>
+
+              <SectionCard icon={Bell} title="Email notifications" subtitle="Choose which other emails The Circle sends you. In-app notifications are always on.">
                 {integration && !integration.emailConfigured && (
                   <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-3.5 py-2.5 text-xs">
                     Email delivery is not configured for this deployment yet — ask an administrator to set up the
@@ -406,12 +402,6 @@ export default function Settings({ initialSignatureUrl }: SettingsProps) {
                     onChange={(v) => setServerPref('emailApprovalTasks', v)}
                     label="New approval tasks"
                     description="Email me when a request is waiting on my approval."
-                  />
-                  <Toggle
-                    checked={serverPrefs.approvalReminders}
-                    onChange={(v) => setServerPref('approvalReminders', v)}
-                    label="Approval reminders"
-                    description="Nudge me by email while an approval task sits pending with me."
                   />
                   <Toggle
                     checked={serverPrefs.weeklyDigest}

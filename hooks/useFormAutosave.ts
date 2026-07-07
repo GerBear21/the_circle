@@ -5,18 +5,24 @@ import { useSession } from 'next-auth/react';
 /**
  * Client-side form autosave / crash recovery.
  *
- * Persists a serializable snapshot of a form's state to localStorage as the
- * user types (debounced) and restores it the next time the same form is opened.
- * This is the safety net behind the session-timeout work: if the session lapses
- * mid-form, the tab is closed, or the browser crashes, the user's entries are
- * recovered instead of lost.
+ * Persists a serializable snapshot of a form's state to sessionStorage as the
+ * user types (debounced) and restores it on a same-tab reload. This is the
+ * safety net behind the session-timeout work: if the page is reloaded or the
+ * session lapses mid-form within the same tab, the user's entries are recovered
+ * instead of lost.
+ *
+ * sessionStorage (not localStorage) is deliberate: the snapshot lives only for
+ * the life of the tab, so opening the form in a new tab — or after closing the
+ * browser, or a later session — always starts BLANK. A new/blank form must
+ * never come pre-filled with data from an earlier, abandoned session.
  *
  * Design notes:
  *  - Snapshots are keyed per user (so a different account on a shared machine
  *    never sees them) and per form type.
  *  - Snapshots expire after `ttlMs` (default 6h) and are removed automatically
  *    once the form is successfully saved (the page navigates to the request
- *    detail page) — so a submitted form never resurrects stale data.
+ *    detail page) or the user explicitly discards — so a submitted or discarded
+ *    form never resurrects stale data.
  *  - Only serializable slices should be passed in `data`. File uploads and
  *    signature canvases can't survive a reload and should be left out.
  *  - Restore runs once on mount and only when `enabled` (callers disable it in
@@ -78,7 +84,7 @@ export function useFormAutosave<T extends Record<string, unknown>>(opts: Options
 
   const clear = useCallback(() => {
     try {
-      window.localStorage.removeItem(storageKey);
+      window.sessionStorage.removeItem(storageKey);
       window.sessionStorage.removeItem(scrollKey);
     } catch {
       /* storage unavailable — ignore */
@@ -100,7 +106,7 @@ export function useFormAutosave<T extends Record<string, unknown>>(opts: Options
         if (parsed?.data && Date.now() - parsed.savedAt <= ttlMs) {
           onRestoreRef.current(parsed.data);
         } else {
-          window.localStorage.removeItem(storageKey);
+          window.sessionStorage.removeItem(storageKey);
         }
       }
     } catch {
@@ -166,7 +172,7 @@ export function useFormAutosave<T extends Record<string, unknown>>(opts: Options
     const handle = setTimeout(() => {
       try {
         const payload: StoredSnapshot<T> = { v: 1, savedAt: Date.now(), data: dataRef.current };
-        window.localStorage.setItem(storageKey, JSON.stringify(payload));
+        window.sessionStorage.setItem(storageKey, JSON.stringify(payload));
       } catch {
         /* quota exceeded / not serializable — ignore */
       }
@@ -174,6 +180,15 @@ export function useFormAutosave<T extends Record<string, unknown>>(opts: Options
     return () => clearTimeout(handle);
     // serialized is the change signal; dataRef.current holds the value to write.
   }, [serialized, enabled, storageKey, debounceMs]);
+
+  // Clear the snapshot when the user deliberately discards changes (fired by
+  // useUnsavedChangesPrompt). Without this, a discarded form's entries would be
+  // restored the next time the same form is opened.
+  useEffect(() => {
+    const onDiscard = () => clear();
+    window.addEventListener('form-autosave-discard', onDiscard);
+    return () => window.removeEventListener('form-autosave-discard', onDiscard);
+  }, [clear]);
 
   // Auto-clear once the form is successfully saved. Both submit and draft paths
   // navigate to the request detail page (`/requests/<id>`), so a completed

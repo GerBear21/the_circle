@@ -47,9 +47,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       'emailApprovalTasks',
       'emailCompletionPdf',
       'approvalReminders',
+      'reminderChannel',
+      'reminderFrequency',
+      'draftReminders',
       'weeklyDigest',
       'autoArchiveOneDrive',
       'oneDriveFolder',
+      'landingPage',
     ] as const;
     const update: Record<string, any> = {};
     for (const key of allowed) {

@@ -2,6 +2,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import { useEffect, useState, useCallback } from 'react';
 import { AppLayout } from '../../components/layout';
+import Loader from '@/components/Loader';
 import { Card, Button } from '../../components/ui';
 // UsersIllustration removed — clean layout
 import { useAdminUsers } from '../../hooks/useAdminUsers';
@@ -119,9 +120,7 @@ export default function AdminUsersPage() {
   if (status === 'loading' || loading) {
     return (
       <AppLayout title="Users">
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500" />
-        </div>
+        <Loader fullScreen={false} />
       </AppLayout>
     );
   }

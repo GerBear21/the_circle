@@ -13,6 +13,31 @@ export const getServerSideProps: GetServerSideProps = async () => {
 const HEADLINE =
   "Driving RTG's digital transformation through workflow automation.";
 
+// Pages a user may choose as their post-login landing page (must match the
+// options in My Settings). Anything else falls back to the dashboard.
+const ALLOWED_LANDING_PAGES = [
+  '/dashboard',
+  '/requests/my-requests',
+  '/requests/drafts',
+  '/approvals',
+  '/notifications',
+];
+
+/** Resolve the signed-in user's preferred landing page, defaulting safely. */
+async function resolveLandingPage(): Promise<string> {
+  try {
+    const res = await fetch('/api/user/preferences');
+    if (res.ok) {
+      const data = await res.json();
+      const lp = data?.preferences?.landingPage;
+      if (typeof lp === 'string' && ALLOWED_LANDING_PAGES.includes(lp)) return lp;
+    }
+  } catch {
+    // fall through to default
+  }
+  return '/dashboard';
+}
+
 /* ---------- Antigravity Canvas (Matter.js) ---------- */
 function AntigravityCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -334,7 +359,7 @@ export default function Home() {
       redirect: false,
     });
     if (res?.ok) {
-      router.replace("/dashboard");
+      router.replace(await resolveLandingPage());
     } else {
       setDemoError("Invalid demo credentials");
       setDemoLoading(false);
@@ -347,7 +372,7 @@ export default function Home() {
 
   useEffect(() => {
     if (status === "authenticated") {
-      router.replace("/dashboard");
+      (async () => { router.replace(await resolveLandingPage()); })();
     }
   }, [status, router]);
 

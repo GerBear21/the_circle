@@ -40,8 +40,8 @@ export default function NewCapexRequestPage() {
     { key: 'procurement_manager', label: 'Procurement Manager', description: 'Procurement Review' },
     { key: 'corporate_hod', label: 'Corporate Head of Dept', description: 'Department Approval' },
     { key: 'projects_manager', label: 'Projects Manager', description: 'Projects Review' },
-    { key: 'managing_director', label: 'Managing Director', description: 'Operations Approval' },
-    { key: 'finance_director', label: 'Finance Director', description: 'Final Financial Approval' },
+    { key: 'managing_director', label: 'Chief Operating Officer', description: 'Operations Approval' },
+    { key: 'finance_director', label: 'Chief Finance Officer', description: 'Final Financial Approval' },
     { key: 'ceo', label: 'Chief Executive', description: 'Final Authorization' },
   ];
   const [selectedApprovers, setSelectedApprovers] = useState<Record<string, string>>({
@@ -86,7 +86,7 @@ export default function NewCapexRequestPage() {
     { value: 'existing_supplier', label: 'Existing supplier — continuity required' },
     { value: 'sole_supplier', label: 'Sole supplier — no alternatives available' },
     { value: 'specialized', label: 'Specialized service requiring specific expertise' },
-    { value: 'other', label: 'Other reason — requires MD pre-approval first' },
+    { value: 'other', label: 'Other reason — requires COO pre-approval first' },
   ];
 
   const requiresMdApproval = quotationReason === 'other';
@@ -120,6 +120,8 @@ export default function NewCapexRequestPage() {
     description: '',
     budgetType: '', // budget, non-budget, emergency
     isBudgeted: true, // "This CAPEX is not part of the approved annual budget" = false
+    budgetAmount: '', // Budgeted CAPEX only: total approved annual budget line
+    amountSpent: '', // Budgeted CAPEX only: amount already spent against that budget
     amount: '', // project cost
     currency: 'USD',
     justification: '',
@@ -229,6 +231,37 @@ export default function NewCapexRequestPage() {
       u.email?.toLowerCase().includes(watcherSearch.toLowerCase()))
   );
 
+  // Directory search: when the user types in a watcher/approver picker, query
+  // /api/users/search. On staging this returns app_users; in production
+  // (USER_DIRECTORY_SOURCE=azure) it returns live Azure AD directory matches,
+  // JIT-provisioned to app_users ids. Matches are merged into `users` so both
+  // the client-side filtering and the selected-name lookups keep working.
+  const activeUserSearchTerm = showWatcherDropdown
+    ? watcherSearch
+    : (showApproverDropdown ? (approverSearch[showApproverDropdown] || '') : '');
+
+  useEffect(() => {
+    const term = activeUserSearchTerm.trim();
+    if (term.length < 2) return;
+    const handle = setTimeout(async () => {
+      try {
+        const resp = await fetch(`/api/users/search?q=${encodeURIComponent(term)}`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const found = (data.users || []) as Array<{ id: string; display_name: string; email: string; job_title?: string }>;
+        if (found.length === 0) return;
+        setUsers(prev => {
+          const map = new Map(prev.map(u => [u.id, u]));
+          for (const u of found) if (!map.has(u.id)) map.set(u.id, u);
+          return Array.from(map.values());
+        });
+      } catch (err) {
+        console.error('User directory search failed:', err);
+      }
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [activeUserSearchTerm]);
+
   const handleUpdateQuotationMetadata = (index: number, field: keyof DocumentMetadata, value: string | boolean) => {
     setQuotationDocuments(prev => prev.map((doc, i) => {
       if (i === index) {
@@ -285,6 +318,8 @@ export default function NewCapexRequestPage() {
           isBudgeted: typeof capexData.isBudgeted === 'boolean'
             ? capexData.isBudgeted
             : (typeof metadata.isBudgeted === 'boolean' ? metadata.isBudgeted : true),
+          budgetAmount: capexData.budgetAmount || metadata.budgetAmount || '',
+          amountSpent: capexData.amountSpent || metadata.amountSpent || '',
           amount: capexData.amount || metadata.amount || '',
           currency: capexData.currency || metadata.currency || 'USD',
           justification: capexData.justification || metadata.justification || '',
@@ -309,6 +344,8 @@ export default function NewCapexRequestPage() {
           isBudgeted: typeof capexData.isBudgeted === 'boolean'
             ? capexData.isBudgeted
             : (typeof metadata.isBudgeted === 'boolean' ? metadata.isBudgeted : true),
+          budgetAmount: capexData.budgetAmount || metadata.budgetAmount || '',
+          amountSpent: capexData.amountSpent || metadata.amountSpent || '',
           amount: capexData.amount || metadata.amount || '',
           currency: capexData.currency || metadata.currency || 'USD',
           justification: capexData.justification || metadata.justification || '',
@@ -834,6 +871,11 @@ export default function NewCapexRequestPage() {
         setLoading(false);
         return;
       }
+      if (isBudgetedCapex && (!formData.budgetAmount || !formData.amountSpent)) {
+        setError('Budget Amount and Amount Spent are required for a budgeted CAPEX.');
+        setLoading(false);
+        return;
+      }
 
       // Validate all 8 approvers are selected (skip for approver editing)
       if (!isApproverEditing) {
@@ -967,6 +1009,9 @@ export default function NewCapexRequestPage() {
               projectName: formData.projectName,
               budgetType: formData.budgetType,
               isBudgeted: formData.isBudgeted !== false,
+              budgetAmount: isBudgetedCapex ? formData.budgetAmount : '',
+              amountSpent: isBudgetedCapex ? formData.amountSpent : '',
+              budgetBalance: isBudgetedCapex ? budgetBalanceDisplay : '',
               amount: formData.amount,
               currency: formData.currency,
               justification: formData.justification,
@@ -1145,6 +1190,9 @@ export default function NewCapexRequestPage() {
             projectName: formData.projectName,
             budgetType: formData.budgetType,
             isBudgeted: formData.isBudgeted !== false,
+            budgetAmount: isBudgetedCapex ? formData.budgetAmount : '',
+            amountSpent: isBudgetedCapex ? formData.amountSpent : '',
+            budgetBalance: isBudgetedCapex ? budgetBalanceDisplay : '',
             amount: formData.amount,
             currency: formData.currency,
             justification: formData.justification,
@@ -1277,6 +1325,21 @@ export default function NewCapexRequestPage() {
     return parseFloat(num).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
   };
 
+  // Parse a display-formatted currency string ("1,250.00") back to a number.
+  const parseCurrency = (value: string) => {
+    const num = parseFloat((value || '').replace(/[^0-9.]/g, ''));
+    return isNaN(num) ? 0 : num;
+  };
+
+  // Budgeted CAPEX only: balance remaining once this project's cost is drawn
+  // down against the approved budget line = budget − already spent − this project.
+  const isBudgetedCapex = formData.budgetType === 'budget';
+  const budgetBalanceAfterProject =
+    parseCurrency(formData.budgetAmount) - parseCurrency(formData.amountSpent) - parseCurrency(formData.amount);
+  // formatCurrency strips the minus sign, so preserve it explicitly for the balance.
+  const budgetBalanceDisplay =
+    `${budgetBalanceAfterProject < 0 ? '-' : ''}${formatCurrency(String(Math.abs(budgetBalanceAfterProject)))}`;
+
   // Filter users by search for a specific role
   const getFilteredUsersForRole = (roleKey: string) => {
     const searchTerm = approverSearch[roleKey] || '';
@@ -1338,6 +1401,9 @@ export default function NewCapexRequestPage() {
             projectName: formData.projectName,
             budgetType: formData.budgetType,
             isBudgeted: formData.isBudgeted !== false,
+            budgetAmount: isBudgetedCapex ? formData.budgetAmount : '',
+            amountSpent: isBudgetedCapex ? formData.amountSpent : '',
+            budgetBalance: isBudgetedCapex ? budgetBalanceDisplay : '',
             amount: formData.amount,
             currency: formData.currency,
             justification: formData.justification,
@@ -1707,6 +1773,65 @@ export default function NewCapexRequestPage() {
                 <option value="ZIG">ZIG</option>
               </select>
             </div>
+            {/* Budgeted CAPEX: capture the approved budget line, what's already
+                been spent against it, and the balance remaining once this
+                project is drawn down. Only shown when Budget Type = Budgeted. */}
+            {isBudgetedCapex && (
+              <div className="md:col-span-2 rounded-xl border border-primary-100 bg-primary-50/40 p-4">
+                <p className="text-sm font-medium text-primary-800 mb-3">Budget Utilisation</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Budget Amount <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">{formData.currency === 'ZIG' ? 'ZiG' : '$'}</span>
+                      <input
+                        type="text"
+                        className="w-full pl-8 pr-4 py-2 min-h-[44px] rounded-xl border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                        placeholder="0.00"
+                        value={formData.budgetAmount}
+                        onChange={(e) => setFormData({ ...formData, budgetAmount: formatCurrency(e.target.value) })}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Amount Spent <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">{formData.currency === 'ZIG' ? 'ZiG' : '$'}</span>
+                      <input
+                        type="text"
+                        className="w-full pl-8 pr-4 py-2 min-h-[44px] rounded-xl border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                        placeholder="0.00"
+                        value={formData.amountSpent}
+                        onChange={(e) => setFormData({ ...formData, amountSpent: formatCurrency(e.target.value) })}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Balance After Project
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">{formData.currency === 'ZIG' ? 'ZiG' : '$'}</span>
+                      <input
+                        type="text"
+                        readOnly
+                        className={`w-full pl-8 pr-4 py-2 min-h-[44px] rounded-xl border bg-gray-50 cursor-not-allowed focus:outline-none transition-all ${budgetBalanceAfterProject < 0 ? 'border-red-300 text-red-600' : 'border-gray-300 text-gray-900'}`}
+                        value={budgetBalanceDisplay}
+                        tabIndex={-1}
+                      />
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">Budget − Spent − Project Cost</p>
+                  </div>
+                </div>
+                {budgetBalanceAfterProject < 0 && (
+                  <p className="text-xs text-red-600 mt-2">This project exceeds the remaining budget.</p>
+                )}
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Payback Period

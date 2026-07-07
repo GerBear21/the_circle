@@ -87,10 +87,19 @@ interface RequestDetail {
         created_at: string;
         first_viewed_at?: string | null;
         last_viewed_at?: string | null;
+        is_redirected?: boolean;
+        original_approver_id?: string | null;
+        redirect_reason?: string | null;
+        delegation_id?: string | null;
         approver?: {
             id: string;
             display_name: string;
             email: string;
+            job_title?: string | null;
+        } | null;
+        original_approver?: {
+            id: string;
+            display_name: string;
             job_title?: string | null;
         } | null;
         approvals?: {
@@ -137,6 +146,9 @@ const fieldLabels: Record<string, string> = {
     requester: 'Requester',
     startDate: 'Start Date',
     budgetType: 'Budget Type',
+    budgetAmount: 'Budget Amount',
+    amountSpent: 'Amount Spent',
+    budgetBalance: 'Balance After Project',
     department: 'Department',
     description: 'Description',
     projectName: 'Project Name',
@@ -146,10 +158,24 @@ const fieldLabels: Record<string, string> = {
     type: 'Request Type',
     priority: 'Priority',
     evaluation: 'Financial Evaluation',
+    // Price variation fields
+    supplierName: 'Name of the Supplier',
+    firstQuotation: 'First Quotation',
+    secondQuotation: 'Second Quotation',
+    firstQuotationNumber: 'First Quotation Number',
+    secondQuotationNumber: 'Second Quotation Number',
+    firstOrderNumber: 'First Order Number',
+    secondOrderNumber: 'Second Order Number',
+    dateOnQuotation: 'Date on Quotation',
+    variance: 'Variance (1st vs 2nd)',
+    reason: 'Reason for Price Variance',
+    requestedBy: 'Requested By',
+    parentTitle: 'CAPEX Reference',
+    date: 'Date',
 };
 
 // Fields to exclude from display (internal/system fields)
-const excludedFields = ['approvers', 'documents', 'type', 'category', 'capex', 'leave', 'travel', 'expense'];
+const excludedFields = ['approvers', 'documents', 'type', 'category', 'capex', 'leave', 'travel', 'expense', 'parentRequestId', 'approverRoles', 'requiresCfo', 'priceVariations'];
 
 // Format field value for display
 function formatFieldValue(key: string, value: any): string {
@@ -159,7 +185,7 @@ function formatFieldValue(key: string, value: any): string {
     if (typeof value === 'object') return '—';
 
     // Handle currency formatting
-    if ((key === 'amount' || key === 'npv') && typeof value === 'string') {
+    if ((key === 'amount' || key === 'npv' || key === 'budgetAmount' || key === 'amountSpent' || key === 'budgetBalance') && typeof value === 'string') {
         return value.includes(',') ? value : Number(value).toLocaleString();
     }
 
@@ -310,6 +336,11 @@ interface ApproverInfo {
     comment?: string;
     first_viewed_at?: string | null;
     last_viewed_at?: string | null;
+    /** This approver's slot has been delegated to someone else. */
+    delegated?: boolean;
+    delegateName?: string | null;
+    delegateJobTitle?: string | null;
+    delegationReason?: string | null;
 }
 
 // Helper to get approver IDs from metadata (handles nested structures)
@@ -377,24 +408,32 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
                     const data = await response.json();
                     const users = data.users || [];
 
-                    // Map approvers with their status from request_steps
+                    // Map approvers with their status from request_steps.
+                    // A delegated step's approver is now the delegate, so also
+                    // match on original_approver_id to keep the original slot.
                     const approverInfos: ApproverInfo[] = approverIds.map((id, index) => {
                         const user = users.find((u: any) => u.id === id);
-                        const step = request.request_steps?.find(s => s.approver?.id === id);
+                        const step = request.request_steps?.find(s => s.approver?.id === id)
+                            || request.request_steps?.find(s => s.original_approver_id === id);
                         const approval = step?.approvals?.[0];
+                        const delegated = !!(step?.is_redirected && step?.original_approver_id === id);
 
                         return {
                             id,
                             display_name: user?.display_name || `Approver ${index + 1}`,
                             email: user?.email || '',
                             profile_picture_url: user?.profile_picture_url,
-                            job_title: user?.job_title || step?.approver?.job_title || null,
+                            job_title: user?.job_title || step?.original_approver?.job_title || null,
                             status: step?.status === 'approved' ? 'approved' :
                                 step?.status === 'rejected' ? 'rejected' : 'pending',
                             signed_at: approval?.signed_at,
                             comment: approval?.comment,
                             first_viewed_at: step?.first_viewed_at || null,
                             last_viewed_at: step?.last_viewed_at || null,
+                            delegated,
+                            delegateName: delegated ? (step?.approver?.display_name || null) : null,
+                            delegateJobTitle: delegated ? (step?.approver?.job_title || null) : null,
+                            delegationReason: delegated ? (step?.redirect_reason || null) : null,
                         };
                     });
 
@@ -639,6 +678,18 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
                                             </h4>
                                             {approver.job_title && (
                                                 <p className="text-xs font-medium text-primary-700 mt-0.5">{approver.job_title}</p>
+                                            )}
+                                            {approver.delegated && (
+                                                <p
+                                                    className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5"
+                                                    title={approver.delegationReason ? `Reason: ${approver.delegationReason}` : undefined}
+                                                >
+                                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                                                    </svg>
+                                                    Delegated to {approver.delegateName || 'a delegate'}
+                                                    {approver.delegateJobTitle ? ` (${approver.delegateJobTitle})` : ''}
+                                                </p>
                                             )}
                                             <p className="text-sm text-gray-500">{approver.email}</p>
                                             <div className="mt-1 flex items-center gap-2 flex-wrap">
@@ -1044,11 +1095,20 @@ export const getServerSideProps: GetServerSideProps<RequestDetailsPageProps> = a
           created_at,
           first_viewed_at,
           last_viewed_at,
+          is_redirected,
+          original_approver_id,
+          redirect_reason,
+          delegation_id,
           approver:app_users!request_steps_approver_user_id_fkey (
             id,
             display_name,
             email,
             profile_picture_url,
+            job_title
+          ),
+          original_approver:app_users!request_steps_original_approver_id_fkey (
+            id,
+            display_name,
             job_title
           ),
           approvals (
@@ -1144,6 +1204,7 @@ export const getServerSideProps: GetServerSideProps<RequestDetailsPageProps> = a
     const normalizedSteps = request.request_steps?.map((step: any) => ({
       ...step,
       approver: Array.isArray(step.approver) ? step.approver[0] : step.approver,
+      original_approver: Array.isArray(step.original_approver) ? step.original_approver[0] : step.original_approver,
     }));
 
     const enrichedRequest = {
@@ -1248,6 +1309,17 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     const isDraft = request?.status === 'draft';
     const canPublish = isCreator && isDraft;
     const canDelete = isCreator && request?.status !== 'approved';
+
+    // Price Variation: the creator of a fully-approved CAPEX can raise a price
+    // variation against it. On this request being a variation itself, we show a
+    // back-link to its parent CAPEX and any recorded variations as a banner.
+    const requestKind = request?.metadata?.type || request?.metadata?.requestType;
+    const isCapexRequest = requestKind === 'capex';
+    const isPriceVariationRequest = requestKind === 'price-variation';
+    const canRaisePriceVariation = isCreator && isCapexRequest && request?.status === 'approved';
+    const priceVariations: any[] = Array.isArray(request?.metadata?.priceVariations)
+        ? request!.metadata.priceVariations
+        : [];
 
     // Check if current user is the pending approver for this request
     // Note: We check if the user has a pending step regardless of request status,
@@ -1586,7 +1658,7 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
             const minutes = Math.max(1, Math.round((result.elevation.expiresAt - Date.now()) / 60000));
             addToast({
                 type: 'success',
-                title: 'You are verified for 15 minutes',
+                title: `You are verified for ${minutes} minute${minutes === 1 ? '' : 's'}`,
                 message: `You can approve without re-authentication.`,
                 duration: 8000,
             });
@@ -2510,6 +2582,58 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                     </Card>
                 )}
 
+                {/* Price Variation banner — this request IS a variation: link back to the parent CAPEX. */}
+                {isPriceVariationRequest && request.metadata?.parentRequestId && (
+                    <Card className="bg-amber-50 border-amber-200 !p-4">
+                        <div className="flex items-center gap-3">
+                            <svg className="w-5 h-5 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                            </svg>
+                            <p className="text-amber-800 text-sm">
+                                This is a price variation raised against a CAPEX request.
+                            </p>
+                            <Link
+                                href={`/requests/${request.metadata.parentRequestId}`}
+                                className="ml-auto text-amber-700 font-medium text-sm hover:underline"
+                            >
+                                View CAPEX →
+                            </Link>
+                        </div>
+                    </Card>
+                )}
+
+                {/* Pricing Variation banner — this CAPEX has one or more approved variations. */}
+                {priceVariations.length > 0 && (
+                    <Card className="bg-amber-50 border-amber-200 !p-4">
+                        <div className="flex items-start gap-3">
+                            <svg className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z" />
+                            </svg>
+                            <div className="flex-1">
+                                <p className="text-amber-800 text-sm font-semibold mb-1">
+                                    Pricing Variation{priceVariations.length > 1 ? 's' : ''} recorded
+                                </p>
+                                <ul className="space-y-1">
+                                    {priceVariations.map((v: any, i: number) => (
+                                        <li key={v.id || i} className="text-sm text-amber-800 flex items-center gap-2 flex-wrap">
+                                            <span>
+                                                {v.supplierName ? `${v.supplierName} — ` : ''}
+                                                Amount: {v.amount || '—'}
+                                                {v.variance ? ` (variance ${v.variance})` : ''}
+                                            </span>
+                                            {v.id && (
+                                                <Link href={`/requests/${v.id}`} className="text-amber-700 font-medium hover:underline">
+                                                    View variation →
+                                                </Link>
+                                            )}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </div>
+                    </Card>
+                )}
+
                 {/* Top Navigation Breadcrumb */}
                 <nav className="flex items-center text-sm text-text-secondary mb-2">
                     <Link href="/approvals" className="hover:text-primary-600 transition-colors flex items-center gap-1">
@@ -2663,6 +2787,19 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                             </svg>
                             Preview
                         </Button>
+                        {/* Price Variation: only for the creator of a fully-approved CAPEX. */}
+                        {canRaisePriceVariation && (
+                            <Button
+                                variant="outline"
+                                className="gap-2 bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
+                                onClick={() => router.push(`/requests/new/price-variation?parent=${request.id}`)}
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                </svg>
+                                Raise Price Variation
+                            </Button>
+                        )}
                         {/* Inter-Unit Debit Note: dedicated paper-format printable view. */}
                         {(request.metadata?.type === 'inter_unit_debit_note' || request.metadata?.requestType === 'inter_unit_debit_note') && (
                             <Button
@@ -3846,8 +3983,8 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                         </div>
                                         <p className="text-xs text-amber-700 mb-3">
                                             {hasGrandTotalToBalance
-                                                ? 'As HR Director, please allocate the cost across the units below. Totals must match the grand total before you can approve.'
-                                                : 'As HR Director, please allocate the complimentary value across the units below before you can approve.'}
+                                                ? 'As Chief Human Capital Officer, please allocate the cost across the units below. Totals must match the grand total before you can approve.'
+                                                : 'As Chief Human Capital Officer, please allocate the complimentary value across the units below before you can approve.'}
                                         </p>
 
                                         {/* Hotel bookings: HRD also picks the category (Marketing,

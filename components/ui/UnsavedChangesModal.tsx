@@ -33,7 +33,7 @@ export default function UnsavedChangesModal({
                     <div className="p-6">
                         <div className="flex items-start gap-4">
                             <div className="w-14 h-14 flex items-center justify-center flex-shrink-0">
-                                <FeedbackLottie type="warning" size={56} />
+                                <FeedbackLottie type="warning" size={56} loop={false} />
                             </div>
                             <div className="flex-1">
                                 <h3 className="text-lg font-semibold text-gray-900">Unsaved changes</h3>

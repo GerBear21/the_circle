@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import Head from 'next/head';
 import Link from 'next/link';
 import { AppLayout } from '../../components/layout';
+import Loader from '@/components/Loader';
 import AuditAccessGate from '../../components/audit/AuditAccessGate';
 import AuditSectionTabs from '../../components/audit/AuditSectionTabs';
 import { CATEGORY_STYLES, formatEventTime } from '../../components/audit/AuditEventExplorer';
@@ -94,9 +95,7 @@ export default function AuditDashboardPage() {
   if (status === 'loading') {
     return (
       <AppLayout title="Audit">
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500" />
-        </div>
+        <Loader fullScreen={false} />
       </AppLayout>
     );
   }

@@ -136,22 +136,36 @@ export function RBACProvider({ children }: { children: React.ReactNode }) {
       setLoading(true);
     }
 
-    try {
-      const response = await fetch('/api/rbac/profile');
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch RBAC profile');
+    // The profile fetch hits Supabase server-side, which occasionally drops a
+    // keep-alive socket (UND_ERR_SOCKET) and returns a transient failure. A
+    // single miss here would leave the user apparently role-less ("No roles"),
+    // so retry a few times with a short backoff before giving up. On total
+    // failure we keep any cached profile rather than clobbering it with null.
+    const MAX_ATTEMPTS = 3;
+    let lastErr: unknown = null;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const response = await fetch('/api/rbac/profile');
+        if (!response.ok) {
+          throw new Error(`Failed to fetch RBAC profile (${response.status})`);
+        }
+        const data = await response.json();
+        setRbac(data);
+        setCachedRBAC(sessionUserId, data);
+        setError(null);
+        setLoading(false);
+        return;
+      } catch (err) {
+        lastErr = err;
+        if (attempt < MAX_ATTEMPTS) {
+          await new Promise((r) => setTimeout(r, attempt * 400));
+        }
       }
-
-      const data = await response.json();
-      setRbac(data);
-      setCachedRBAC(sessionUserId, data);
-    } catch (err) {
-      console.error('Error in RBACContext:', err);
-      setError(err as Error);
-    } finally {
-      setLoading(false);
     }
+
+    console.error('Error in RBACContext (after retries):', lastErr);
+    setError(lastErr as Error);
+    setLoading(false);
   }, [sessionUserId, status]);
 
   useEffect(() => {

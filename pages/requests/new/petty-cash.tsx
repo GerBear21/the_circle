@@ -25,6 +25,7 @@ const CHARGE_TO_OPTIONS: Array<{ code: string; label: string }> = [
 interface PettyCashLineItem {
     description: string;
     amount: string;
+    quantity: string;
     chargeTo: string;
 }
 
@@ -42,7 +43,11 @@ interface LinkedApprovedRequest {
     approvedAt: string | null;
 }
 
-const emptyLineItem = (): PettyCashLineItem => ({ description: '', amount: '', chargeTo: '' });
+const emptyLineItem = (): PettyCashLineItem => ({ description: '', amount: '', quantity: '1', chargeTo: '' });
+
+// Line total = unit amount × quantity.
+const lineItemTotal = (row: PettyCashLineItem): number =>
+    (parseFloat(row.amount) || 0) * (parseFloat(row.quantity) || 0);
 
 const emptySignature: SignatureSelection = { type: 'manual', data: '' };
 
@@ -50,7 +55,32 @@ export default function PettyCashRequestPage() {
     const { data: session, status } = useSession();
     const router = useRouter();
     const { user } = useCurrentUser();
-    const { departmentName, businessUnitName } = useUserHrimsProfile();
+    const { departmentName, businessUnitName, profile } = useUserHrimsProfile();
+
+    // "Charge To" lists the departments within the requestor's own business
+    // unit (from HRIMS). Falls back to the fixed business-unit list if HRIMS is
+    // unreachable or returns nothing, so the field is never empty.
+    const [chargeToDepts, setChargeToDepts] = useState<Array<{ id: string; name: string; code?: string }>>([]);
+    const requestorBusinessUnitId = profile?.businessUnit?.id || profile?.employee?.business_unit_id || null;
+    useEffect(() => {
+        if (!requestorBusinessUnitId) return;
+        let cancelled = false;
+        fetch(`/api/hrims/departments?business_unit_id=${encodeURIComponent(requestorBusinessUnitId)}`)
+            .then((r) => r.json())
+            .then((d) => { if (!cancelled) setChargeToDepts(Array.isArray(d.departments) ? d.departments : []); })
+            .catch(() => { /* keep fallback */ });
+        return () => { cancelled = true; };
+    }, [requestorBusinessUnitId]);
+
+    const chargeToOptions = chargeToDepts.length > 0
+        ? chargeToDepts.map((d) => ({ value: d.name, label: d.name }))
+        : CHARGE_TO_OPTIONS.map((o) => ({ value: o.code, label: o.label }));
+
+    const chargeToLabel = (val: string) =>
+        chargeToDepts.find((d) => d.name === val)?.name
+        || CHARGE_TO_OPTIONS.find((o) => o.code === val)?.label
+        || val
+        || '—';
 
     // Edit-mode and approver-edit-mode parameters mirror the other forms.
     const { edit: editRequestId, approver: isApproverEdit, linkedTo } = router.query;
@@ -148,7 +178,9 @@ export default function PettyCashRequestPage() {
         data: { formData, lineItems, selectedApprovers, selectedWatchers },
         onRestore: (saved) => {
             if (saved.formData) setFormData(saved.formData);
-            if (Array.isArray(saved.lineItems) && saved.lineItems.length > 0) setLineItems(saved.lineItems);
+            if (Array.isArray(saved.lineItems) && saved.lineItems.length > 0) {
+                setLineItems(saved.lineItems.map((li: any) => ({ quantity: '1', ...li })));
+            }
             if (saved.selectedApprovers) setSelectedApprovers(prev => ({ ...prev, ...saved.selectedApprovers }));
             if (Array.isArray(saved.selectedWatchers)) setSelectedWatchers(saved.selectedWatchers);
             setIsDirty(true);
@@ -188,8 +220,9 @@ export default function PettyCashRequestPage() {
                 setOriginalFormData(restored);
 
                 if (Array.isArray(metadata.lineItems) && metadata.lineItems.length > 0) {
-                    setLineItems(metadata.lineItems);
-                    setOriginalLineItems(metadata.lineItems);
+                    const withQty = metadata.lineItems.map((li: any) => ({ quantity: '1', ...li }));
+                    setLineItems(withQty);
+                    setOriginalLineItems(withQty);
                 }
 
                 if (metadata.receivedBy?.signature) {
@@ -323,6 +356,7 @@ export default function PettyCashRequestPage() {
                         generatedItems.push({
                             description: cat.label,
                             amount: amount.toFixed(2),
+                            quantity: '1',
                             chargeTo,
                         });
                     }
@@ -334,6 +368,7 @@ export default function PettyCashRequestPage() {
                     generatedItems.push({
                         description: 'Overnight Accommodation',
                         amount: parseFloat(accommodation.totalCost).toFixed(2),
+                        quantity: '1',
                         chargeTo,
                     });
                 }
@@ -345,6 +380,7 @@ export default function PettyCashRequestPage() {
                             generatedItems.push({
                                 description: `Tollgate${t.road ? ` — ${t.road}` : ''}`,
                                 amount: total.toFixed(2),
+                                quantity: '1',
                                 chargeTo,
                             });
                         }
@@ -355,6 +391,7 @@ export default function PettyCashRequestPage() {
                     generatedItems.push({
                         description: budget.other.description || 'Other',
                         amount: parseFloat(budget.other.totalCost).toFixed(2),
+                        quantity: '1',
                         chargeTo,
                     });
                 }
@@ -542,7 +579,7 @@ export default function PettyCashRequestPage() {
     };
 
     const calculateTotal = (): string => {
-        const total = lineItems.reduce((sum, row) => sum + (parseFloat(row.amount) || 0), 0);
+        const total = lineItems.reduce((sum, row) => sum + lineItemTotal(row), 0);
         return total.toFixed(2);
     };
 
@@ -666,6 +703,7 @@ export default function PettyCashRequestPage() {
             const num = i + 1;
             if (!row.description.trim()) errors.push(`Line ${num}: description is required`);
             if (!row.amount || parseFloat(row.amount) <= 0) errors.push(`Line ${num}: amount must be greater than zero`);
+            if (!row.quantity || parseFloat(row.quantity) <= 0) errors.push(`Line ${num}: quantity must be greater than zero`);
             if (!row.chargeTo) errors.push(`Line ${num}: charge to is required`);
         }
 
@@ -880,8 +918,10 @@ export default function PettyCashRequestPage() {
                     <thead>
                         <tr>
                             <th style={{ border: '1px solid #333', padding: '6px 8px', background: '#F3EADC', textAlign: 'left' }}>Item (Describe FULLY)</th>
-                            <th style={{ border: '1px solid #333', padding: '6px 8px', background: '#F3EADC', textAlign: 'right', width: '15%' }}>Amount (USD)</th>
-                            <th style={{ border: '1px solid #333', padding: '6px 8px', background: '#F3EADC', textAlign: 'left', width: '25%' }}>Charge To</th>
+                            <th style={{ border: '1px solid #333', padding: '6px 8px', background: '#F3EADC', textAlign: 'right', width: '13%' }}>Amount (USD)</th>
+                            <th style={{ border: '1px solid #333', padding: '6px 8px', background: '#F3EADC', textAlign: 'right', width: '10%' }}>Qty</th>
+                            <th style={{ border: '1px solid #333', padding: '6px 8px', background: '#F3EADC', textAlign: 'right', width: '13%' }}>Total (USD)</th>
+                            <th style={{ border: '1px solid #333', padding: '6px 8px', background: '#F3EADC', textAlign: 'left', width: '22%' }}>Charge To</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -889,11 +929,13 @@ export default function PettyCashRequestPage() {
                             <tr key={i}>
                                 <td style={{ border: '1px solid #333', padding: '6px 8px' }}>{row.description || '—'}</td>
                                 <td style={{ border: '1px solid #333', padding: '6px 8px', textAlign: 'right' }}>{row.amount ? `$${parseFloat(row.amount).toFixed(2)}` : '—'}</td>
-                                <td style={{ border: '1px solid #333', padding: '6px 8px' }}>{CHARGE_TO_OPTIONS.find(o => o.code === row.chargeTo)?.label || row.chargeTo || '—'}</td>
+                                <td style={{ border: '1px solid #333', padding: '6px 8px', textAlign: 'right' }}>{row.quantity || '—'}</td>
+                                <td style={{ border: '1px solid #333', padding: '6px 8px', textAlign: 'right' }}>${lineItemTotal(row).toFixed(2)}</td>
+                                <td style={{ border: '1px solid #333', padding: '6px 8px' }}>{chargeToLabel(row.chargeTo)}</td>
                             </tr>
                         ))}
                         <tr>
-                            <td style={{ border: '1px solid #333', padding: '6px 8px', fontWeight: 700, background: '#F3EADC' }}>TOTAL</td>
+                            <td style={{ border: '1px solid #333', padding: '6px 8px', fontWeight: 700, background: '#F3EADC' }} colSpan={3}>TOTAL</td>
                             <td style={{ border: '1px solid #333', padding: '6px 8px', fontWeight: 700, background: '#F3EADC', textAlign: 'right' }}>${calculateTotal()}</td>
                             <td style={{ border: '1px solid #333', padding: '6px 8px', background: '#F3EADC' }}></td>
                         </tr>
@@ -1103,8 +1145,10 @@ export default function PettyCashRequestPage() {
                                 <thead>
                                     <tr className="bg-gray-50 border-b">
                                         <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 uppercase">Items (Describe FULLY)</th>
-                                        <th className="px-3 py-2 text-right text-xs font-semibold text-gray-700 uppercase w-32">Amount (USD)</th>
-                                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 uppercase w-64">Charge To</th>
+                                        <th className="px-3 py-2 text-right text-xs font-semibold text-gray-700 uppercase w-28">Amount (USD)</th>
+                                        <th className="px-3 py-2 text-right text-xs font-semibold text-gray-700 uppercase w-24">Quantity</th>
+                                        <th className="px-3 py-2 text-right text-xs font-semibold text-gray-700 uppercase w-28">Total (USD)</th>
+                                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 uppercase w-56">Charge To</th>
                                         <th className="px-3 py-2 w-10"></th>
                                     </tr>
                                 </thead>
@@ -1136,15 +1180,31 @@ export default function PettyCashRequestPage() {
                                                 />
                                             </td>
                                             <td className="px-2 py-2">
+                                                <input
+                                                    type="number"
+                                                    step="1"
+                                                    min="1"
+                                                    value={row.quantity}
+                                                    onChange={(e) => updateLineItem(idx, 'quantity', e.target.value)}
+                                                    placeholder="1"
+                                                    readOnly={lineItemsLocked}
+                                                    required={!lineItemsLocked}
+                                                    className={`w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm text-right ${lineItemsLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                                                />
+                                            </td>
+                                            <td className="px-2 py-2 text-right text-sm font-medium text-gray-800 whitespace-nowrap">
+                                                ${lineItemTotal(row).toFixed(2)}
+                                            </td>
+                                            <td className="px-2 py-2">
                                                 <select
                                                     value={row.chargeTo}
                                                     onChange={(e) => updateLineItem(idx, 'chargeTo', e.target.value)}
                                                     disabled={lineItemsLocked}
                                                     className={`w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm ${lineItemsLocked ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`}
                                                 >
-                                                    <option value="">Select unit...</option>
-                                                    {CHARGE_TO_OPTIONS.map(o => (
-                                                        <option key={o.code} value={o.code}>{o.label}</option>
+                                                    <option value="">Select department...</option>
+                                                    {chargeToOptions.map(o => (
+                                                        <option key={o.value} value={o.value}>{o.label}</option>
                                                     ))}
                                                 </select>
                                             </td>
@@ -1164,8 +1224,8 @@ export default function PettyCashRequestPage() {
                                         </tr>
                                     ))}
                                     <tr className="bg-gray-100 font-semibold">
-                                        <td className="px-3 py-2 text-gray-900 text-right">TOTAL</td>
-                                        <td className="px-3 py-2 text-gray-900 text-right">USD ${calculateTotal()}</td>
+                                        <td className="px-3 py-2 text-gray-900 text-right" colSpan={3}>TOTAL</td>
+                                        <td className="px-3 py-2 text-gray-900 text-right whitespace-nowrap">USD ${calculateTotal()}</td>
                                         <td colSpan={2}></td>
                                     </tr>
                                 </tbody>

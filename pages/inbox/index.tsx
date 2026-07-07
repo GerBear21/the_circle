@@ -2,6 +2,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import { useEffect } from 'react';
 import { AppLayout } from '../../components/layout';
+import Loader from '@/components/Loader';
 import { Card } from '../../components/ui';
 
 export default function InboxPage() {
@@ -17,9 +18,7 @@ export default function InboxPage() {
   if (status === 'loading') {
     return (
       <AppLayout title="Inbox">
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500" />
-        </div>
+        <Loader fullScreen={false} />
       </AppLayout>
     );
   }

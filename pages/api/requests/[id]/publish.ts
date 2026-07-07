@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { createCapexTrackerRow } from '@/lib/capexTrackerHooks';
+import { getRequestTypeLabel } from '@/lib/requestCode';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -122,7 +123,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .single();
 
     const requesterName = requesterData?.display_name || 'A user';
-    const requestType = request.metadata?.requestType || 'CAPEX';
+    const requestType = request.metadata?.requestType || request.metadata?.type || 'general';
+    const requestTypeLabel = getRequestTypeLabel(requestType);
     const requestTitle = request.title;
 
     // Notify the first approver
@@ -136,7 +138,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             sender_id: userId,
             type: 'task',
             title: 'New Approval Request',
-            message: `${requesterName} has submitted a ${requestType.toUpperCase()} request "${requestTitle}" for your approval.`,
+            message: `${requesterName} has submitted a ${requestTypeLabel} request "${requestTitle}" for your approval.`,
             metadata: {
               request_id: id,
               request_type: requestType,
@@ -159,7 +161,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         sender_id: userId,
         type: 'info',
         title: 'Added as Watcher',
-        message: `${requesterName} has added you as a watcher on their ${requestType.toUpperCase()} request "${requestTitle}".`,
+        message: `${requesterName} has added you as a watcher on their ${requestTypeLabel} request "${requestTitle}".`,
         metadata: {
           request_id: id,
           request_type: requestType,

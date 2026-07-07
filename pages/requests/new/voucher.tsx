@@ -108,7 +108,7 @@ export default function VoucherRequestPage() {
 
     // Approver selection state - 2 fixed roles
     const approvalRoles = [
-        { key: 'commercial_director', label: 'Commercial Director', description: 'Commercial Approval' },
+        { key: 'commercial_director', label: 'Chief Commercial Officer', description: 'Commercial Approval' },
         { key: 'ceo', label: 'CEO', description: 'Final Authorization' },
     ];
     const [users, setUsers] = useState<Array<{ id: string; display_name: string; email: string; job_title?: string }>>([]);
