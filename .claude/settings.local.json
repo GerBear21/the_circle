@@ -108,7 +108,16 @@
       "Bash(curl -s http://localhost:3001/_onboarding-preview)",
       "Bash(python -c \"import pypdf; r=pypdf.PdfReader\\(r'C:\\\\Users\\\\Geraldine.Ndoro\\\\Documents\\\\MILEAGE RATE -JUNE 2026.pdf'\\); print\\('\\\\n'.join\\(p.extract_text\\(\\) for p in r.pages\\)\\)\")",
       "Bash(python -c \"import PyPDF2; r=PyPDF2.PdfReader\\(r'C:\\\\Users\\\\Geraldine.Ndoro\\\\Documents\\\\MILEAGE RATE -JUNE 2026.pdf'\\); print\\('\\\\n'.join\\(p.extract_text\\(\\) for p in r.pages\\)\\)\")",
-      "Bash(git rm *)"
+      "Bash(git rm *)",
+      "mcp__ec37b326-61f1-41c7-8818-209185798d02__list_teams",
+      "mcp__ec37b326-61f1-41c7-8818-209185798d02__list_projects",
+      "mcp__ec37b326-61f1-41c7-8818-209185798d02__get_project",
+      "Bash(vercel --version)",
+      "Bash(vercel whoami *)",
+      "mcp__ec37b326-61f1-41c7-8818-209185798d02__list_deployments",
+      "Bash(gh --version)",
+      "Bash(gh auth *)",
+      "Bash(gh repo *)"
     ]
   }
 }
