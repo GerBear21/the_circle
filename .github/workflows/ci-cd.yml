@@ -1,17 +1,25 @@
 name: CI Pipeline
 
 # ─────────────────────────────────────────────────────────────
-# CI checks for pushes to develop / main and PRs targeting them.
+# CI checks for pushes to develop / preview / main and PRs targeting them.
 #
-# Deployment is handled by Vercel's native Git integration (it
-# auto-deploys develop → staging and main → production on push),
-# so this workflow only runs quality gates — it does NOT deploy.
+# Branch → environment map (Vercel domain-to-branch assignment):
+#   develop → the-circle-staging.vercel.app     (staging, auto-deploy)
+#   preview → the-circle-approvals.vercel.app   (preview, auto-deploy)
+#   main    → thecircle.rtgapps.com             (production, gated — see below)
+#
+# Vercel's native Git integration auto-deploys develop and preview on
+# push, so this workflow only runs quality gates for them — it does NOT
+# deploy those two. main is different: Vercel's auto-deploy for main is
+# disabled (git.deploymentEnabled.main = false in vercel.json) and the
+# deploy-production job below is the only path to production, gated by
+# a required-reviewer GitHub Environment.
 # ─────────────────────────────────────────────────────────────
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, preview]
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, preview]
 
 jobs:
   # ═══════════════════════════════════════════════════════════
