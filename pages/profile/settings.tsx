@@ -8,6 +8,7 @@ import { Card, Button } from '../../components/ui';
 import dynamic from 'next/dynamic';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import { useUserHrimsProfile } from '../../hooks/useUserHrimsProfile';
+import PermanentWatchersCard from '../../components/settings/PermanentWatchersCard';
 
 const SignaturePad = dynamic(() => import('../../components/SignaturePad'), {
   ssr: false,
@@ -254,6 +255,9 @@ export default function SettingsPage() {
             </div>
           </div>
         </Card>
+
+        {/* Permanent watchers */}
+        <PermanentWatchersCard currentUserId={(user as any)?.id} />
 
         {/* Admin Section (conditional) */}
         {(user.role === 'admin' || user.role === 'owner') && (

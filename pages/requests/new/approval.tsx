@@ -5,12 +5,14 @@ import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input, RequestPreviewModal, UnsavedChangesModal } from '../../../components/ui';
 import type { PreviewSection } from '../../../components/ui';
 import { useUnsavedChangesPrompt, useFormAutosave } from '../../../hooks';
+import { OnBehalfOfField, type OnBehalfOf } from '../../../components/requests/OnBehalfOfField';
 
 export default function NewApprovalRequestPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [onBehalfOf, setOnBehalfOf] = useState<OnBehalfOf | null>(null);
   
   const [formData, setFormData] = useState({
     title: '',
@@ -75,6 +77,7 @@ export default function NewApprovalRequestPage() {
           priority: formData.priority,
           category: formData.category,
           type: 'approval',
+          metadata: { onBehalfOf: onBehalfOf || null },
         }),
       });
 
@@ -117,6 +120,11 @@ export default function NewApprovalRequestPage() {
             <p className="text-danger-600 text-sm">{error}</p>
           </Card>
         )}
+
+        {/* Filing on behalf of — shown at the top; only assigned assistants see it */}
+        <Card>
+          <OnBehalfOfField value={onBehalfOf} onChange={setOnBehalfOf} />
+        </Card>
 
         <Card>
           <div className="space-y-4">

@@ -7,6 +7,7 @@ import type { PreviewSection } from '../../../components/ui';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import { useUnsavedChangesPrompt, useFormAutosave } from '../../../hooks';
 import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
+import { OnBehalfOfField, type OnBehalfOf } from '../../../components/requests/OnBehalfOfField';
 
 // Business units that can issue or receive an inter-unit credit note. Mirrors
 // the cost-allocation list used elsewhere in the finance forms.
@@ -107,6 +108,7 @@ export default function InterUnitCreditNoteRequestPage() {
     // Watchers
     const [selectedWatchers, setSelectedWatchers] = useState<Array<{ id: string; display_name: string; email: string }>>([]);
     const [watcherSearch, setWatcherSearch] = useState('');
+    const [onBehalfOf, setOnBehalfOf] = useState<OnBehalfOf | null>(null);
     const [showWatcherDropdown, setShowWatcherDropdown] = useState(false);
 
     // Autosave / crash recovery (serializable slices only). Disabled in edit mode.
@@ -405,6 +407,7 @@ export default function InterUnitCreditNoteRequestPage() {
         ].filter(Boolean),
         approverRoles: selectedApprovers,
         useParallelApprovals: false,
+        onBehalfOf: onBehalfOf || null,
         watchers: selectedWatchers,
         supportingDocuments: [
             ...(Array.isArray(existingSupportingDocs) ? existingSupportingDocs : []),
@@ -765,6 +768,11 @@ export default function InterUnitCreditNoteRequestPage() {
                 )}
 
                 <div className="space-y-6">
+                    {/* Filing on behalf of — shown at the top; only assigned assistants see it */}
+                    <Card className="p-6">
+                        <OnBehalfOfField value={onBehalfOf} onChange={setOnBehalfOf} />
+                    </Card>
+
                     {/* Requestor Information */}
                     <Card className="p-6">
                         <h3 className="text-sm font-semibold text-gray-700 mb-4 uppercase border-b pb-2">Requestor Information</h3>

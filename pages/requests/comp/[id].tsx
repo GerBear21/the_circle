@@ -1936,7 +1936,15 @@ export default function CompHotelBookingDetailsPage({ initialRequest, initialErr
                                                                 <div className="flex-1 min-w-0">
                                                                     <div className="flex items-start justify-between gap-4">
                                                                         <div className="flex-1 min-w-0">
-                                                                            <p className="font-semibold text-gray-900 truncate text-lg">{doc.filename}</p>
+                                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                                <p className="font-semibold text-gray-900 truncate text-lg">{doc.filename}</p>
+                                                                                {doc.label && (
+                                                                                    <span className="text-xs bg-[#F3EADC] text-[#5E4426] px-2 py-0.5 rounded-full font-medium">{doc.label}</span>
+                                                                                )}
+                                                                            </div>
+                                                                            {doc.description && (
+                                                                                <p className="text-sm text-gray-600 mt-1">{doc.description}</p>
+                                                                            )}
                                                                             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-sm text-gray-500">
                                                                                 <span className="inline-flex items-center gap-1">
                                                                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

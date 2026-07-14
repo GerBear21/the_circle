@@ -120,7 +120,9 @@ export interface TravelAuthPreviewInput {
         airBusTickets?: { quantity?: string; unitCost?: string; totalCost?: string };
         conferencingCost?: { quantity?: string; unitCost?: string; totalCost?: string };
         tollgates?: Array<{ road?: string; quantity?: string; unitCost?: string; totalCost?: string }>;
+        // Legacy single "other" line (older requests) + the current multi-line list.
         other?: { description?: string; quantity?: string; unitCost?: string; totalCost?: string };
+        miscCosts?: Array<{ description?: string; quantity?: string; unitCost?: string; totalCost?: string }>;
     };
 
     /** Pre-computed grand total; falls back to summing the budget. */
@@ -183,10 +185,14 @@ export function buildTravelAuthPreviewSections(input: TravelAuthPreviewInput): P
     const totalKm = itinerary.reduce((sum, r) => sum + num(r?.km), 0);
 
     const tollgates = Array.isArray(budget.tollgates) ? budget.tollgates : [];
+    // Fold the legacy single "other" line into the miscellaneous list.
+    const miscList = Array.isArray(budget.miscCosts)
+        ? budget.miscCosts
+        : (budget.other && (budget.other.description || budget.other.totalCost) ? [budget.other] : []);
     const computedGrand = num(budget.aaRates?.totalCost)
         + num(budget.airBusTickets?.totalCost)
         + num(budget.conferencingCost?.totalCost)
-        + num(budget.other?.totalCost)
+        + miscList.reduce((sum, m) => sum + num(m?.totalCost), 0)
         + tollgates.reduce((sum, t) => sum + num(t?.totalCost), 0);
     const grandTotalText = grandTotal ? String(grandTotal) : computedGrand.toFixed(2);
 
@@ -344,6 +350,16 @@ export function buildTravelAuthPreviewSections(input: TravelAuthPreviewInput): P
                             <td style={{ ...cellStyle, textAlign: 'right' }}>{budget.conferencingCost?.unitCost || '—'}</td>
                             <td style={{ ...cellStyle, textAlign: 'right' }}>{budget.conferencingCost?.totalCost || '0.00'}</td>
                         </tr>
+                        {miscList.map((m, i) => (
+                            <tr key={`misc-${i}`}>
+                                <td style={cellStyle}>
+                                    {m.description ? m.description : 'Miscellaneous'}
+                                </td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{m.quantity || '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{m.unitCost || '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{m.totalCost || '0.00'}</td>
+                            </tr>
+                        ))}
                         {tollgates.map((t, i) => (
                             <tr key={`toll-${i}`}>
                                 <td style={cellStyle}>Tollgate{t.road ? ` — ${t.road}` : ''}</td>
@@ -352,14 +368,6 @@ export function buildTravelAuthPreviewSections(input: TravelAuthPreviewInput): P
                                 <td style={{ ...cellStyle, textAlign: 'right' }}>{t.totalCost || '0.00'}</td>
                             </tr>
                         ))}
-                        <tr>
-                            <td style={cellStyle}>
-                                Other{budget.other?.description ? ` — ${budget.other.description}` : ''}
-                            </td>
-                            <td style={{ ...cellStyle, textAlign: 'right' }}>{budget.other?.quantity || '—'}</td>
-                            <td style={{ ...cellStyle, textAlign: 'right' }}>{budget.other?.unitCost || '—'}</td>
-                            <td style={{ ...cellStyle, textAlign: 'right' }}>{budget.other?.totalCost || '0.00'}</td>
-                        </tr>
                         <tr>
                             <td style={{ ...cellStyle, fontWeight: 700, background: '#F3EADC' }} colSpan={3}>Grand Total</td>
                             <td style={{ ...cellStyle, textAlign: 'right', fontWeight: 700, background: '#F3EADC' }}>

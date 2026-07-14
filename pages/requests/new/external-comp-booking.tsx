@@ -8,6 +8,8 @@ import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import { useUnsavedChangesPrompt, useFormAutosave } from '../../../hooks';
 import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
 import { calculateTollgatesForItinerary, getTollgateRouteInfo, TollgateRouteType } from '../../../lib/formConfig';
+import { SupportingDocuments, uploadSupportingDocuments, makeSupportingDoc, type SupportingDoc } from '../../../components/requests/SupportingDocuments';
+import { OnBehalfOfField, type OnBehalfOf } from '../../../components/requests/OnBehalfOfField';
 
 interface SelectedBusinessUnit {
     instanceId: string; // Unique ID for each booking instance (allows same hotel multiple times)
@@ -205,6 +207,10 @@ export default function ExternalCompBookingPage() {
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
         return diffDays < 7 && diffDays >= 0;
     };
+
+    // Supporting documents (for the travel section) + file-on-behalf-of.
+    const [supportingDocs, setSupportingDocs] = useState<SupportingDoc[]>([]);
+    const [onBehalfOf, setOnBehalfOf] = useState<OnBehalfOf | null>(null);
 
     // Travel document state
     const [travelData, setTravelData] = useState({
@@ -1037,6 +1043,7 @@ export default function ExternalCompBookingPage() {
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
                         useParallelApprovals: false,
+                        onBehalfOf: onBehalfOf || null,
                     },
                 }),
             });
@@ -1045,6 +1052,10 @@ export default function ExternalCompBookingPage() {
 
             if (!response.ok) {
                 throw new Error(data.error || 'Failed to create hotel booking request');
+            }
+
+            if (formData.processTravelDocument) {
+                await uploadSupportingDocuments(data.request.id, supportingDocs);
             }
 
             router.push(`/requests/comp/${data.request.id}`);
@@ -1161,6 +1172,11 @@ export default function ExternalCompBookingPage() {
                 )}
 
                 <div className="space-y-6">
+                    {/* Filing on behalf of — shown at the top; only assigned assistants see it */}
+                    <Card className="p-6">
+                        <OnBehalfOfField value={onBehalfOf} onChange={setOnBehalfOf} />
+                    </Card>
+
                     {/* Requestor Information Section */}
                     <Card className="p-6">
                         <h3 className="text-sm font-semibold text-gray-700 mb-4 uppercase border-b pb-2">Requestor Information</h3>
@@ -1540,6 +1556,14 @@ export default function ExternalCompBookingPage() {
                                             I have read these conditions and accept them. <span className="text-danger-500">*</span>
                                         </label>
                                     </div>
+                                </div>
+
+                                {/* Supporting documents for the travel section */}
+                                <div className="border-t border-gray-200 pt-4">
+                                    <SupportingDocuments
+                                        documents={supportingDocs}
+                                        onChange={setSupportingDocs}
+                                    />
                                 </div>
 
                                 {/* Emergency Request Warning - Shows when travel is within 7 days */}
