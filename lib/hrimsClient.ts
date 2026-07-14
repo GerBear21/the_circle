@@ -544,3 +544,82 @@ export async function findEmployeeByPositionTitle(
     employee: emp,
   };
 }
+
+// ============================================================================
+// Executive / CHCO position resolution (HRIMS side only).
+// The app_user mapping + delegation checks live in lib/executives.ts (server).
+// ============================================================================
+
+/** Resolve the active employee occupying a position (current_position_id first, then employee_id). */
+export async function employeeForPosition(
+  positionId: string,
+  fallbackEmployeeId: string | null
+): Promise<HrimsEmployee | null> {
+  const { data: byPos } = await hrimsClient
+    .from('employees')
+    .select('id, first_name, last_name, email, phone, job_title, employee_number, employment_status, manager_id, department_id, business_unit_id, current_position_id')
+    .eq('current_position_id', positionId)
+    .eq('employment_status', 'active')
+    .limit(1)
+    .maybeSingle();
+  if (byPos) return byPos as HrimsEmployee;
+
+  if (fallbackEmployeeId) {
+    const { data: byId } = await hrimsClient
+      .from('employees')
+      .select('id, first_name, last_name, email, phone, job_title, employee_number, employment_status, manager_id, department_id, business_unit_id, current_position_id')
+      .eq('id', fallbackEmployeeId)
+      .eq('employment_status', 'active')
+      .maybeSingle();
+    if (byId) return byId as HrimsEmployee;
+  }
+  return null;
+}
+
+/** Find the CEO's organogram position, trying the common title variants. */
+export async function findCeoPosition(): Promise<HrimsOrganogramPosition | null> {
+  if (!hrimsClient) return null;
+  const titles = ['CEO', 'Chief Executive Officer', 'Group CEO', 'Managing Director & CEO'];
+  for (const title of titles) {
+    const { data } = await hrimsClient
+      .from('organogram_positions')
+      .select('id, organization_id, business_unit_id, position_title, position_code, grade, level, description, status, parent_position_id, employee_id, department_id, sort_order, is_active')
+      .ilike('position_title', title)
+      .eq('is_active', true)
+      .limit(1)
+      .maybeSingle();
+    if (data) return data as HrimsOrganogramPosition;
+  }
+  return null;
+}
+
+/** Position + employee variants of the CEO and its direct reports (HRIMS only). */
+export async function fetchExecutivePositions(): Promise<
+  Array<{ id: string; position_title: string; employee: HrimsEmployee | null }>
+> {
+  if (!hrimsClient) return [];
+  const ceoPos = await findCeoPosition();
+  if (!ceoPos) return [];
+
+  const { data: directReports } = await hrimsClient
+    .from('organogram_positions')
+    .select('id, position_title, employee_id, is_active')
+    .eq('parent_position_id', ceoPos.id)
+    .eq('is_active', true);
+
+  const positions: Array<{ id: string; position_title: string; employee_id: string | null }> = [
+    { id: ceoPos.id, position_title: ceoPos.position_title, employee_id: ceoPos.employee_id },
+    ...((directReports as any[]) || []).map((p) => ({
+      id: p.id,
+      position_title: p.position_title,
+      employee_id: p.employee_id,
+    })),
+  ];
+
+  const result: Array<{ id: string; position_title: string; employee: HrimsEmployee | null }> = [];
+  for (const pos of positions) {
+    const employee = await employeeForPosition(pos.id, pos.employee_id);
+    result.push({ id: pos.id, position_title: pos.position_title, employee });
+  }
+  return result;
+}

@@ -7,6 +7,7 @@ import { ToastProvider } from '../components/ui/ToastProvider';
 import { UserProvider } from '../contexts/UserContext';
 import { RBACProvider } from '../contexts/RBACContext';
 import Loader from '../components/Loader';
+import RouteProgress from '../components/RouteProgress';
 import ErrorBoundary from '../components/ErrorBoundary';
 import GlobalErrorListener from '../components/GlobalErrorListener';
 
@@ -38,6 +39,7 @@ export default function App({ Component, pageProps: { session, ...pageProps } }:
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
       </Head>
       <ErrorBoundary>
+        <RouteProgress />
         <SessionGuard>
           <UserProvider>
             <RBACProvider>

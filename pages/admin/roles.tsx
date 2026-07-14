@@ -6,6 +6,7 @@ import { Card, Button } from '../../components/ui';
 import { useRBACRoles } from '../../hooks/useRBACRoles';
 import { useRBAC } from '../../contexts/RBACContext';
 import { AccessConfig } from '../../components/admin/settings';
+import AssistantAssignmentsCard from '../../components/admin/AssistantAssignmentsCard';
 import { useToast } from '../../components/ui/ToastProvider';
 import RoleFormModal from '../../components/admin/RoleFormModal';
 import AssignRoleModal from '../../components/admin/AssignRoleModal';
@@ -609,6 +610,11 @@ export default function AdminRolesPage() {
         {/* Access & Rights (merged from System Configuration) */}
         <div className="mt-10 pt-8 border-t border-border">
           <AccessConfig onSelectUser={openUserAccess} />
+        </div>
+
+        {/* Assistants & delegates — who may file / watch on behalf of whom */}
+        <div className="mt-6">
+          <AssistantAssignmentsCard />
         </div>
 
         {/* Help Section */}

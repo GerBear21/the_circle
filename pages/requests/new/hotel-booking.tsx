@@ -8,6 +8,9 @@ import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import { useUnsavedChangesPrompt, useFormAutosave } from '../../../hooks';
 import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
 import { calculateTollgatesForItinerary, getTollgateRouteInfo, TollgateRouteType } from '../../../lib/formConfig';
+import { OnBehalfOfField, type OnBehalfOf } from '../../../components/requests/OnBehalfOfField';
+import { AssociatesField, type Associate } from '../../../components/requests/AssociatesField';
+import { SupportingDocuments, uploadSupportingDocuments, makeSupportingDoc, type SupportingDoc } from '../../../components/requests/SupportingDocuments';
 
 interface SelectedBusinessUnit {
     instanceId: string; // Unique ID for each booking instance (allows same hotel multiple times)
@@ -152,6 +155,18 @@ export default function HotelBookingPage() {
         hrd: '',
         ceo: '',
     });
+    const [onBehalfOf, setOnBehalfOf] = useState<OnBehalfOf | null>(null);
+    // Accompanying associates: directory picks carry an id (→ request watchers);
+    // non-RTG guests are free-text only. `formData.guestNames` is kept in sync as
+    // the joined display string used in the title/metadata/preview.
+    const [associates, setAssociates] = useState<Associate[]>([]);
+    // Supporting documents attached to the travel authorization section.
+    const [travelSupportingDocs, setTravelSupportingDocs] = useState<SupportingDoc[]>([]);
+    const associateWatcherIds = associates.map((a) => a.id).filter((id): id is string => !!id);
+    const handleAssociatesChange = (next: Associate[]) => {
+        setAssociates(next);
+        setFormData((prev) => ({ ...prev, guestNames: next.map((a) => a.name).join(', ') }));
+    };
     const [approverSearch, setApproverSearch] = useState<Record<string, string>>({
         line_manager: '',
         functional_head: '',
@@ -498,6 +513,39 @@ export default function HotelBookingPage() {
                     processTravelDocument: metadata.processTravelDocument || false,
                 });
 
+                // Restore associates: prefer the structured list, else split the
+                // legacy joined guestNames string into free-text guests.
+                if (Array.isArray(metadata.associates) && metadata.associates.length > 0) {
+                    setAssociates(metadata.associates);
+                } else if (metadata.guestNames) {
+                    setAssociates(
+                        String(metadata.guestNames)
+                            .split(/[,\n]/)
+                            .map((s: string) => s.trim())
+                            .filter(Boolean)
+                            .map((name: string) => ({ name }))
+                    );
+                }
+
+                // Load any existing supporting documents so they appear in the
+                // travel section (and aren't re-uploaded).
+                try {
+                    const docRes = await fetch(`/api/requests/${editRequestId}/documents`);
+                    if (docRes.ok) {
+                        const docData = await docRes.json();
+                        const docs = (docData.documents || []).map((d: any) =>
+                            makeSupportingDoc({
+                                label: d.label || '',
+                                description: d.description || '',
+                                existing: { id: d.id, filename: d.filename, download_url: d.download_url },
+                            })
+                        );
+                        if (docs.length > 0) setTravelSupportingDocs(docs);
+                    }
+                } catch {
+                    // Non-fatal — start with an empty documents list.
+                }
+
                 // Set business units
                 if (metadata.selectedBusinessUnits && Array.isArray(metadata.selectedBusinessUnits)) {
                     setSelectedBusinessUnits(metadata.selectedBusinessUnits);
@@ -753,6 +801,8 @@ export default function HotelBookingPage() {
                         type: 'hotel_booking',
                         referenceCode: existingReferenceCode || referenceCode || undefined,
                         guestNames: formData.guestNames,
+                        associates: associates,
+                        watchers: associateWatcherIds,
                         isExternalGuest: formData.isExternalGuest,
                         selectedBusinessUnits: selectedBusinessUnits,
                         allocationType: formData.allocationType,
@@ -766,6 +816,7 @@ export default function HotelBookingPage() {
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
                         useParallelApprovals: false,
+                        onBehalfOf: onBehalfOf || null,
                     },
                 }),
             });
@@ -782,6 +833,10 @@ export default function HotelBookingPage() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ fieldChanges }),
                 });
+            }
+
+            if (formData.processTravelDocument) {
+                await uploadSupportingDocuments(String(editRequestId), travelSupportingDocs);
             }
 
             router.push(`/requests/${editRequestId}`);
@@ -810,6 +865,8 @@ export default function HotelBookingPage() {
                         type: 'hotel_booking',
                         referenceCode: existingReferenceCode || referenceCode || undefined,
                         guestNames: formData.guestNames,
+                        associates: associates,
+                        watchers: associateWatcherIds,
                         isExternalGuest: formData.isExternalGuest,
                         selectedBusinessUnits: selectedBusinessUnits,
                         allocationType: formData.allocationType,
@@ -823,6 +880,7 @@ export default function HotelBookingPage() {
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
                         useParallelApprovals: false,
+                        onBehalfOf: onBehalfOf || null,
                     },
                 }),
             });
@@ -830,6 +888,10 @@ export default function HotelBookingPage() {
             if (!response.ok) {
                 const errorData = await response.json();
                 throw new Error(errorData.error || 'Failed to save draft');
+            }
+
+            if (formData.processTravelDocument) {
+                await uploadSupportingDocuments(String(editRequestId), travelSupportingDocs);
             }
 
             router.push(`/requests/${editRequestId}`);
@@ -1393,6 +1455,8 @@ export default function HotelBookingPage() {
                     metadata: {
                         referenceCode: existingReferenceCode || referenceCode || undefined,
                         guestNames: formData.guestNames,
+                        associates: associates,
+                        watchers: associateWatcherIds,
                         isExternalGuest: formData.isExternalGuest,
                         selectedBusinessUnits: selectedBusinessUnits,
                         allocationType: formData.allocationType,
@@ -1408,6 +1472,7 @@ export default function HotelBookingPage() {
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
                         useParallelApprovals: false,
+                        onBehalfOf: onBehalfOf || null,
                     },
                 }),
             });
@@ -1416,6 +1481,10 @@ export default function HotelBookingPage() {
 
             if (!response.ok) {
                 throw new Error(data.error || 'Failed to create hotel booking request');
+            }
+
+            if (formData.processTravelDocument) {
+                await uploadSupportingDocuments(data.request.id, travelSupportingDocs);
             }
 
             router.push(`/requests/comp/${data.request.id}`);
@@ -1454,6 +1523,8 @@ export default function HotelBookingPage() {
                     metadata: {
                         referenceCode: existingReferenceCode || referenceCode || undefined,
                         guestNames: formData.guestNames,
+                        associates: associates,
+                        watchers: associateWatcherIds,
                         isExternalGuest: formData.isExternalGuest,
                         selectedBusinessUnits: selectedBusinessUnits,
                         allocationType: formData.allocationType,
@@ -1469,6 +1540,7 @@ export default function HotelBookingPage() {
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
                         useParallelApprovals: false,
+                        onBehalfOf: onBehalfOf || null,
                     },
                 }),
             });
@@ -1477,6 +1549,10 @@ export default function HotelBookingPage() {
 
             if (!response.ok) {
                 throw new Error(data.error || 'Failed to save draft');
+            }
+
+            if (formData.processTravelDocument) {
+                await uploadSupportingDocuments(data.request.id, travelSupportingDocs);
             }
 
             router.push(`/requests/comp/${data.request.id}`);
@@ -1532,6 +1608,11 @@ export default function HotelBookingPage() {
                 )}
 
                 <div className="space-y-6">
+                    {/* Filing on behalf of — shown at the top; only assigned assistants see it */}
+                    <Card className="p-6">
+                        <OnBehalfOfField value={onBehalfOf} onChange={setOnBehalfOf} />
+                    </Card>
+
                     {/* Requestor Information Section */}
                     <Card className="p-6">
                         <h3 className="text-sm font-semibold text-gray-700 mb-4 uppercase border-b pb-2">Requestor Information</h3>
@@ -1566,16 +1647,7 @@ export default function HotelBookingPage() {
                     {/* Guest Section */}
                     <Card className="p-6">
                         <div className="space-y-6">
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Accompanying Associate(s)</label>
-                                <textarea
-                                    className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all resize-none min-h-[80px]"
-                                    placeholder="Enter full names of all accompanying associates"
-                                    value={formData.guestNames}
-                                    onChange={(e) => setFormData({ ...formData, guestNames: e.target.value })}
-                                    required
-                                />
-                            </div>
+                            <AssociatesField value={associates} onChange={handleAssociatesChange} />
                         </div>
                     </Card>
 
@@ -2515,6 +2587,15 @@ export default function HotelBookingPage() {
                                         <p className="text-xs text-gray-500">
                                             The HR Director will allocate the cost across business units when approving this request.
                                         </p>
+                                    </div>
+
+                                    {/* Supporting documents for the travel authorization */}
+                                    <div className="mt-6 pt-6 border-t border-gray-200">
+                                        <SupportingDocuments
+                                            documents={travelSupportingDocs}
+                                            onChange={setTravelSupportingDocs}
+                                            helpText="Attach any supporting documents for this travel authorization (e.g. invitations, quotations, itineraries). Give each a short label and description."
+                                        />
                                     </div>
                                 </div>
                             </div>

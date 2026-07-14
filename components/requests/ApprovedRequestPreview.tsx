@@ -311,14 +311,18 @@ function buildTravelAuthSections(request: any, metadata: any): PreviewSection[] 
                                 <td style={{ ...cellStyle, textAlign: 'right' }}>{t.totalCost || '0.00'}</td>
                             </tr>
                         ))}
-                        {budget.other && (budget.other.quantity || budget.other.totalCost) && (
-                            <tr>
-                                <td style={cellStyle}>Other{budget.other.description ? ` — ${budget.other.description}` : ''}</td>
-                                <td style={{ ...cellStyle, textAlign: 'right' }}>{budget.other.quantity || '—'}</td>
-                                <td style={{ ...cellStyle, textAlign: 'right' }}>{budget.other.unitCost || '—'}</td>
-                                <td style={{ ...cellStyle, textAlign: 'right' }}>{budget.other.totalCost || '0.00'}</td>
+                        {/* Miscellaneous costs — current multi-line list plus legacy single "other". */}
+                        {(Array.isArray(budget.miscCosts)
+                            ? budget.miscCosts
+                            : (budget.other && (budget.other.quantity || budget.other.totalCost) ? [budget.other] : [])
+                        ).map((m: any, i: number) => (
+                            <tr key={`misc-${i}`}>
+                                <td style={cellStyle}>{m.description ? m.description : 'Miscellaneous'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{m.quantity || '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{m.unitCost || '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{m.totalCost || '0.00'}</td>
                             </tr>
-                        )}
+                        ))}
                         <tr>
                             <td style={{ ...cellStyle, fontWeight: 700, background: '#F3EADC' }} colSpan={3}>GRAND TOTAL</td>
                             <td style={{ ...cellStyle, textAlign: 'right', fontWeight: 700, background: '#F3EADC' }}>

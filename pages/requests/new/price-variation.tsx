@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input } from '../../../components/ui';
 import { useToast } from '../../../components/ui/ToastProvider';
+import { OnBehalfOfField, type OnBehalfOf } from '../../../components/requests/OnBehalfOfField';
 
 /**
  * Price Variation Form — raised against an already fully-approved CAPEX.
@@ -65,6 +66,7 @@ export default function PriceVariationPage() {
   const [users, setUsers] = useState<UserLite[]>([]);
   const [selectedApprovers, setSelectedApprovers] = useState<Record<string, string>>({});
   const [autoResolvedRoles, setAutoResolvedRoles] = useState<Record<string, boolean>>({});
+  const [onBehalfOf, setOnBehalfOf] = useState<OnBehalfOf | null>(null);
   const [approverSearch, setApproverSearch] = useState<Record<string, string>>({});
   const [showApproverDropdown, setShowApproverDropdown] = useState<string | null>(null);
   const [loadingApproverResolution, setLoadingApproverResolution] = useState(false);
@@ -257,6 +259,7 @@ export default function PriceVariationPage() {
             approvers: approversArray,
             approverRoles: Object.fromEntries(activeRoles.map((r) => [r.key, selectedApprovers[r.key]])),
             requiresCfo,
+            onBehalfOf: onBehalfOf || null,
           },
         }),
       });
@@ -328,6 +331,11 @@ export default function PriceVariationPage() {
             {error}
           </div>
         )}
+
+        {/* Filing on behalf of — shown at the top; only assigned assistants see it */}
+        <Card>
+          <OnBehalfOfField value={onBehalfOf} onChange={setOnBehalfOf} />
+        </Card>
 
         {/* Variation details */}
         <Card>

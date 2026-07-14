@@ -8,6 +8,7 @@ import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import { useUnsavedChangesPrompt, useFormAutosave } from '../../../hooks';
 import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
 import SignatureSelector, { type SignatureSelection } from '../../../components/approvals/SignatureSelector';
+import { OnBehalfOfField, type OnBehalfOf } from '../../../components/requests/OnBehalfOfField';
 
 // Cost-allocation business units mirror the travel-auth allocation list.
 // Code is stored in metadata; label is shown in the dropdown.
@@ -163,6 +164,7 @@ export default function PettyCashRequestPage() {
 
     // Watchers (reuse same pattern as voucher form).
     const [selectedWatchers, setSelectedWatchers] = useState<Array<{ id: string; display_name: string; email: string }>>([]);
+    const [onBehalfOf, setOnBehalfOf] = useState<OnBehalfOf | null>(null);
     const [watcherSearch, setWatcherSearch] = useState('');
     const [showWatcherDropdown, setShowWatcherDropdown] = useState(false);
 
@@ -633,6 +635,7 @@ export default function PettyCashRequestPage() {
         ].filter(Boolean),
         approverRoles: selectedApprovers,
         useParallelApprovals: false,
+        onBehalfOf: onBehalfOf || null,
         watchers: selectedWatchers,
         supportingDocuments: [
             ...(Array.isArray(existingSupportingDocs) ? existingSupportingDocs : []),
@@ -1031,6 +1034,11 @@ export default function PettyCashRequestPage() {
                 )}
 
                 <div className="space-y-6">
+                    {/* Filing on behalf of — shown at the top; only assigned assistants see it */}
+                    <Card className="p-6">
+                        <OnBehalfOfField value={onBehalfOf} onChange={setOnBehalfOf} />
+                    </Card>
+
                     {/* Linked Travel Auth banner */}
                     {linkedTravelAuth && (
                         <Card className="p-5 bg-emerald-50 border-emerald-200">

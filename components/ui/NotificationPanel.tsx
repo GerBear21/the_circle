@@ -49,7 +49,9 @@ export default function NotificationPanel({ isOpen, onClose, onUnreadCheck }: No
     const [activeTab, setActiveTab] = useState<'tasks'>('tasks');
     const [isComposeOpen, setIsComposeOpen] = useState(false);
     const [notifications, setNotifications] = useState<Notification[]>([]);
-    const [loading, setLoading] = useState(false);
+    // Start in the loading state so the very first open shows a spinner instead of
+    // briefly flashing "No new notifications" before the fetch kicks in.
+    const [loading, setLoading] = useState(true);
     const [unreadCounts, setUnreadCounts] = useState({ tasks: 0 });
     const panelRef = useRef<HTMLDivElement>(null);
 
