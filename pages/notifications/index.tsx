@@ -613,7 +613,7 @@ export default function NotificationsPage({ initialNotifications }: Notification
                         <p
                           className={cn(
                             'text-sm truncate',
-                            notification.is_read ? 'text-text-secondary' : 'text-text-primary font-medium'
+                            notification.is_read ? 'text-text-primary' : 'text-text-primary font-medium'
                           )}
                         >
                           {notification.title && (
@@ -622,7 +622,7 @@ export default function NotificationsPage({ initialNotifications }: Notification
                           {notification.title && notification.message ? ' — ' : ''}
                           {notification.message}
                         </p>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-text-muted">
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-text-secondary">
                           {notification.sender && (
                             <span className="inline-flex items-center gap-1">
                               <User className="w-3 h-3" strokeWidth={1.5} />

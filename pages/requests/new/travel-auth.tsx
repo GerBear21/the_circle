@@ -9,6 +9,8 @@ import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import { useUnsavedChangesPrompt, useFormAutosave } from '../../../hooks';
 import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
 import { calculateTollgatesForItinerary, getTollgateRouteInfo, TollgateRouteType } from '../../../lib/formConfig';
+import { SupportingDocuments, uploadSupportingDocuments, makeSupportingDoc, type SupportingDoc } from '../../../components/requests/SupportingDocuments';
+import { OnBehalfOfField, type OnBehalfOf } from '../../../components/requests/OnBehalfOfField';
 
 interface ItineraryRow {
     date: string;
@@ -79,12 +81,16 @@ interface AACalculatorData {
     fuelType: 'petrol' | 'diesel';
 }
 
-// AA Rate table based on engine capacity and fuel type (USD per km)
-const AA_RATES: Record<string, { petrol: number; diesel: number }> = {
-    '1.1L-1.5L': { petrol: 0.28, diesel: 0.26 },
-    '1.6L-2.0L': { petrol: 0.35, diesel: 0.32 },
-    '2.1L-3.0L': { petrol: 0.48, diesel: 0.45 },
-    'Above 3.0L': { petrol: 0.59, diesel: 0.56 },
+// AA Rate table based on engine capacity and fuel type (USD per km).
+// Defaults mirror the AA Zimbabwe "Estimated Vehicle Operating Costs" schedule
+// (wet rate). Administrators can override these in Admin → Financial Rates; the
+// live values are loaded from /api/settings/rates at runtime.
+type AARateTable = Record<string, { petrol: number; diesel: number }>;
+const AA_RATES_DEFAULTS: AARateTable = {
+    '1.1L-1.5L': { petrol: 0.32, diesel: 0.30 },
+    '1.6L-2.0L': { petrol: 0.40, diesel: 0.36 },
+    '2.1L-3.0L': { petrol: 0.54, diesel: 0.50 },
+    'Above 3.0L': { petrol: 0.66, diesel: 0.62 },
 };
 
 interface TravelData {
@@ -101,7 +107,8 @@ interface TravelData {
         airBusTickets: BudgetItem;
         conferencingCost: BudgetItem;
         tollgates: TollgateEntry[];
-        other: BudgetItem;
+        // Miscellaneous costs — a free list of extra line items (shown before tollgates).
+        miscCosts: BudgetItem[];
     };
 }
 
@@ -113,8 +120,12 @@ export default function TravelAuthPage() {
     // International travel shares this page but swaps the itinerary to manual free-text entry
     // with no business-unit dropdown and no auto-km calculation or unit-based cost allocation.
     const isInternational = typeof router.pathname === 'string' && router.pathname.includes('international');
-    const formKindLabel = isInternational ? 'International Travel Authorization' : 'Local Travel Authorization';
-    const travelRequestType = isInternational ? 'international_travel_authorization' : 'travel_authorization';
+    const formKindLabel = isInternational
+        ? 'International Travel Authorization'
+        : 'Local Travel Authorization';
+    const travelRequestType = isInternational
+        ? 'international_travel_authorization'
+        : 'travel_authorization';
     const [loading, setLoading] = useState(false);
     const [savingDraft, setSavingDraft] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -128,41 +139,41 @@ export default function TravelAuthPage() {
     const [originalApprovers, setOriginalApprovers] = useState<Record<string, string> | null>(null);
     const [requestStatus, setRequestStatus] = useState<string>('draft');
 
+    // Supporting documents (file + label + description) and file-on-behalf-of.
+    const [supportingDocs, setSupportingDocs] = useState<SupportingDoc[]>([]);
+    const [onBehalfOf, setOnBehalfOf] = useState<OnBehalfOf | null>(null);
+
     // AA Rates Calculator state (simplified)
     const [aaCalculator, setAACalculator] = useState<AACalculatorData>({
         engineCapacity: '1.6L-2.0L',
         fuelType: 'petrol',
     });
 
+    // Live AA rate table — starts from the AA Zimbabwe defaults and is replaced
+    // with any admin overrides configured in Admin → Financial Rates.
+    const [aaRates, setAaRates] = useState<AARateTable>(AA_RATES_DEFAULTS);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetch('/api/settings/rates');
+                if (!res.ok) return;
+                const data = await res.json();
+                if (!cancelled && data?.aa) setAaRates((prev) => ({ ...prev, ...data.aa }));
+            } catch {
+                // Keep defaults on failure.
+            }
+        })();
+        return () => { cancelled = true; };
+    }, []);
+
     // Get AA Rate based on engine capacity and fuel type
     const getAARate = (): number => {
-        const rates = AA_RATES[aaCalculator.engineCapacity];
+        const rates = aaRates[aaCalculator.engineCapacity];
         if (!rates) return 0;
         return rates[aaCalculator.fuelType];
     };
-
-    // Calculate and apply AA rate to travel budget
-    const applyAARate = () => {
-        const rate = getAARate();
-        const totalKm = travelData.itinerary.reduce((sum, row) => sum + (parseFloat(row.km) || 0), 0);
-        const travelCost = (totalKm * rate).toFixed(2);
-        
-        setTravelData(prev => ({
-            ...prev,
-            budget: {
-                ...prev.budget,
-                aaRates: {
-                    quantity: totalKm.toString(),
-                    unitCost: rate.toFixed(2),
-                    totalCost: travelCost,
-                }
-            }
-        }));
-        setAaRatesLocked(true);
-    };
-
-    // State to track if AA rates are locked (applied from calculator)
-    const [aaRatesLocked, setAaRatesLocked] = useState(false);
 
     const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
     const todayISO = new Date().toISOString().split('T')[0];
@@ -176,13 +187,38 @@ export default function TravelAuthPage() {
         itinerary: [{ date: '', from: '', to: '', km: '', justification: '' }],
         budget: {
             fuel: { quantity: '', unitCost: '', totalCost: '' },
-            aaRates: { quantity: '', unitCost: '0.28', totalCost: '' },
+            aaRates: { quantity: '', unitCost: '0.32', totalCost: '' },
             airBusTickets: { quantity: '', unitCost: '', totalCost: '' },
             conferencingCost: { quantity: '', unitCost: '', totalCost: '' },
             tollgates: [{ road: '', quantity: '1', unitCost: '', totalCost: '' }],
-            other: { description: '', quantity: '', unitCost: '', totalCost: '' },
+            miscCosts: [],
         },
     });
+
+    // Auto-fill the AA "Travel Cost" budget line from the calculator: whenever the
+    // itinerary distance, engine/fuel selection, or the rate table changes (and the
+    // travel is by personal motor vehicle), recompute km × rate into budget.aaRates.
+    // No manual "Apply" step — the calculator value flows straight into the budget.
+    useEffect(() => {
+        if (travelData.travelMode !== 'personal_motor_vehicle') return;
+        const rate = getAARate();
+        const totalKm = travelData.itinerary.reduce((sum, row) => sum + (parseFloat(row.km) || 0), 0);
+        const totalCost = (totalKm * rate).toFixed(2);
+        setTravelData(prev => {
+            const cur = prev.budget.aaRates;
+            if (cur.quantity === String(totalKm) && cur.unitCost === rate.toFixed(2) && cur.totalCost === totalCost) {
+                return prev; // no change — avoid an update loop
+            }
+            return {
+                ...prev,
+                budget: {
+                    ...prev.budget,
+                    aaRates: { quantity: String(totalKm), unitCost: rate.toFixed(2), totalCost },
+                },
+            };
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [travelData.travelMode, travelData.itinerary, aaCalculator.engineCapacity, aaCalculator.fuelType, aaRates]);
 
     // Reference code (unique identifier shown in the form header)
     const [referenceCode, setReferenceCode] = useState<string | null>(null);
@@ -194,7 +230,7 @@ export default function TravelAuthPage() {
     const approvalRoles = [
         { key: 'line_manager', label: 'Line Manager', description: 'Recommendation' },
         { key: 'functional_head', label: 'Functional Head', description: 'Functional Approval' },
-        { key: 'hrd', label: 'HR Director', description: 'HR Director Approval' },
+        { key: 'hrd', label: 'Chief Human Capital Officer', description: 'Human Capital Approval' },
         { key: 'ceo', label: 'CEO', description: 'Authorisation' },
     ];
 
@@ -277,10 +313,7 @@ export default function TravelAuthPage() {
             });
             return { ...prev, itinerary: updatedItinerary };
         });
-        // Unlock AA rates if itinerary changes (user needs to recalculate)
-        if (field === 'from' || field === 'to' || field === 'km') {
-            setAaRatesLocked(false);
-        }
+        // The AA travel-cost budget line recalculates automatically via the effect above.
     };
 
     const removeItineraryRow = (index: number) => {
@@ -298,8 +331,9 @@ export default function TravelAuthPage() {
     const calculateGrandTotal = () => {
         const b = travelData.budget;
         const tollgatesTotal = calculateTollgatesTotal();
-        return [b.aaRates.totalCost, b.airBusTickets.totalCost, b.conferencingCost.totalCost, b.other.totalCost]
-            .reduce((sum, val) => sum + (parseFloat(val) || 0), tollgatesTotal).toFixed(2);
+        const miscTotal = calculateMiscTotal();
+        return [b.aaRates.totalCost, b.airBusTickets.totalCost, b.conferencingCost.totalCost]
+            .reduce((sum, val) => sum + (parseFloat(val) || 0), tollgatesTotal + miscTotal).toFixed(2);
     };
 
     // Calculate cost allocation based on itinerary destinations
@@ -336,7 +370,7 @@ export default function TravelAuthPage() {
         return allocation;
     };
 
-    const updateBudgetItem = (item: 'fuel' | 'aaRates' | 'airBusTickets' | 'conferencingCost' | 'other', field: string, value: string) => {
+    const updateBudgetItem = (item: 'fuel' | 'aaRates' | 'airBusTickets' | 'conferencingCost', field: string, value: string) => {
         setTravelData(prev => {
             const currentItem = prev.budget[item];
             const updatedItem = { ...currentItem, [field]: value };
@@ -347,6 +381,48 @@ export default function TravelAuthPage() {
             }
             return { ...prev, budget: { ...prev.budget, [item]: updatedItem } };
         });
+    };
+
+    // Miscellaneous cost management (multi-line, shown before the tollgates section).
+    const addMiscRow = () => {
+        setTravelData(prev => ({
+            ...prev,
+            budget: {
+                ...prev.budget,
+                miscCosts: [...(Array.isArray(prev.budget.miscCosts) ? prev.budget.miscCosts : []), { description: '', quantity: '', unitCost: '', totalCost: '' }],
+            },
+        }));
+    };
+
+    const updateMiscRow = (index: number, field: keyof BudgetItem, value: string) => {
+        setTravelData(prev => {
+            const updated = (Array.isArray(prev.budget.miscCosts) ? prev.budget.miscCosts : []).map((row, i) => {
+                if (i !== index) return row;
+                const next = { ...row, [field]: value };
+                if (field === 'quantity' || field === 'unitCost') {
+                    const qty = parseFloat(field === 'quantity' ? value : next.quantity) || 0;
+                    const uc = parseFloat(field === 'unitCost' ? value : next.unitCost) || 0;
+                    next.totalCost = (qty * uc).toFixed(2);
+                }
+                return next;
+            });
+            return { ...prev, budget: { ...prev.budget, miscCosts: updated } };
+        });
+    };
+
+    const removeMiscRow = (index: number) => {
+        setTravelData(prev => ({
+            ...prev,
+            budget: {
+                ...prev.budget,
+                miscCosts: (Array.isArray(prev.budget.miscCosts) ? prev.budget.miscCosts : []).filter((_, i) => i !== index),
+            },
+        }));
+    };
+
+    const calculateMiscTotal = () => {
+        const misc = Array.isArray(travelData.budget.miscCosts) ? travelData.budget.miscCosts : [];
+        return misc.reduce((sum, m) => sum + (parseFloat(m.totalCost) || 0), 0);
     };
 
     // Tollgate management functions
@@ -437,15 +513,21 @@ export default function TravelAuthPage() {
                 // Default budget structure
                 const defaultBudget = {
                     fuel: { quantity: '', unitCost: '', totalCost: '' },
-                    aaRates: { quantity: '', unitCost: '0.28', totalCost: '' },
+                    aaRates: { quantity: '', unitCost: '0.32', totalCost: '' },
                     airBusTickets: { quantity: '', unitCost: '', totalCost: '' },
                     conferencingCost: { quantity: '', unitCost: '', totalCost: '' },
                     tollgates: [{ road: '', quantity: '1', unitCost: '', totalCost: '' }] as TollgateEntry[],
-                    other: { description: '', quantity: '', unitCost: '', totalCost: '' },
+                    miscCosts: [] as BudgetItem[],
                 };
 
-                // Merge existing budget with defaults to ensure all items exist
+                // Merge existing budget with defaults to ensure all items exist.
+                // Back-compat: a legacy single `other` line is folded into miscCosts.
                 const existingBudget = metadata.budget || {};
+                const existingMisc: BudgetItem[] = Array.isArray(existingBudget.miscCosts)
+                    ? existingBudget.miscCosts
+                    : (existingBudget.other && (existingBudget.other.description || existingBudget.other.totalCost)
+                        ? [existingBudget.other]
+                        : []);
                 const mergedBudget = {
                     fuel: { ...defaultBudget.fuel, ...(existingBudget.fuel || {}) },
                     aaRates: { ...defaultBudget.aaRates, ...(existingBudget.aaRates || {}) },
@@ -454,7 +536,7 @@ export default function TravelAuthPage() {
                     tollgates: Array.isArray(existingBudget.tollgates) && existingBudget.tollgates.length > 0
                         ? existingBudget.tollgates
                         : defaultBudget.tollgates,
-                    other: { ...defaultBudget.other, ...(existingBudget.other || {}) },
+                    miscCosts: existingMisc,
                 };
 
                 // Store original data for comparison
@@ -471,6 +553,9 @@ export default function TravelAuthPage() {
 
                 // Pre-fill form with existing data
                 setTravelData(originalData);
+
+                // Preserve the on-behalf beneficiary across edits.
+                if (metadata.onBehalfOf?.userId) setOnBehalfOf(metadata.onBehalfOf);
 
                 // Set approvers and store original for change tracking
                 const approverRolesData = metadata.approverRoles || {};
@@ -489,6 +574,30 @@ export default function TravelAuthPage() {
         if (status === 'authenticated' && editRequestId) {
             fetchExistingRequest();
         }
+    }, [editRequestId, status]);
+
+    // In edit mode, surface any already-uploaded supporting documents so the
+    // requester can see/remove them (files can't be re-read, so they're shown
+    // as existing entries).
+    useEffect(() => {
+        if (!(status === 'authenticated' && editRequestId && typeof editRequestId === 'string')) return;
+        (async () => {
+            try {
+                const res = await fetch(`/api/requests/${editRequestId}/documents`);
+                if (!res.ok) return;
+                const data = await res.json();
+                const docs = (data.documents || []).map((d: any) =>
+                    makeSupportingDoc({
+                        label: d.label || '',
+                        description: d.description || '',
+                        existing: { id: d.id, filename: d.filename, download_url: d.download_url },
+                    })
+                );
+                if (docs.length > 0) setSupportingDocs(docs);
+            } catch {
+                // Non-fatal.
+            }
+        })();
     }, [editRequestId, status]);
 
     useEffect(() => {
@@ -586,11 +695,14 @@ export default function TravelAuthPage() {
         const hasValidItinerary = travelData.itinerary.some(row => row.date || row.from || row.to);
         if (!hasValidItinerary) errors.push('At least one travel itinerary row is required');
 
-        const b = travelData.budget;
-        const tollgatesTotal = calculateTollgatesTotal();
-        const hasValidBudget = [b.fuel.totalCost, b.aaRates.totalCost, b.airBusTickets.totalCost, b.conferencingCost.totalCost, b.other.totalCost]
-            .some(val => parseFloat(val) > 0) || tollgatesTotal > 0;
-        if (!hasValidBudget) errors.push('At least one travel budget item is required');
+        {
+            const b = travelData.budget;
+            const tollgatesTotal = calculateTollgatesTotal();
+            const miscTotal = calculateMiscTotal();
+            const hasValidBudget = [b.fuel.totalCost, b.aaRates.totalCost, b.airBusTickets.totalCost, b.conferencingCost.totalCost]
+                .some(val => parseFloat(val) > 0) || tollgatesTotal > 0 || miscTotal > 0;
+            if (!hasValidBudget) errors.push('At least one travel budget item is required');
+        }
 
         if (!selectedApprovers.line_manager) errors.push('Please select an approver for Line Manager');
         if (!selectedApprovers.functional_head) errors.push('Please select an approver for Functional Head');
@@ -600,107 +712,48 @@ export default function TravelAuthPage() {
         return errors;
     };
 
-    // Helper to get approver display name
-    const getApproverName = (approverId: string) => {
-        const user = users.find(u => u.id === approverId);
-        return user ? user.display_name : approverId || 'None';
-    };
-
-    // Helper to collect field changes for approver edit tracking
-    const collectFieldChanges = () => {
-        if (!originalTravelData) return [];
-        const changes: { fieldName: string; oldValue: any; newValue: any }[] = [];
-
-        if (travelData.dateOfIntendedTravel !== originalTravelData.dateOfIntendedTravel) {
-            changes.push({ fieldName: 'dateOfIntendedTravel', oldValue: originalTravelData.dateOfIntendedTravel, newValue: travelData.dateOfIntendedTravel });
-        }
-        if (travelData.purposeOfTravel !== originalTravelData.purposeOfTravel) {
-            changes.push({ fieldName: 'purposeOfTravel', oldValue: originalTravelData.purposeOfTravel, newValue: travelData.purposeOfTravel });
-        }
-        if (travelData.accompanyingAssociates !== originalTravelData.accompanyingAssociates) {
-            changes.push({ fieldName: 'accompanyingAssociates', oldValue: originalTravelData.accompanyingAssociates, newValue: travelData.accompanyingAssociates });
-        }
-        if (travelData.travelMode !== originalTravelData.travelMode) {
-            changes.push({ fieldName: 'travelMode', oldValue: originalTravelData.travelMode, newValue: travelData.travelMode });
-        }
-        if (JSON.stringify(travelData.itinerary) !== JSON.stringify(originalTravelData.itinerary)) {
-            changes.push({ fieldName: 'itinerary', oldValue: JSON.stringify(originalTravelData.itinerary), newValue: JSON.stringify(travelData.itinerary) });
-        }
-        if (JSON.stringify(travelData.budget) !== JSON.stringify(originalTravelData.budget)) {
-            changes.push({ fieldName: 'budget', oldValue: JSON.stringify(originalTravelData.budget), newValue: JSON.stringify(travelData.budget) });
-        }
-
-        // Track approval workflow changes
-        if (originalApprovers) {
-            const roleLabels: Record<string, string> = {
-                hod: 'HOD Approver',
-                hr_director: 'HR Director Approver',
-                finance_director: 'Finance Director Approver',
-                ceo: 'CEO Approver',
-            };
-            for (const role of Object.keys(roleLabels)) {
-                const oldApprover = originalApprovers[role] || '';
-                const newApprover = selectedApprovers[role] || '';
-                if (oldApprover !== newApprover) {
-                    changes.push({
-                        fieldName: roleLabels[role],
-                        oldValue: getApproverName(oldApprover),
-                        newValue: getApproverName(newApprover),
-                    });
-                }
-            }
-        }
-
-        return changes;
-    };
-
-    // Handle approver save (edit mode with change tracking)
+    // Handle approver save (edit mode with change tracking).
+    //
+    // Approvers are NOT the request creator, so this must go through the
+    // approver-edit endpoint (the generic PUT is creator-only). It merges each
+    // fieldChange into metadata — including object values like the travel budget
+    // (kept as objects, not stringified). This does not approve the request; the
+    // approver approves separately afterwards.
     const handleApproverSave = async () => {
         setLoading(true);
         setError(null);
 
         try {
-            const fieldChanges = collectFieldChanges();
+            const fieldChanges: Array<{ fieldName: string; oldValue: any; newValue: any }> = [];
+            const orig = originalTravelData;
 
-            // Update the request metadata
-            const approversArray = [selectedApprovers.line_manager, selectedApprovers.functional_head, selectedApprovers.hrd, selectedApprovers.ceo].filter(Boolean);
-            const response = await fetch(`/api/requests/${editRequestId}`, {
+            const pushIfChanged = (fieldName: string, oldValue: any, newValue: any) => {
+                if (JSON.stringify(oldValue ?? null) !== JSON.stringify(newValue ?? null)) {
+                    fieldChanges.push({ fieldName, oldValue, newValue });
+                }
+            };
+
+            if (orig) {
+                pushIfChanged('purposeOfTravel', orig.purposeOfTravel, travelData.purposeOfTravel);
+                pushIfChanged('travelMode', orig.travelMode, travelData.travelMode);
+                pushIfChanged('itinerary', orig.itinerary, travelData.itinerary);
+                pushIfChanged('budget', orig.budget, travelData.budget);
+            } else {
+                // No baseline captured — persist the budget the approver just entered.
+                fieldChanges.push({ fieldName: 'budget', oldValue: null, newValue: travelData.budget });
+            }
+            // Always refresh the derived grand total alongside the budget.
+            fieldChanges.push({ fieldName: 'grandTotal', oldValue: orig ? calculateGrandTotal() : null, newValue: calculateGrandTotal() });
+
+            const response = await fetch(`/api/requests/${editRequestId}/approver-edit`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    title: `Travel Auth: ${travelData.purposeOfTravel.substring(0, 50)}`,
-                    description: travelData.purposeOfTravel,
-                    metadata: {
-                        type: 'travel_authorization',
-                        dateOfIntendedTravel: travelData.dateOfIntendedTravel,
-                        purposeOfTravel: travelData.purposeOfTravel,
-                        accompanyingAssociates: travelData.accompanyingAssociates,
-                        travelMode: travelData.travelMode,
-                        acceptConditions: travelData.acceptConditions,
-                        itinerary: travelData.itinerary,
-                        budget: travelData.budget,
-                        grandTotal: calculateGrandTotal(),
-                        isEmergencyRequest: isTravelWithin7Days() ? isEmergencyRequest : false,
-                        emergencyReason: isTravelWithin7Days() && isEmergencyRequest ? emergencyReason : '',
-                        approvers: approversArray,
-                        approverRoles: selectedApprovers,
-                        useParallelApprovals: false,
-                    },
-                }),
+                body: JSON.stringify({ fieldChanges }),
             });
 
             if (!response.ok) {
                 const errorData = await response.json();
                 throw new Error(errorData.error || 'Failed to save changes');
-            }
-
-            // Record modifications if there are changes
-            if (fieldChanges.length > 0) {
-                await fetch(`/api/requests/${editRequestId}/approver-edit`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ fieldChanges }),
-                });
             }
 
             router.push(`/requests/${editRequestId}`);
@@ -725,7 +778,8 @@ export default function TravelAuthPage() {
                     title: `Travel Auth: ${travelData.purposeOfTravel?.substring(0, 50) || 'Draft'}`,
                     description: travelData.purposeOfTravel || 'Draft request',
                     metadata: {
-                        type: 'travel_authorization',
+                        type: travelRequestType,
+                        isInternational,
                         dateOfIntendedTravel: travelData.dateOfIntendedTravel,
                         purposeOfTravel: travelData.purposeOfTravel,
                         accompanyingAssociates: travelData.accompanyingAssociates,
@@ -737,6 +791,7 @@ export default function TravelAuthPage() {
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
                         useParallelApprovals: false,
+                        onBehalfOf: onBehalfOf || null,
                     },
                 }),
             });
@@ -886,11 +941,13 @@ export default function TravelAuthPage() {
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
                         useParallelApprovals: false,
+                        onBehalfOf: onBehalfOf || null,
                     },
                 }),
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Failed to create travel authorization');
+            await uploadSupportingDocuments(data.request.id, supportingDocs);
             router.push(`/requests/${data.request.id}`);
         } catch (err: any) {
             setError(err.message || 'Failed to create travel authorization');
@@ -991,6 +1048,11 @@ export default function TravelAuthPage() {
                 {error && <Card className="mb-4 bg-danger-50 border-danger-200"><p className="text-danger-600 text-sm">{error}</p></Card>}
 
                 <div className="space-y-6">
+                    {/* Filing on behalf of — shown at the top; only assigned assistants see it */}
+                    <Card className="p-6">
+                        <OnBehalfOfField value={onBehalfOf} onChange={setOnBehalfOf} disabled={isApproverEditing} />
+                    </Card>
+
                     {/* Requestor Information */}
                     <Card className="p-6">
                         <h3 className="text-sm font-semibold text-gray-700 mb-4 uppercase border-b pb-2">Requestor Information</h3>
@@ -1266,7 +1328,7 @@ export default function TravelAuthPage() {
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Vehicle Engine Size <span className="text-danger-500">*</span></label>
                                         <select
                                             value={aaCalculator.engineCapacity}
-                                            onChange={(e) => { setAACalculator({ ...aaCalculator, engineCapacity: e.target.value }); setAaRatesLocked(false); }}
+                                            onChange={(e) => setAACalculator({ ...aaCalculator, engineCapacity: e.target.value })}
                                             className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-[#9A7545] focus:border-transparent outline-none text-sm"
                                         >
                                             <option value="1.1L-1.5L">1.1L – 1.5L</option>
@@ -1279,7 +1341,7 @@ export default function TravelAuthPage() {
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Fuel Type <span className="text-danger-500">*</span></label>
                                         <select
                                             value={aaCalculator.fuelType}
-                                            onChange={(e) => { setAACalculator({ ...aaCalculator, fuelType: e.target.value as 'petrol' | 'diesel' }); setAaRatesLocked(false); }}
+                                            onChange={(e) => setAACalculator({ ...aaCalculator, fuelType: e.target.value as 'petrol' | 'diesel' })}
                                             className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-[#9A7545] focus:border-transparent outline-none text-sm"
                                         >
                                             <option value="petrol">Petrol</option>
@@ -1319,37 +1381,27 @@ export default function TravelAuthPage() {
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                <tr className={`border-b border-gray-100 ${aaCalculator.engineCapacity === '1.1L-1.5L' ? 'bg-[#F3EADC]' : ''}`}>
-                                                    <td className="py-1 px-2">1.1L – 1.5L</td>
-                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.1L-1.5L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-[#5E4426]' : ''}`}>0.28</td>
-                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.1L-1.5L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-[#5E4426]' : ''}`}>0.26</td>
-                                                </tr>
-                                                <tr className={`border-b border-gray-100 ${aaCalculator.engineCapacity === '1.6L-2.0L' ? 'bg-[#F3EADC]' : ''}`}>
-                                                    <td className="py-1 px-2">1.6L – 2.0L</td>
-                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.6L-2.0L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-[#5E4426]' : ''}`}>0.35</td>
-                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.6L-2.0L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-[#5E4426]' : ''}`}>0.32</td>
-                                                </tr>
-                                                <tr className={`border-b border-gray-100 ${aaCalculator.engineCapacity === '2.1L-3.0L' ? 'bg-[#F3EADC]' : ''}`}>
-                                                    <td className="py-1 px-2">2.1L – 3.0L</td>
-                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '2.1L-3.0L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-[#5E4426]' : ''}`}>0.48</td>
-                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '2.1L-3.0L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-[#5E4426]' : ''}`}>0.45</td>
-                                                </tr>
-                                                <tr className={`${aaCalculator.engineCapacity === 'Above 3.0L' ? 'bg-[#F3EADC]' : ''}`}>
-                                                    <td className="py-1 px-2">Above 3.0L</td>
-                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === 'Above 3.0L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-[#5E4426]' : ''}`}>0.59</td>
-                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === 'Above 3.0L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-[#5E4426]' : ''}`}>0.56</td>
-                                                </tr>
+                                                {([
+                                                    ['1.1L-1.5L', '1.1L – 1.5L'],
+                                                    ['1.6L-2.0L', '1.6L – 2.0L'],
+                                                    ['2.1L-3.0L', '2.1L – 3.0L'],
+                                                    ['Above 3.0L', 'Above 3.0L'],
+                                                ] as const).map(([key, label], idx, arr) => (
+                                                    <tr key={key} className={`${idx < arr.length - 1 ? 'border-b border-gray-100 ' : ''}${aaCalculator.engineCapacity === key ? 'bg-[#F3EADC]' : ''}`}>
+                                                        <td className="py-1 px-2">{label}</td>
+                                                        <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === key && aaCalculator.fuelType === 'petrol' ? 'font-bold text-[#5E4426]' : ''}`}>{(aaRates[key]?.petrol ?? 0).toFixed(2)}</td>
+                                                        <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === key && aaCalculator.fuelType === 'diesel' ? 'font-bold text-[#5E4426]' : ''}`}>{(aaRates[key]?.diesel ?? 0).toFixed(2)}</td>
+                                                    </tr>
+                                                ))}
                                             </tbody>
                                         </table>
                                     </div>
                                 </div>
 
-                                <div className="flex justify-end mt-4">
-                                    <button type="button" onClick={applyAARate} className="px-4 py-2 bg-[#9A7545] text-white rounded-lg hover:bg-[#5E4426] transition-colors font-medium text-sm flex items-center gap-2">
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7" /></svg>
-                                        Apply to Budget
-                                    </button>
-                                </div>
+                                <p className="text-xs text-[#5E4426] mt-4 flex items-center gap-1.5">
+                                    <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                    This travel cost is added to your budget automatically from the itinerary distance and the rate above.
+                                </p>
                             </div>
                         </Card>
                     )}
@@ -1362,24 +1414,47 @@ export default function TravelAuthPage() {
                                 <thead><tr className="bg-gray-100"><th className="px-3 py-2 text-left font-semibold text-gray-700">Expenditure Item</th><th className="px-3 py-2 text-left font-semibold text-gray-700 w-24">Quantity</th><th className="px-3 py-2 text-left font-semibold text-gray-700 w-28">Unit Cost (USD)</th><th className="px-3 py-2 text-left font-semibold text-gray-700 w-28">Total Cost (USD)</th></tr></thead>
                                 <tbody>
                                     {travelData.travelMode === 'personal_motor_vehicle' && (
-                                        <tr className={`border-b border-gray-100 ${aaRatesLocked ? 'bg-green-50' : ''}`}>
+                                        <tr className="border-b border-gray-100 bg-[#F3EADC]/40">
                                             <td className="px-3 py-2 text-gray-700">
                                                 Travel Cost (AA Rate × Distance)
-                                                {aaRatesLocked && <span className="ml-2 text-xs text-green-600 font-medium">(Applied)</span>}
+                                                <span className="ml-2 text-xs text-[#9A7545] font-medium">(auto-calculated)</span>
                                             </td>
                                             <td className="px-2 py-2">
-                                                <input type="number" value={travelData.budget.aaRates.quantity} onChange={(e) => !aaRatesLocked && updateBudgetItem('aaRates', 'quantity', e.target.value)} readOnly={aaRatesLocked} className={`w-full px-2 py-1 rounded border outline-none text-sm ${aaRatesLocked ? 'border-green-200 bg-green-50 text-green-800 font-medium' : 'border-gray-300 focus:ring-1 focus:ring-primary-500'}`} placeholder="0" min="0" />
+                                                <input type="number" value={travelData.budget.aaRates.quantity} readOnly className="w-full px-2 py-1 rounded border border-[#C9B896] bg-[#F3EADC]/40 text-[#5E4426] font-medium outline-none text-sm" placeholder="0" />
                                             </td>
                                             <td className="px-2 py-2">
-                                                <input type="number" value={travelData.budget.aaRates.unitCost} onChange={(e) => !aaRatesLocked && updateBudgetItem('aaRates', 'unitCost', e.target.value)} readOnly={aaRatesLocked} className={`w-full px-2 py-1 rounded border outline-none text-sm ${aaRatesLocked ? 'border-green-200 bg-green-50 text-green-800 font-medium' : 'border-gray-300 focus:ring-1 focus:ring-primary-500'}`} placeholder="0.28" step="0.01" min="0" />
+                                                <input type="number" value={travelData.budget.aaRates.unitCost} readOnly className="w-full px-2 py-1 rounded border border-[#C9B896] bg-[#F3EADC]/40 text-[#5E4426] font-medium outline-none text-sm" placeholder="0.32" />
                                             </td>
                                             <td className="px-2 py-2">
-                                                <input type="number" value={travelData.budget.aaRates.totalCost} readOnly className={`w-full px-2 py-1 rounded border outline-none text-sm ${aaRatesLocked ? 'border-green-200 bg-green-50 text-green-800 font-medium' : 'border-gray-200 bg-gray-50'}`} placeholder="0.00" />
+                                                <input type="number" value={travelData.budget.aaRates.totalCost} readOnly className="w-full px-2 py-1 rounded border border-[#C9B896] bg-[#F3EADC]/40 text-[#5E4426] font-medium outline-none text-sm" placeholder="0.00" />
                                             </td>
                                         </tr>
                                     )}
                                     <tr className="border-b border-gray-100"><td className="px-3 py-2 text-gray-700">Air/Bus Tickets</td><td className="px-2 py-2"><input type="number" value={travelData.budget.airBusTickets.quantity} onChange={(e) => updateBudgetItem('airBusTickets', 'quantity', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="0" min="0" /></td><td className="px-2 py-2"><input type="number" value={travelData.budget.airBusTickets.unitCost} onChange={(e) => updateBudgetItem('airBusTickets', 'unitCost', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="0.00" step="0.01" min="0" /></td><td className="px-2 py-2"><input type="number" value={travelData.budget.airBusTickets.totalCost} readOnly className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm" placeholder="0.00" /></td></tr>
                                     <tr className="border-b border-gray-100"><td className="px-3 py-2 text-gray-700">Conferencing Cost</td><td className="px-2 py-2"><input type="number" value={travelData.budget.conferencingCost.quantity} onChange={(e) => updateBudgetItem('conferencingCost', 'quantity', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="0" min="0" /></td><td className="px-2 py-2"><input type="number" value={travelData.budget.conferencingCost.unitCost} onChange={(e) => updateBudgetItem('conferencingCost', 'unitCost', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="0.00" step="0.01" min="0" /></td><td className="px-2 py-2"><input type="number" value={travelData.budget.conferencingCost.totalCost} readOnly className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm" placeholder="0.00" /></td></tr>
+                                    {/* Miscellaneous Costs — free multi-line list, shown before tollgates */}
+                                    <tr className="bg-gray-50 border-b border-gray-200">
+                                        <td className="px-3 py-2 text-gray-700 font-medium" colSpan={3}>Miscellaneous Costs</td>
+                                        <td className="px-2 py-2 text-right">
+                                            <button type="button" onClick={addMiscRow} className="text-xs text-primary-600 hover:text-primary-700 font-medium inline-flex items-center gap-1">
+                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" /></svg>
+                                                Add Line
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    {(Array.isArray(travelData.budget.miscCosts) ? travelData.budget.miscCosts : []).map((misc, idx) => (
+                                        <tr key={idx} className="border-b border-gray-100">
+                                            <td className="px-2 py-2"><input type="text" value={misc.description || ''} onChange={(e) => updateMiscRow(idx, 'description', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="Description (e.g. Visa fees)" /></td>
+                                            <td className="px-2 py-2"><input type="number" value={misc.quantity} onChange={(e) => updateMiscRow(idx, 'quantity', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="0" min="0" /></td>
+                                            <td className="px-2 py-2"><input type="number" value={misc.unitCost} onChange={(e) => updateMiscRow(idx, 'unitCost', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="0.00" step="0.01" min="0" /></td>
+                                            <td className="px-2 py-2 flex items-center gap-1">
+                                                <input type="number" value={misc.totalCost} readOnly className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm" placeholder="0.00" />
+                                                <button type="button" onClick={() => removeMiscRow(idx)} className="text-red-500 hover:text-red-700 p-1" aria-label="Remove line">
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
                                     {/* Tollgates Section - Only for Personal Motor Vehicle */}
                                     {travelData.travelMode === 'personal_motor_vehicle' && (
                                         <>
@@ -1457,7 +1532,6 @@ export default function TravelAuthPage() {
                                             ))}
                                         </>
                                     )}
-                                    <tr className="border-b border-gray-100"><td className="px-2 py-2"><input type="text" value={travelData.budget.other.description || ''} onChange={(e) => updateBudgetItem('other', 'description', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="Other (specify)" /></td><td className="px-2 py-2"><input type="number" value={travelData.budget.other.quantity} onChange={(e) => updateBudgetItem('other', 'quantity', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="0" min="0" /></td><td className="px-2 py-2"><input type="number" value={travelData.budget.other.unitCost} onChange={(e) => updateBudgetItem('other', 'unitCost', e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 focus:ring-1 focus:ring-primary-500 outline-none text-sm" placeholder="0.00" step="0.01" min="0" /></td><td className="px-2 py-2"><input type="number" value={travelData.budget.other.totalCost} readOnly className="w-full px-2 py-1 rounded border border-gray-200 bg-gray-50 outline-none text-sm" placeholder="0.00" /></td></tr>
                                     <tr className="bg-gray-100 font-semibold"><td className="px-3 py-2 text-gray-900" colSpan={3}>GRAND TOTAL</td><td className="px-3 py-2 text-gray-900">USD {calculateGrandTotal()}</td></tr>
                                 </tbody>
                             </table>
@@ -1470,6 +1544,15 @@ export default function TravelAuthPage() {
                                 The HR Director will allocate the cost across business units when approving this request.
                             </p>
                         </div>
+                    </Card>
+
+                    {/* Supporting documents (file + label + description) */}
+                    <Card className="p-6">
+                        <SupportingDocuments
+                            documents={supportingDocs}
+                            onChange={setSupportingDocs}
+                            disabled={isApproverEditing}
+                        />
                     </Card>
 
                     {/* Approval Section */}

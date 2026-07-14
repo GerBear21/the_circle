@@ -24,20 +24,6 @@ interface AppUser {
   job_title?: string | null;
 }
 
-interface BusinessUnit {
-  id: string;
-  name: string;
-}
-
-type ScopeLevel = 'own' | 'department' | 'business_unit' | 'custom' | 'organization';
-
-const SCOPE_OPTIONS: Array<{ value: ScopeLevel; label: string; hint: string }> = [
-  { value: 'own', label: 'Own records only', hint: 'Sees only requests and entries they created' },
-  { value: 'department', label: 'Their department', hint: 'Sees data for their department within their business unit' },
-  { value: 'business_unit', label: 'Their business unit (default)', hint: 'Sees all data within their home business unit' },
-  { value: 'custom', label: 'Selected business units', hint: 'Sees data for the business units you pick below' },
-  { value: 'organization', label: 'Entire organization', hint: 'Sees data across every business unit' },
-];
 
 interface AssignRoleModalProps {
   isOpen: boolean;
@@ -64,14 +50,6 @@ export default function AssignRoleModal({ isOpen, onClose, roles, permissions = 
   const [loadingRoles, setLoadingRoles] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  // Data-access scope (business units are tracked by NAME — they come from HRIMS)
-  const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]);
-  const [scopeLevel, setScopeLevel] = useState<ScopeLevel>('business_unit');
-  const [scopeBuNames, setScopeBuNames] = useState<Set<string>>(new Set());
-  const [scopeLabel, setScopeLabel] = useState<string>('');
-  const [loadingScope, setLoadingScope] = useState(false);
-  const [savingScope, setSavingScope] = useState(false);
-
   // Per-user permission overrides: code → 'grant' | 'deny' (absent = inherit)
   const [overrides, setOverrides] = useState<Map<string, boolean>>(new Map());
   const [showOverrides, setShowOverrides] = useState(false);
@@ -93,10 +71,6 @@ export default function AssignRoleModal({ isOpen, onClose, roles, permissions = 
       .then((d) => setUsers(d.users || []))
       .catch(() => addToast({ type: 'error', message: 'Failed to load users' }))
       .finally(() => setLoadingUsers(false));
-    fetch('/api/business-units')
-      .then((r) => r.json())
-      .then((d) => setBusinessUnits(d.businessUnits || []))
-      .catch(() => {});
   }, [isOpen, initialUserId, addToast]);
 
   const loadUserRoles = useCallback((userId: string) => {
@@ -117,20 +91,6 @@ export default function AssignRoleModal({ isOpen, onClose, roles, permissions = 
       .finally(() => setLoadingRoles(false));
   }, [addToast]);
 
-  const loadUserScope = useCallback((userId: string) => {
-    if (!userId) return;
-    setLoadingScope(true);
-    fetch(`/api/rbac/scope?user_id=${userId}`)
-      .then((r) => r.json())
-      .then((d) => {
-        setScopeLevel(d.setting?.scope_level || 'business_unit');
-        setScopeBuNames(new Set(d.setting?.business_unit_names || []));
-        setScopeLabel(d.scope?.label || '');
-      })
-      .catch(() => addToast({ type: 'error', message: 'Failed to load data scope' }))
-      .finally(() => setLoadingScope(false));
-  }, [addToast]);
-
   const loadUserOverrides = useCallback((userId: string) => {
     if (!userId) return;
     setLoadingOverrides(true);
@@ -147,9 +107,8 @@ export default function AssignRoleModal({ isOpen, onClose, roles, permissions = 
 
   useEffect(() => {
     loadUserRoles(selectedUserId);
-    loadUserScope(selectedUserId);
     loadUserOverrides(selectedUserId);
-  }, [selectedUserId, loadUserRoles, loadUserScope, loadUserOverrides]);
+  }, [selectedUserId, loadUserRoles, loadUserOverrides]);
 
   const filteredUsers = useMemo(() => {
     const q = search.toLowerCase();
@@ -161,6 +120,15 @@ export default function AssignRoleModal({ isOpen, onClose, roles, permissions = 
   const assignableRoles = useMemo(
     () => roles.filter((r) => !userRoles.some((ur) => ur.id === r.id)),
     [roles, userRoles]
+  );
+
+  // When opened for a specific user (from the Users list or the Access & Rights
+  // table) the modal is locked to that person — no user-search picker, just
+  // their details with their current roles and access to edit.
+  const isLocked = !!initialUserId;
+  const selectedUser = useMemo(
+    () => users.find((u) => u.id === selectedUserId),
+    [users, selectedUserId]
   );
 
   const groupedPermissions = useMemo(() => {
@@ -199,34 +167,6 @@ export default function AssignRoleModal({ isOpen, onClose, roles, permissions = 
     }
   };
 
-  const handleSaveScope = async () => {
-    if (!selectedUserId) return;
-    if (scopeLevel === 'custom' && scopeBuNames.size === 0) {
-      addToast({ type: 'error', message: 'Pick at least one business unit for a custom scope' });
-      return;
-    }
-    setSavingScope(true);
-    try {
-      const res = await fetch('/api/rbac/scope', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: selectedUserId,
-          scope_level: scopeLevel,
-          business_unit_names: scopeLevel === 'custom' ? Array.from(scopeBuNames) : [],
-        }),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.error || 'Failed to save scope');
-      setScopeLabel(d.scope?.label || '');
-      addToast({ type: 'success', message: 'Data access scope saved' });
-    } catch (err: any) {
-      addToast({ type: 'error', message: err.message || 'Failed to save scope' });
-    } finally {
-      setSavingScope(false);
-    }
-  };
-
   const handleSaveOverrides = async () => {
     if (!selectedUserId) return;
     setSavingOverrides(true);
@@ -259,38 +199,56 @@ export default function AssignRoleModal({ isOpen, onClose, roles, permissions = 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="User Access Manager" size="lg">
       <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
-        {/* User picker */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">User</label>
-          <input
-            type="text"
-            placeholder="Search users by name or email…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full px-4 py-2 mb-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
-          />
-          <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-100">
-            {loadingUsers ? (
-              <div className="p-3 text-sm text-gray-400">Loading users…</div>
-            ) : filteredUsers.length === 0 ? (
-              <div className="p-3 text-sm text-gray-400">No users found</div>
-            ) : (
-              filteredUsers.map((u) => (
-                <button
-                  key={u.id}
-                  type="button"
-                  onClick={() => setSelectedUserId(u.id)}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 transition-colors ${
-                    selectedUserId === u.id ? 'bg-brand-50' : ''
-                  }`}
-                >
-                  <div className="font-medium text-gray-800">{u.display_name || u.email}</div>
-                  <div className="text-xs text-gray-400">{u.email}</div>
-                </button>
-              ))
-            )}
+        {/* User — locked identity header when opened for a specific person,
+            otherwise a searchable picker. */}
+        {isLocked ? (
+          <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+            <div className="w-11 h-11 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center font-semibold text-sm flex-shrink-0">
+              {(selectedUser?.display_name || selectedUser?.email || '?').slice(0, 2).toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <div className="font-semibold text-gray-900 truncate">
+                {selectedUser?.display_name || (loadingUsers ? 'Loading…' : 'Unnamed user')}
+              </div>
+              <div className="text-xs text-gray-500 truncate">
+                {selectedUser?.email}
+                {selectedUser?.job_title ? ` · ${selectedUser.job_title}` : ''}
+              </div>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">User</label>
+            <input
+              type="text"
+              placeholder="Search users by name or email…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full px-4 py-2 mb-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+            />
+            <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-100">
+              {loadingUsers ? (
+                <div className="p-3 text-sm text-gray-400">Loading users…</div>
+              ) : filteredUsers.length === 0 ? (
+                <div className="p-3 text-sm text-gray-400">No users found</div>
+              ) : (
+                filteredUsers.map((u) => (
+                  <button
+                    key={u.id}
+                    type="button"
+                    onClick={() => setSelectedUserId(u.id)}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 transition-colors ${
+                      selectedUserId === u.id ? 'bg-brand-50' : ''
+                    }`}
+                  >
+                    <div className="font-medium text-gray-800">{u.display_name || u.email}</div>
+                    <div className="text-xs text-gray-400">{u.email}</div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        )}
 
         {selectedUserId && (
           <>
@@ -340,77 +298,6 @@ export default function AssignRoleModal({ isOpen, onClose, roles, permissions = 
               </div>
             </div>
 
-            {/* ---- Data access scope ---- */}
-            <div className="border-t border-gray-100 pt-4">
-              <div className="flex items-center justify-between mb-1">
-                <h4 className="text-sm font-semibold text-gray-800">Data access scope</h4>
-                {scopeLabel && (
-                  <span className="text-xs text-gray-400" title="Currently resolved visibility">
-                    Now sees: {scopeLabel}
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-gray-500 mb-2">
-                Controls how much of the organization&apos;s data this user can see. Roles with
-                &ldquo;View Organization-wide Data&rdquo; always see everything, regardless of this setting.
-              </p>
-              {loadingScope ? (
-                <p className="text-sm text-gray-400">Loading…</p>
-              ) : (
-                <div className="space-y-2">
-                  {SCOPE_OPTIONS.map((opt) => (
-                    <label key={opt.value} className="flex items-start gap-2 cursor-pointer rounded-lg border border-gray-200 px-3 py-2 hover:bg-gray-50">
-                      <input
-                        type="radio"
-                        name="scope-level"
-                        checked={scopeLevel === opt.value}
-                        onChange={() => setScopeLevel(opt.value)}
-                        className="mt-1 text-brand-600 focus:ring-brand-500"
-                      />
-                      <span>
-                        <span className="block text-sm font-medium text-gray-800">{opt.label}</span>
-                        <span className="block text-xs text-gray-500">{opt.hint}</span>
-                      </span>
-                    </label>
-                  ))}
-
-                  {scopeLevel === 'custom' && (
-                    <div className="ml-6 rounded-lg border border-gray-200 p-3">
-                      <p className="text-xs font-medium text-gray-600 mb-2">Business units this user can see:</p>
-                      {businessUnits.length === 0 ? (
-                        <p className="text-xs text-gray-400">No business units configured.</p>
-                      ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                          {businessUnits.map((bu) => (
-                            <label key={bu.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={scopeBuNames.has(bu.name)}
-                                onChange={(e) => {
-                                  setScopeBuNames((prev) => {
-                                    const next = new Set(prev);
-                                    e.target.checked ? next.add(bu.name) : next.delete(bu.name);
-                                    return next;
-                                  });
-                                }}
-                                className="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-                              />
-                              <span className="text-gray-700">{bu.name}</span>
-                            </label>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="flex justify-end">
-                    <Button variant="primary" onClick={handleSaveScope} disabled={savingScope}>
-                      {savingScope ? 'Saving…' : 'Save data scope'}
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
 
             {/* ---- Per-user permission overrides ---- */}
             <div className="border-t border-gray-100 pt-4">

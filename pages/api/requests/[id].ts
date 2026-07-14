@@ -4,6 +4,9 @@ import { authOptions } from '../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { validateBody, z } from '@/lib/validate';
 import { ApprovalEngine } from '@/lib/approvalEngine';
+import { assertValidOnBehalf } from '@/lib/onBehalf';
+import { assistantCanActOn } from '@/lib/assistantAssignments';
+import { isPermanentWatcherOf } from '@/lib/permanentWatchers';
 import { audit } from '@/lib/auditLog';
 
 const UpdateRequestSchema = z.object({
@@ -68,11 +71,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             status,
             due_at,
             created_at,
+            activated_at,
+            first_viewed_at,
+            last_viewed_at,
+            is_redirected,
+            original_approver_id,
+            redirect_reason,
+            delegation_id,
             approver:app_users!request_steps_approver_user_id_fkey (
               id,
               display_name,
               email,
-              profile_picture_url
+              profile_picture_url,
+              job_title
             ),
             approvals (
               id,
@@ -129,11 +140,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         (step: any) => step.approver_user_id === userId
       );
       const canApproverView = userStep && userStep.status !== 'waiting';
-      
-      if (!isCreator && !isWatcher && !canApproverView) {
+
+      // Permanent watcher: read-only visibility of everything the creator or any
+      // approver on this request has (they named this viewer as their watcher).
+      const isPermanentWatcher = await isPermanentWatcherOf(userId, organizationId, request as any);
+
+      if (!isCreator && !isWatcher && !canApproverView && !isPermanentWatcher) {
         // User is either not involved, or is a future approver whose turn hasn't come
         if (userStep && userStep.status === 'waiting') {
-          return res.status(403).json({ 
+          return res.status(403).json({
             error: 'This request is not yet ready for your review. You will be notified when it is your turn to approve.',
             code: 'APPROVAL_NOT_YOUR_TURN'
           });
@@ -152,8 +167,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       // Compute actual status based on step statuses (to handle incorrectly marked requests)
       const computeActualStatus = (dbStatus: string, steps: any[]) => {
+        // Terminal / non-active statuses win over any leftover step states
+        // (cancelling/withdrawing does not clear the steps).
+        if (['cancelled', 'withdrawn', 'draft', 'expired'].includes(dbStatus)) return dbStatus;
         if (!steps || steps.length === 0) return dbStatus;
-        
+
         // If any step is rejected, the request is rejected
         if (steps.some((s: any) => s.status === 'rejected')) return 'rejected';
         
@@ -186,7 +204,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // through submit/approve/withdraw — never an arbitrary client-set status.
       const { data: existing, error: ownErr } = await supabaseAdmin
         .from('requests')
-        .select('id, creator_id, status')
+        .select('id, creator_id, status, metadata')
         .eq('id', id)
         .eq('organization_id', organizationId)
         .single();
@@ -198,7 +216,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         throw ownErr;
       }
 
-      if (existing.creator_id !== user.id) {
+      // The creator may edit; so may an assistant granted `can_edit` for the
+      // creator or the on-behalf principal.
+      const isEditAssistant =
+        existing.creator_id !== user.id &&
+        (await assistantCanActOn(user.id, organizationId, existing as any, 'can_edit'));
+
+      if (existing.creator_id !== user.id && !isEditAssistant) {
         return res.status(403).json({ error: 'You can only edit your own requests' });
       }
 
@@ -208,7 +232,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const parsed = validateBody(req, res, UpdateRequestSchema);
       if (!parsed) return;
-      const { title, description, priority, category, metadata } = parsed;
+      const { title, description, priority, category } = parsed;
+      let metadata = parsed.metadata;
+
+      // Never trust a client-supplied beneficiary. When the creator edits, re-verify
+      // it against their own assignments. When an assistant edits, they may not
+      // reassign the beneficiary — preserve the stored value by dropping the key.
+      if (metadata && 'onBehalfOf' in metadata) {
+        if (isEditAssistant) {
+          const { onBehalfOf: _ignored, ...rest } = metadata as any;
+          metadata = rest;
+        } else {
+          const onBehalfResult = await assertValidOnBehalf(organizationId, user.id, (metadata as any).onBehalfOf);
+          if (!onBehalfResult.ok) {
+            return res.status(403).json({ error: onBehalfResult.error });
+          }
+          metadata = { ...metadata, onBehalfOf: onBehalfResult.normalized ?? null };
+        }
+      }
 
       // Editing a REJECTED request is treated as an "edit & resubmit": the
       // (possibly fully re-edited) form metadata is merged over the existing
@@ -303,6 +344,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
         throw error;
       }
+
+      await audit(req, session.user, {
+        category: 'transaction',
+        action: 'request.updated',
+        targetType: 'request',
+        targetId: id,
+        requestId: id,
+        targetLabel: (data as any)?.title || title || null,
+        details: {
+          actingFor: isEditAssistant
+            ? (existing.metadata?.onBehalfOf?.userId || existing.creator_id)
+            : undefined,
+        },
+      });
 
       return res.status(200).json({ request: data });
     }

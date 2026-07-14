@@ -1,9 +1,9 @@
 import { NextApiRequest, NextApiResponse } from "next";
 import crypto from "crypto";
-import { getToken } from "next-auth/jwt";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "../auth/[...nextauth]";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
+import { getValidMsAccessToken } from "../../../lib/msTokenStore";
 import { sendGraphMail, getSignInviteEmailHtml } from "../../../lib/graphMail";
 import { withRateLimit } from "../../../lib/rateLimit";
 import { validateBody, z } from "../../../lib/validate";
@@ -52,18 +52,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(500).json({ message: "Server not configured" });
   }
 
-  // We need both the public session (for user metadata) AND the raw JWT
-  // (which holds the Microsoft Graph access token — never exposed to the client).
   const session = await getServerSession(req, res, authOptions);
   if (!session?.user) {
     return res.status(401).json({ message: "Unauthorized" });
   }
 
-  const jwtToken = await getToken({
-    req,
-    secret: process.env.NEXTAUTH_SECRET || "fallback-secret-for-build-only",
-  });
-  const accessToken = jwtToken?.ms_access_token as string | undefined;
+  // The Microsoft Graph access token is held server-side (ms_oauth_tokens),
+  // keyed by the user id — never exposed to the client. Refreshed lazily.
+  const sessionUserId = (session.user as any).id as string | undefined;
+  const accessToken = sessionUserId ? await getValidMsAccessToken(sessionUserId) : null;
   if (!accessToken) {
     return res.status(403).json({
       message:

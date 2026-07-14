@@ -2,7 +2,9 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { generateReferenceCode } from '@/lib/requestCode';
+import { generateReferenceCode, getRequestTypeLabel } from '@/lib/requestCode';
+import { buildAndNotifySteps } from '@/lib/requestSteps';
+import { assertValidOnBehalf } from '@/lib/onBehalf';
 import { createCapexTrackerRow } from '@/lib/capexTrackerHooks';
 import { getUserRBACProfile, hasPermission, PERMISSIONS } from '@/lib/rbac';
 import { getUserAccessScope, scopeForResponse, AccessScope } from '@/lib/accessScope';
@@ -221,6 +223,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const validStatuses = ['draft', 'pending'];
       const finalStatus = validStatuses.includes(requestStatus) ? requestStatus : 'draft';
 
+      // File-on-behalf-of guard: never trust the client's beneficiary. Re-verify
+      // the beneficiary is an executive the filer holds an active delegation from.
+      const onBehalfResult = await assertValidOnBehalf(organizationId, userId, metadata?.onBehalfOf);
+      if (!onBehalfResult.ok) {
+        return res.status(403).json({ error: onBehalfResult.error });
+      }
+
       // Store priority and requestType in metadata
       // Preserve existing referenceCode if re-used (e.g. from a converted draft), otherwise generate one.
       const finalMetadata = {
@@ -230,6 +239,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         referenceCode: (metadata && typeof metadata.referenceCode === 'string' && metadata.referenceCode)
           ? metadata.referenceCode
           : generateReferenceCode(requestType),
+        // Persist only the server-verified beneficiary (or drop it entirely).
+        onBehalfOf: onBehalfResult.normalized ?? null,
       };
 
       const { data, error } = await supabaseAdmin
@@ -247,153 +258,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       if (error) throw error;
 
-      // If this is a submission (not a draft) and there are approvers, create request_steps and notify
-      // Handle both array format and object format (for backward compatibility)
-      let approvers: string[] = [];
-      if (metadata?.approvers) {
-        if (Array.isArray(metadata.approvers)) {
-          // Already an array (new format)
-          approvers = metadata.approvers.filter((id: any) => typeof id === 'string' && id.length > 0);
-        } else if (typeof metadata.approvers === 'object') {
-          // Object format (legacy) - convert to array in a defined order
-          const approverObj = metadata.approvers as Record<string, string>;
-          // Combined ordered keys for all form types:
-          // CAPEX: finance_manager -> general_manager -> procurement_manager -> corporate_hod -> projects_manager -> operations_director -> finance_director -> ceo
-          // Hotel Booking: hod -> hr_director -> finance_director -> ceo
-          const orderedKeys = [
-            // Petty cash roles (must come first so department_head -> accountant -> finance_manager
-            // is the canonical sequential order for petty cash submissions)
-            'department_head', 'accountant',
-            // CAPEX roles
-            'finance_manager', 'general_manager', 'procurement_manager', 'corporate_hod',
-            'projects_manager', 'managing_director',
-            // Hotel Booking roles (some overlap with CAPEX)
-            'hod', 'hr_director', 'finance_director', 'ceo',
-            // Voucher request roles
-            'commercial_director',
-            // Generic fallback roles
-            'manager', 'director'
-          ];
-          for (const key of orderedKeys) {
-            if (approverObj[key] && !approvers.includes(approverObj[key])) {
-              approvers.push(approverObj[key]);
-            }
-          }
-          // Add any remaining keys not in the predefined order
-          for (const [key, value] of Object.entries(approverObj)) {
-            if (value && !orderedKeys.includes(key) && !approvers.includes(value)) {
-              approvers.push(value);
-            }
-          }
+      // Turn the picked approvers into request_steps + notifications. This is the
+      // single source of truth for form requests, shared with /publish and the
+      // resubmit-after-unsubmit path (see lib/requestSteps.ts).
+      let submitted = false;
+      if (finalStatus === 'pending') {
+        const stepResult = await buildAndNotifySteps({
+          requestId: data.id,
+          organizationId,
+          creatorId: userId,
+          title,
+          metadata: finalMetadata,
+          requestType,
+        });
+
+        if (!stepResult.success) {
+          // Preserve the user's work: demote to draft and report why it couldn't submit.
+          await supabaseAdmin.from('requests').update({ status: 'draft' }).eq('id', data.id);
+          return res.status(400).json({ error: stepResult.error, request: { ...data, status: 'draft' } });
         }
-      }
-
-      if (finalStatus === 'pending' && approvers.length > 0) {
-        // Check if parallel approvals mode is enabled
-        const useParallelApprovals = metadata?.useParallelApprovals === true;
-
-        // Create request_steps for each approver in order
-        // PARALLEL APPROVAL: All steps are 'pending' - all approvers can review immediately
-        // SEQUENTIAL APPROVAL: First step is 'pending', all subsequent steps are 'waiting'
-        const requestSteps = approvers.map((approverId: string, index: number) => ({
-          request_id: data.id,
-          step_index: index + 1,
-          step_type: 'approval',
-          approver_user_id: approverId,
-          status: useParallelApprovals ? 'pending' : (index === 0 ? 'pending' : 'waiting'),
-        }));
-
-        const { error: stepsError } = await supabaseAdmin
-          .from('request_steps')
-          .insert(requestSteps);
-
-        if (stepsError) {
-          console.error('Failed to create request_steps:', stepsError);
-        }
-
-        // Get the requester's name for the notification
-        const { data: requesterData } = await supabaseAdmin
-          .from('app_users')
-          .select('display_name')
-          .eq('id', userId)
-          .single();
-
-        const requesterName = requesterData?.display_name || 'A user';
-
-        if (useParallelApprovals) {
-          // PARALLEL NOTIFICATION: Notify ALL approvers immediately
-          const approverNotifications = approvers.map((approverId: string, index: number) => ({
-            organization_id: organizationId,
-            recipient_id: approverId,
-            sender_id: userId,
-            type: 'task',
-            title: 'New Approval Request',
-            message: `${requesterName} has submitted a ${requestType?.toUpperCase() || 'CAPEX'} request "${title}" for your approval. (Parallel approval - ${approvers.length} approvers)`,
-            metadata: {
-              request_id: data.id,
-              request_type: requestType,
-              action_label: 'Review Request',
-              action_url: `/requests/${data.id}`,
-              step_number: index + 1,
-              total_steps: approvers.length,
-              is_parallel: true,
-            },
-            is_read: false,
-          }));
-
-          try {
-            await supabaseAdmin
-              .from('notifications')
-              .insert(approverNotifications);
-          } catch (notifError) {
-            console.error('Failed to create parallel notifications:', notifError);
-          }
-        } else {
-          // SEQUENTIAL NOTIFICATION: Only notify the FIRST approver initially
-          // Subsequent approvers will be notified when their step becomes pending (handled by ApprovalEngine)
-          const firstApproverId = approvers[0];
-          try {
-            await supabaseAdmin
-              .from('notifications')
-              .insert({
-                organization_id: organizationId,
-                recipient_id: firstApproverId,
-                sender_id: userId,
-                type: 'task',
-                title: 'New Approval Request',
-                message: `${requesterName} has submitted a ${requestType?.toUpperCase() || 'CAPEX'} request "${title}" for your approval. (Step 1 of ${approvers.length})`,
-                metadata: {
-                  request_id: data.id,
-                  request_type: requestType,
-                  action_label: 'Review Request',
-                  action_url: `/requests/${data.id}`,
-                  step_number: 1,
-                  total_steps: approvers.length,
-                },
-                is_read: false,
-              });
-          } catch (notifError) {
-            console.error('Failed to create notification:', notifError);
-          }
-        }
-
-        // Update request metadata with total_steps for tracking
-        await supabaseAdmin
-          .from('requests')
-          .update({
-            metadata: {
-              ...finalMetadata,
-              total_steps: approvers.length,
-              current_step: useParallelApprovals ? null : 1, // null for parallel since all are active
-              useParallelApprovals: useParallelApprovals,
-            }
-          })
-          .eq('id', data.id);
+        submitted = true;
       }
 
       // CAPEX Tracker side-effect: create a tracker row on submission
       // Fails silently — never blocks the request creation path
-      if (finalStatus === 'pending' && (finalMetadata.type === 'capex' || finalMetadata.requestType === 'capex')) {
+      if (submitted && (finalMetadata.type === 'capex' || finalMetadata.requestType === 'capex')) {
         try {
           await createCapexTrackerRow(data.id, organizationId, userId);
         } catch (trackerErr) {
@@ -404,7 +293,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Voucher register side-effect: create a pending booklet row on submission
       // so the voucher can be tracked before approval. The sequential number and
       // email fulfilment are filled in on final approval. Fails silently.
-      if (finalStatus === 'pending' && isVoucherRequest) {
+      if (submitted && isVoucherRequest) {
         try {
           await supabaseAdmin
             .from('vouchers')
@@ -421,8 +310,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       }
 
-      // Notify watchers if any (for both draft and pending status, but mainly useful for pending)
-      if (finalStatus === 'pending' && metadata?.watchers?.length > 0) {
+      // Notify watchers if any (only once the request is actually submitted)
+      if (submitted && metadata?.watchers?.length > 0) {
         const watchers = metadata.watchers as string[];
         
         // Get the requester's name for the notification (if not already fetched)
@@ -444,7 +333,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           sender_id: userId,
           type: 'info',
           title: 'Added as Watcher',
-          message: `${requesterName} has added you as a watcher on their ${requestType?.toUpperCase() || 'CAPEX'} request "${title}".`,
+          message: `${requesterName} has added you as a watcher on their ${getRequestTypeLabel(requestType || metadata?.type)} request "${title}".`,
           metadata: {
             request_id: data.id,
             request_type: requestType,
@@ -472,6 +361,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         requestId: data.id,
         details: { requestType: requestType || null, status: data.status },
       });
+
+      // Distinct, filterable event when this was filed on someone's behalf.
+      const beneficiary = finalMetadata.onBehalfOf as { userId?: string; name?: string } | null;
+      if (beneficiary?.userId) {
+        await audit(req, session.user, {
+          category: 'transaction',
+          action: 'request.filed_on_behalf',
+          targetType: 'request',
+          targetId: data.id,
+          targetLabel: title,
+          requestId: data.id,
+          details: {
+            principalId: beneficiary.userId,
+            principalName: beneficiary.name || null,
+            requestType: requestType || null,
+          },
+        });
+      }
 
       return res.status(201).json({ request: data });
     }

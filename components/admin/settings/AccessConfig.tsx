@@ -1,8 +1,14 @@
 import { useState, useEffect } from 'react';
 import { Card } from '../../ui';
 import { SectionHeading, AccessIcon } from './shared';
+import Loader from '../../Loader';
 
-export function AccessConfig() {
+interface AccessConfigProps {
+  /** Called when a user row is clicked, so the parent can open the access manager. */
+  onSelectUser?: (userId: string) => void;
+}
+
+export function AccessConfig({ onSelectUser }: AccessConfigProps = {}) {
   const [search, setSearch] = useState('');
   const [accessUsers, setAccessUsers] = useState<any[]>([]);
   const [accessLoading, setAccessLoading] = useState(true);
@@ -32,7 +38,7 @@ export function AccessConfig() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <SectionHeading title="Access & Rights Assignment" subtitle="View user roles and manage access. For role changes, use the Roles & Access admin page." />
+      <SectionHeading title="Access & Rights Assignment" subtitle="Click a user to manage their roles, data-access scope and individual permission overrides." />
 
       <Card className="!p-0 overflow-hidden border border-border">
         <div className="p-4 bg-neutral-50 border-b border-border flex items-center gap-4">
@@ -58,9 +64,7 @@ export function AccessConfig() {
         </div>
 
         {accessLoading ? (
-          <div className="p-8 text-center">
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-500 mx-auto" />
-          </div>
+          <Loader fullScreen={false} size={120} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm whitespace-nowrap">
@@ -70,11 +74,16 @@ export function AccessConfig() {
                   <th className="px-6 py-3 font-semibold">Assigned Roles</th>
                   <th className="px-6 py-3 font-semibold">Department</th>
                   <th className="px-6 py-3 font-semibold">Status</th>
+                  {onSelectUser && <th className="px-6 py-3 font-semibold text-right">Manage</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredUsers.slice(0, 25).map((u: any) => (
-                  <tr key={u.id} className="hover:bg-gray-50 transition-colors">
+                  <tr
+                    key={u.id}
+                    onClick={onSelectUser ? () => onSelectUser(u.id) : undefined}
+                    className={`transition-colors ${onSelectUser ? 'cursor-pointer hover:bg-primary-50/60' : 'hover:bg-gray-50'}`}
+                  >
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-neutral-100 text-neutral-700 flex items-center justify-center font-bold text-xs">
@@ -101,10 +110,20 @@ export function AccessConfig() {
                         {u.is_active !== false ? 'Active' : 'Inactive'}
                       </span>
                     </td>
+                    {onSelectUser && (
+                      <td className="px-6 py-4 text-right">
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-primary-600">
+                          Manage access
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </span>
+                      </td>
+                    )}
                   </tr>
                 ))}
                 {filteredUsers.length === 0 && (
-                  <tr><td colSpan={4} className="px-6 py-8 text-center text-gray-400">No users found</td></tr>
+                  <tr><td colSpan={onSelectUser ? 5 : 4} className="px-6 py-8 text-center text-gray-400">No users found</td></tr>
                 )}
               </tbody>
             </table>

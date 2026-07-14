@@ -85,12 +85,22 @@ interface RequestDetail {
         status: 'pending' | 'approved' | 'rejected' | 'skipped' | 'waiting';
         due_at?: string;
         created_at: string;
+        activated_at?: string | null;
         first_viewed_at?: string | null;
         last_viewed_at?: string | null;
+        is_redirected?: boolean;
+        original_approver_id?: string | null;
+        redirect_reason?: string | null;
+        delegation_id?: string | null;
         approver?: {
             id: string;
             display_name: string;
             email: string;
+            job_title?: string | null;
+        } | null;
+        original_approver?: {
+            id: string;
+            display_name: string;
             job_title?: string | null;
         } | null;
         approvals?: {
@@ -137,6 +147,9 @@ const fieldLabels: Record<string, string> = {
     requester: 'Requester',
     startDate: 'Start Date',
     budgetType: 'Budget Type',
+    budgetAmount: 'Budget Amount',
+    amountSpent: 'Amount Spent',
+    budgetBalance: 'Balance After Project',
     department: 'Department',
     description: 'Description',
     projectName: 'Project Name',
@@ -146,10 +159,24 @@ const fieldLabels: Record<string, string> = {
     type: 'Request Type',
     priority: 'Priority',
     evaluation: 'Financial Evaluation',
+    // Price variation fields
+    supplierName: 'Name of the Supplier',
+    firstQuotation: 'First Quotation',
+    secondQuotation: 'Second Quotation',
+    firstQuotationNumber: 'First Quotation Number',
+    secondQuotationNumber: 'Second Quotation Number',
+    firstOrderNumber: 'First Order Number',
+    secondOrderNumber: 'Second Order Number',
+    dateOnQuotation: 'Date on Quotation',
+    variance: 'Variance (1st vs 2nd)',
+    reason: 'Reason for Price Variance',
+    requestedBy: 'Requested By',
+    parentTitle: 'CAPEX Reference',
+    date: 'Date',
 };
 
 // Fields to exclude from display (internal/system fields)
-const excludedFields = ['approvers', 'documents', 'type', 'category', 'capex', 'leave', 'travel', 'expense'];
+const excludedFields = ['approvers', 'documents', 'type', 'category', 'capex', 'leave', 'travel', 'expense', 'parentRequestId', 'approverRoles', 'requiresCfo', 'priceVariations'];
 
 // Format field value for display
 function formatFieldValue(key: string, value: any): string {
@@ -159,7 +186,7 @@ function formatFieldValue(key: string, value: any): string {
     if (typeof value === 'object') return '—';
 
     // Handle currency formatting
-    if ((key === 'amount' || key === 'npv') && typeof value === 'string') {
+    if ((key === 'amount' || key === 'npv' || key === 'budgetAmount' || key === 'amountSpent' || key === 'budgetBalance') && typeof value === 'string') {
         return value.includes(',') ? value : Number(value).toLocaleString();
     }
 
@@ -310,6 +337,15 @@ interface ApproverInfo {
     comment?: string;
     first_viewed_at?: string | null;
     last_viewed_at?: string | null;
+    /** When the request landed on this approver's desk (step activated). */
+    activated_at?: string | null;
+    /** Step row creation time — fallback for "received" when activated_at is null. */
+    step_created_at?: string | null;
+    /** This approver's slot has been delegated to someone else. */
+    delegated?: boolean;
+    delegateName?: string | null;
+    delegateJobTitle?: string | null;
+    delegationReason?: string | null;
 }
 
 // Helper to get approver IDs from metadata (handles nested structures)
@@ -330,6 +366,22 @@ function getApproverIds(metadata: Record<string, any> | undefined): string[] {
     }
 
     return [];
+}
+
+// Humanise a duration in ms as e.g. "3h 20m", "2d 4h", "< 1m".
+function formatDuration(ms: number): string {
+    if (!Number.isFinite(ms) || ms < 0) return '—';
+    const mins = Math.floor(ms / 60000);
+    if (mins < 1) return '< 1m';
+    if (mins < 60) return `${mins}m`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) {
+        const rem = mins % 60;
+        return rem ? `${hours}h ${rem}m` : `${hours}h`;
+    }
+    const days = Math.floor(hours / 24);
+    const remH = hours % 24;
+    return remH ? `${days}d ${remH}h` : `${days}d`;
 }
 
 // ApprovalTimeline component to show approvers and their status
@@ -377,24 +429,34 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
                     const data = await response.json();
                     const users = data.users || [];
 
-                    // Map approvers with their status from request_steps
+                    // Map approvers with their status from request_steps.
+                    // A delegated step's approver is now the delegate, so also
+                    // match on original_approver_id to keep the original slot.
                     const approverInfos: ApproverInfo[] = approverIds.map((id, index) => {
                         const user = users.find((u: any) => u.id === id);
-                        const step = request.request_steps?.find(s => s.approver?.id === id);
+                        const step = request.request_steps?.find(s => s.approver?.id === id)
+                            || request.request_steps?.find(s => s.original_approver_id === id);
                         const approval = step?.approvals?.[0];
+                        const delegated = !!(step?.is_redirected && step?.original_approver_id === id);
 
                         return {
                             id,
                             display_name: user?.display_name || `Approver ${index + 1}`,
                             email: user?.email || '',
                             profile_picture_url: user?.profile_picture_url,
-                            job_title: user?.job_title || step?.approver?.job_title || null,
+                            job_title: user?.job_title || step?.original_approver?.job_title || null,
                             status: step?.status === 'approved' ? 'approved' :
                                 step?.status === 'rejected' ? 'rejected' : 'pending',
                             signed_at: approval?.signed_at,
                             comment: approval?.comment,
                             first_viewed_at: step?.first_viewed_at || null,
                             last_viewed_at: step?.last_viewed_at || null,
+                            activated_at: step?.activated_at || null,
+                            step_created_at: step?.created_at || null,
+                            delegated,
+                            delegateName: delegated ? (step?.approver?.display_name || null) : null,
+                            delegateJobTitle: delegated ? (step?.approver?.job_title || null) : null,
+                            delegationReason: delegated ? (step?.redirect_reason || null) : null,
                         };
                     });
 
@@ -416,6 +478,8 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
                             comment: approval?.comment,
                             first_viewed_at: step?.first_viewed_at || null,
                             last_viewed_at: step?.last_viewed_at || null,
+                            activated_at: step?.activated_at || null,
+                            step_created_at: step?.created_at || null,
                         };
                     });
                     setApprovers(approverInfos);
@@ -431,6 +495,10 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
                         step.status === 'rejected' ? 'rejected' : 'pending',
                     signed_at: step.approvals?.[0]?.signed_at,
                     comment: step.approvals?.[0]?.comment,
+                    first_viewed_at: step.first_viewed_at || null,
+                    last_viewed_at: step.last_viewed_at || null,
+                    activated_at: (step as any).activated_at || null,
+                    step_created_at: (step as any).created_at || null,
                 })) || [];
                 setApprovers(approverInfos);
             } finally {
@@ -640,6 +708,18 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
                                             {approver.job_title && (
                                                 <p className="text-xs font-medium text-primary-700 mt-0.5">{approver.job_title}</p>
                                             )}
+                                            {approver.delegated && (
+                                                <p
+                                                    className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5"
+                                                    title={approver.delegationReason ? `Reason: ${approver.delegationReason}` : undefined}
+                                                >
+                                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                                                    </svg>
+                                                    Delegated to {approver.delegateName || 'a delegate'}
+                                                    {approver.delegateJobTitle ? ` (${approver.delegateJobTitle})` : ''}
+                                                </p>
+                                            )}
                                             <p className="text-sm text-gray-500">{approver.email}</p>
                                             <div className="mt-1 flex items-center gap-2 flex-wrap">
                                                 {approver.first_viewed_at ? (
@@ -662,6 +742,41 @@ function ApprovalTimeline({ request, isEditing, onApproversChange }: {
                                                     </span>
                                                 ) : null}
                                             </div>
+                                            {/* Received / Reviewed / Sitting — approval turnaround detail.
+                                                Only meaningful once the step has acted (approved/rejected) or
+                                                is the CURRENT approver; future waiting steps show nothing. */}
+                                            {(() => {
+                                                const hasActed = isApproved || isRejected || !!approver.signed_at;
+                                                if (!hasActed && !isActive) return null;
+                                                const received = approver.activated_at || approver.step_created_at || null;
+                                                if (!received) return null;
+                                                const receivedMs = new Date(received).getTime();
+                                                const endMs = approver.signed_at ? new Date(approver.signed_at).getTime() : Date.now();
+                                                const sittingMs = endMs - receivedMs;
+                                                // Live "on desk" counter only for the current approver.
+                                                const stillWaiting = !approver.signed_at && isActive;
+                                                const overdue = stillWaiting && sittingMs > 24 * 60 * 60 * 1000;
+                                                return (
+                                                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-500">
+                                                        <span>Received {formatDateTime(received)}</span>
+                                                        {approver.signed_at ? (
+                                                            <>
+                                                                <span aria-hidden>·</span>
+                                                                <span>Reviewed {formatDateTime(approver.signed_at)}</span>
+                                                                <span aria-hidden>·</span>
+                                                                <span>Turnaround {formatDuration(sittingMs)}</span>
+                                                            </>
+                                                        ) : stillWaiting ? (
+                                                            <>
+                                                                <span aria-hidden>·</span>
+                                                                <span className={overdue ? 'text-rose-600 font-medium' : ''}>
+                                                                    On desk {formatDuration(sittingMs)}{overdue ? ' — overdue' : ''}
+                                                                </span>
+                                                            </>
+                                                        ) : null}
+                                                    </div>
+                                                );
+                                            })()}
                                         </div>
                                     </div>
 
@@ -1044,11 +1159,20 @@ export const getServerSideProps: GetServerSideProps<RequestDetailsPageProps> = a
           created_at,
           first_viewed_at,
           last_viewed_at,
+          is_redirected,
+          original_approver_id,
+          redirect_reason,
+          delegation_id,
           approver:app_users!request_steps_approver_user_id_fkey (
             id,
             display_name,
             email,
             profile_picture_url,
+            job_title
+          ),
+          original_approver:app_users!request_steps_original_approver_id_fkey (
+            id,
+            display_name,
             job_title
           ),
           approvals (
@@ -1144,6 +1268,7 @@ export const getServerSideProps: GetServerSideProps<RequestDetailsPageProps> = a
     const normalizedSteps = request.request_steps?.map((step: any) => ({
       ...step,
       approver: Array.isArray(step.approver) ? step.approver[0] : step.approver,
+      original_approver: Array.isArray(step.original_approver) ? step.original_approver[0] : step.original_approver,
     }));
 
     const enrichedRequest = {
@@ -1242,12 +1367,24 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     const [showCancelModal, setShowCancelModal] = useState(false);
     const [cancelReason, setCancelReason] = useState('');
     const [cancelling, setCancelling] = useState(false);
+    const [unsubmitting, setUnsubmitting] = useState(false);
 
     const currentUserId = (session?.user as any)?.id;
     const isCreator = request?.creator?.id === currentUserId;
     const isDraft = request?.status === 'draft';
     const canPublish = isCreator && isDraft;
     const canDelete = isCreator && request?.status !== 'approved';
+
+    // Price Variation: the creator of a fully-approved CAPEX can raise a price
+    // variation against it. On this request being a variation itself, we show a
+    // back-link to its parent CAPEX and any recorded variations as a banner.
+    const requestKind = request?.metadata?.type || request?.metadata?.requestType;
+    const isCapexRequest = requestKind === 'capex';
+    const isPriceVariationRequest = requestKind === 'price-variation';
+    const canRaisePriceVariation = isCreator && isCapexRequest && request?.status === 'approved';
+    const priceVariations: any[] = Array.isArray(request?.metadata?.priceVariations)
+        ? request!.metadata.priceVariations
+        : [];
 
     // Check if current user is the pending approver for this request
     // Note: We check if the user has a pending step regardless of request status,
@@ -1360,6 +1497,9 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     // Compute the actual status based on step statuses (to handle incorrectly marked requests)
     const computeActualStatus = (): string | undefined => {
         if (!request) return undefined;
+        // Terminal / non-active statuses win over any leftover step states
+        // (cancelling/withdrawing does not clear the steps).
+        if (['cancelled', 'withdrawn', 'draft', 'expired'].includes(request.status)) return request.status;
         const steps = request.request_steps || [];
         if (steps.length === 0) return request.status;
 
@@ -1401,6 +1541,27 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     const cancellableStatus = !!request && !['cancelled', 'withdrawn', 'draft'].includes(actualStatus || request.status);
     const canCancel = (isCreator || isApprover) && cancellableStatus;
     const cancellationInfo = (request?.metadata?.cancellation as any) || null;
+
+    // Anyone within the request's scope (creator, any approver, per-request
+    // watcher) can upload supporting documents — matches the server rule in
+    // /api/requests/[id]/documents. Permanent watchers stay read-only.
+    const canUploadDoc = isCreator || isApprover || isWatcher;
+
+    // Unsubmit & amend: the creator may pull a still-pending request back to an
+    // editable draft — but only while NO approver has acted yet (see
+    // /api/requests/[id]/unsubmit). After unsubmitting we route straight into
+    // the form to amend, then republish.
+    const noApproverActed = !(request?.request_steps || []).some(
+        s => s.status === 'approved' || s.status === 'rejected'
+    );
+    const canUnsubmit = isCreator && (actualStatus || request?.status) === 'pending' && noApproverActed;
+
+    // Reopen (revive) a cancelled request: the creator can pull it back to an
+    // editable draft and resubmit — unless it had been fully approved before
+    // it was cancelled. Reuses the same /unsubmit route + edit flow.
+    const canRevive = isCreator
+        && (actualStatus || request?.status) === 'cancelled'
+        && (request?.metadata?.cancellation?.previousStatus !== 'approved');
 
     // Seed HRD cost allocation from existing metadata when opening modal
     useEffect(() => {
@@ -1586,7 +1747,7 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
             const minutes = Math.max(1, Math.round((result.elevation.expiresAt - Date.now()) / 60000));
             addToast({
                 type: 'success',
-                title: 'You are verified for 15 minutes',
+                title: `You are verified for ${minutes} minute${minutes === 1 ? '' : 's'}`,
                 message: `You can approve without re-authentication.`,
                 duration: 8000,
             });
@@ -1757,6 +1918,7 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     const RESUBMIT_FORM_ROUTES: Record<string, string> = {
         capex: 'capex',
         travel_authorization: 'travel-auth',
+        international_travel_authorization: 'international-travel-auth',
         petty_cash: 'petty-cash',
         journal_entry: 'journals',
         journals: 'journals',
@@ -1911,6 +2073,50 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
             });
         } finally {
             setCancelling(false);
+        }
+    };
+
+    // Unsubmit & amend: pull the pending request back to a draft, then route the
+    // requester into the original form (?edit=) to amend and republish. Falls
+    // back to the request page (draft) when the type has no edit-capable form.
+    const handleUnsubmit = async () => {
+        if (!id || (!canUnsubmit && !canRevive)) return;
+        setUnsubmitting(true);
+        setPublishError(null);
+        try {
+            const response = await fetch(`/api/requests/${id}/unsubmit`, { method: 'POST' });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to unsubmit request');
+            }
+
+            addToast({
+                type: 'success',
+                title: canRevive ? 'Request reopened' : 'Request unsubmitted',
+                message: 'Amend your request, then submit it again for approval.',
+            });
+
+            const requestType = request?.metadata?.type || request?.metadata?.requestType;
+            const route = requestType ? RESUBMIT_FORM_ROUTES[requestType] : undefined;
+            if (route) {
+                router.push(`/requests/new/${route}?edit=${id}`);
+            } else {
+                // No dedicated form — reload as a draft; inline edit + Submit apply.
+                const refreshResponse = await fetch(`/api/requests/${id}`);
+                if (refreshResponse.ok) {
+                    const refreshData = await refreshResponse.json();
+                    setRequest(refreshData.request);
+                }
+            }
+        } catch (err: any) {
+            console.error('Error unsubmitting request:', err);
+            addToast({
+                type: 'error',
+                title: 'Unsubmit failed',
+                message: err.message || 'Failed to unsubmit request',
+            });
+        } finally {
+            setUnsubmitting(false);
         }
     };
 
@@ -2510,6 +2716,58 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                     </Card>
                 )}
 
+                {/* Price Variation banner — this request IS a variation: link back to the parent CAPEX. */}
+                {isPriceVariationRequest && request.metadata?.parentRequestId && (
+                    <Card className="bg-amber-50 border-amber-200 !p-4">
+                        <div className="flex items-center gap-3">
+                            <svg className="w-5 h-5 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                            </svg>
+                            <p className="text-amber-800 text-sm">
+                                This is a price variation raised against a CAPEX request.
+                            </p>
+                            <Link
+                                href={`/requests/${request.metadata.parentRequestId}`}
+                                className="ml-auto text-amber-700 font-medium text-sm hover:underline"
+                            >
+                                View CAPEX →
+                            </Link>
+                        </div>
+                    </Card>
+                )}
+
+                {/* Pricing Variation banner — this CAPEX has one or more approved variations. */}
+                {priceVariations.length > 0 && (
+                    <Card className="bg-amber-50 border-amber-200 !p-4">
+                        <div className="flex items-start gap-3">
+                            <svg className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z" />
+                            </svg>
+                            <div className="flex-1">
+                                <p className="text-amber-800 text-sm font-semibold mb-1">
+                                    Pricing Variation{priceVariations.length > 1 ? 's' : ''} recorded
+                                </p>
+                                <ul className="space-y-1">
+                                    {priceVariations.map((v: any, i: number) => (
+                                        <li key={v.id || i} className="text-sm text-amber-800 flex items-center gap-2 flex-wrap">
+                                            <span>
+                                                {v.supplierName ? `${v.supplierName} — ` : ''}
+                                                Amount: {v.amount || '—'}
+                                                {v.variance ? ` (variance ${v.variance})` : ''}
+                                            </span>
+                                            {v.id && (
+                                                <Link href={`/requests/${v.id}`} className="text-amber-700 font-medium hover:underline">
+                                                    View variation →
+                                                </Link>
+                                            )}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </div>
+                    </Card>
+                )}
+
                 {/* Top Navigation Breadcrumb */}
                 <nav className="flex items-center text-sm text-text-secondary mb-2">
                     <Link href="/approvals" className="hover:text-primary-600 transition-colors flex items-center gap-1">
@@ -2663,6 +2921,19 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                             </svg>
                             Preview
                         </Button>
+                        {/* Price Variation: only for the creator of a fully-approved CAPEX. */}
+                        {canRaisePriceVariation && (
+                            <Button
+                                variant="outline"
+                                className="gap-2 bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
+                                onClick={() => router.push(`/requests/new/price-variation?parent=${request.id}`)}
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                </svg>
+                                Raise Price Variation
+                            </Button>
+                        )}
                         {/* Inter-Unit Debit Note: dedicated paper-format printable view. */}
                         {(request.metadata?.type === 'inter_unit_debit_note' || request.metadata?.requestType === 'inter_unit_debit_note') && (
                             <Button
@@ -2824,6 +3095,36 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                     {submittingResubmit ? 'Resubmitting…' : 'Submit Resubmission'}
                                 </Button>
                             </>
+                        )}
+                        {/* Unsubmit & Edit — creator only, while pending and no approver has acted */}
+                        {canUnsubmit && !isResubmitting && (
+                            <Button
+                                variant="outline"
+                                className="gap-2 bg-white text-text-secondary border-gray-200 hover:bg-gray-50"
+                                onClick={handleUnsubmit}
+                                disabled={unsubmitting}
+                                isLoading={unsubmitting}
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                </svg>
+                                {unsubmitting ? 'Unsubmitting…' : 'Unsubmit & Edit'}
+                            </Button>
+                        )}
+                        {/* Reopen & Edit — creator only, revive a cancelled request */}
+                        {canRevive && !isResubmitting && (
+                            <Button
+                                variant="outline"
+                                className="gap-2 bg-white text-primary-700 border-primary-200 hover:bg-primary-50"
+                                onClick={handleUnsubmit}
+                                disabled={unsubmitting}
+                                isLoading={unsubmitting}
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                                {unsubmitting ? 'Reopening…' : 'Reopen & Edit'}
+                            </Button>
                         )}
                         {/* Cancel Request — requester or approver, at any stage (incl. approved) */}
                         {canCancel && !isResubmitting && (
@@ -3180,7 +3481,7 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                 return (
                                     <div className="space-y-6">
                                         {/* Upload Section - Show for creator or approver (not watchers) */}
-                                        {(isCreator || canApproverEdit) && (
+                                        {canUploadDoc && (
                                             <Card className={`!p-4 shadow-sm ${canApproverEdit ? 'border-primary-200 bg-primary-50/30' : 'border-gray-200'}`}>
                                                 <div className="flex items-center justify-between">
                                                     <div>
@@ -3193,8 +3494,8 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                                             )}
                                                         </h4>
                                                         <p className="text-sm text-text-secondary">
-                                                            {canApproverEdit 
-                                                                ? 'Upload additional documents as part of your review' 
+                                                            {canApproverEdit
+                                                                ? 'Upload additional documents as part of your review'
                                                                 : 'Add supporting files to this request'}
                                                         </p>
                                                     </div>
@@ -3226,8 +3527,8 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                             </Card>
                                         )}
 
-                                        {/* Watcher notice - they cannot upload */}
-                                        {isWatcher && !isCreator && !canApproverEdit && (
+                                        {/* Read-only viewers (e.g. permanent watchers) can't upload. */}
+                                        {!canUploadDoc && (
                                             <Card className="!p-4 border-gray-200 shadow-sm bg-gray-50">
                                                 <div className="flex items-center gap-3 text-gray-500">
                                                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3235,7 +3536,7 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                                     </svg>
                                                     <div>
-                                                        <p className="font-medium text-gray-600">Viewing as Watcher</p>
+                                                        <p className="font-medium text-gray-600">Read-only view</p>
                                                         <p className="text-sm">You can view documents but cannot upload or modify them.</p>
                                                     </div>
                                                 </div>
@@ -3500,7 +3801,15 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                                                         {getFileIcon(doc.mime_type || '')}
                                                                     </div>
                                                                     <div className="flex-1 min-w-0">
-                                                                        <p className="font-semibold text-gray-900">{doc.filename}</p>
+                                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                                            <p className="font-semibold text-gray-900">{doc.filename}</p>
+                                                                            {doc.label && (
+                                                                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-700">{doc.label}</span>
+                                                                            )}
+                                                                        </div>
+                                                                        {doc.description && (
+                                                                            <p className="text-sm text-gray-600 mt-1">{doc.description}</p>
+                                                                        )}
                                                                         <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs">
                                                                             <div>
                                                                                 <span className="text-gray-500">Size:</span>
@@ -3518,6 +3827,12 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                                                                     })}
                                                                                 </span>
                                                                             </div>
+                                                                            {doc.uploader?.display_name && (
+                                                                                <div className="col-span-2">
+                                                                                    <span className="text-gray-500">Uploaded by:</span>
+                                                                                    <span className="ml-1 text-gray-700 font-medium">{doc.uploader.display_name}</span>
+                                                                                </div>
+                                                                            )}
                                                                             {doc.storage_path && (
                                                                                 <div className="col-span-2">
                                                                                     <span className="text-gray-500">Path:</span>
@@ -3606,6 +3921,12 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                     <div className="text-xs text-primary-600 mt-1">{request.creator.email}</div>
                                 </div>
                             </div>
+                            {request.metadata?.onBehalfOf?.name && (
+                                <div className="mt-4 rounded-lg bg-primary-50 border border-primary-200 px-3 py-2 text-sm text-primary-800">
+                                    Filed on behalf of <strong>{request.metadata.onBehalfOf.name}</strong>
+                                    {request.metadata.onBehalfOf.positionTitle ? ` (${request.metadata.onBehalfOf.positionTitle})` : ''}
+                                </div>
+                            )}
                         </Card>
 
                         {/* Current Step Card */}
@@ -3846,8 +4167,8 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                         </div>
                                         <p className="text-xs text-amber-700 mb-3">
                                             {hasGrandTotalToBalance
-                                                ? 'As HR Director, please allocate the cost across the units below. Totals must match the grand total before you can approve.'
-                                                : 'As HR Director, please allocate the complimentary value across the units below before you can approve.'}
+                                                ? 'As Chief Human Capital Officer, please allocate the cost across the units below. Totals must match the grand total before you can approve.'
+                                                : 'As Chief Human Capital Officer, please allocate the complimentary value across the units below before you can approve.'}
                                         </p>
 
                                         {/* Hotel bookings: HRD also picks the category (Marketing,

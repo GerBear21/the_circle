@@ -6,10 +6,12 @@ import { Card, Button } from '../../components/ui';
 import { useRBACRoles } from '../../hooks/useRBACRoles';
 import { useRBAC } from '../../contexts/RBACContext';
 import { AccessConfig } from '../../components/admin/settings';
+import AssistantAssignmentsCard from '../../components/admin/AssistantAssignmentsCard';
 import { useToast } from '../../components/ui/ToastProvider';
 import RoleFormModal from '../../components/admin/RoleFormModal';
 import AssignRoleModal from '../../components/admin/AssignRoleModal';
 import DemoAccountModal from '../../components/admin/DemoAccountModal';
+import Loader from '../../components/Loader';
 
 interface Permission {
   id: string;
@@ -179,9 +181,7 @@ export default function AdminRolesPage() {
   if (status === 'loading' || loading || rbacLoading) {
     return (
       <AppLayout title="Roles">
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500" />
-        </div>
+        <Loader fullScreen={false} label="Loading roles…" />
       </AppLayout>
     );
   }
@@ -308,9 +308,7 @@ export default function AdminRolesPage() {
             </div>
 
             {usersLoading ? (
-              <div className="flex items-center justify-center py-10">
-                <div className="animate-spin rounded-full h-7 w-7 border-b-2 border-brand-500" />
-              </div>
+              <Loader fullScreen={false} size={120} />
             ) : (
               <div className="divide-y divide-gray-100 max-h-[26rem] overflow-y-auto rounded-xl border border-gray-100">
                 {usersList
@@ -611,7 +609,12 @@ export default function AdminRolesPage() {
 
         {/* Access & Rights (merged from System Configuration) */}
         <div className="mt-10 pt-8 border-t border-border">
-          <AccessConfig />
+          <AccessConfig onSelectUser={openUserAccess} />
+        </div>
+
+        {/* Assistants & delegates — who may file / watch on behalf of whom */}
+        <div className="mt-6">
+          <AssistantAssignmentsCard />
         </div>
 
         {/* Help Section */}
@@ -625,24 +628,10 @@ export default function AdminRolesPage() {
             <div>
               <h3 className="font-medium text-[#3F2D19]">Understanding Roles & Permissions</h3>
               <p className="text-sm text-[#5E4426] mt-1">
-                Roles define what actions users can perform in the system. <strong>System roles</strong> are pre-configured and cannot be deleted, 
+                Roles define what actions users can perform in the system. <strong>System roles</strong> are pre-configured and cannot be deleted,
                 but you can create <strong>custom roles</strong> tailored to your organization&apos;s needs.
                 The <strong>default role</strong> is automatically assigned to new users.
               </p>
-              <div className="flex items-center gap-4 mt-3">
-                <a href="#" className="text-sm font-medium text-[#9A7545] hover:text-[#3F2D19] flex items-center gap-1">
-                  Learn more about permissions
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                  </svg>
-                </a>
-                <a href="#" className="text-sm font-medium text-[#9A7545] hover:text-[#3F2D19] flex items-center gap-1">
-                  Best practices guide
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                  </svg>
-                </a>
-              </div>
             </div>
           </div>
         </Card>

@@ -22,6 +22,8 @@ import { onCapexApproved, onCapexRejected, onCapexResubmitted, onCapexCancelled 
 import { autoCreatePettyCashFromTravelAuth } from './autoPettyCash';
 import { sendUserNotificationEmail, escapeHtml, appBaseUrl } from './notificationEmail';
 import { getUserPreferences } from './userPreferences';
+import { getActiveDelegateFor } from './delegations';
+import { assistantCanActOn, fanoutToNotificationAssistants } from './assistantAssignments';
 
 // ============================================================================
 // Types
@@ -284,12 +286,32 @@ export class ApprovalEngine {
       );
       
       if (!approverId && stepDef.type === 'approval') {
-        return { 
-          success: false, 
-          error: `Could not resolve approver for step: ${stepDef.name}` 
+        return {
+          success: false,
+          error: `Could not resolve approver for step: ${stepDef.name}`
         };
       }
-      
+
+      // Delegation: if an active delegation covers this approver, route the
+      // step to the delegate and stamp the redirect columns so the workflow
+      // timeline shows it as delegated (and links back to the delegation).
+      let effectiveApproverId = approverId;
+      let delegationFields: Record<string, any> = {};
+      if (approverId) {
+        const delegation = await getActiveDelegateFor(approverId, organizationId);
+        if (delegation) {
+          effectiveApproverId = delegation.delegate_id;
+          delegationFields = {
+            is_redirected: true,
+            original_approver_id: approverId,
+            redirected_by_id: delegation.created_by,
+            redirected_at: new Date().toISOString(),
+            redirect_reason: delegation.reason,
+            delegation_id: delegation.id,
+          };
+        }
+      }
+
       // Calculate due date if escalation is configured
       let dueAt: string | null = null;
       if (stepDef.settings?.escalation?.enabled && stepDef.settings.escalation.hours) {
@@ -297,17 +319,21 @@ export class ApprovalEngine {
         dueDate.setHours(dueDate.getHours() + stepDef.settings.escalation.hours);
         dueAt = dueDate.toISOString();
       }
-      
+
+      // PARALLEL: All steps are pending; SEQUENTIAL: Only first step is pending
+      const isPendingNow = useParallelApprovals || stepsToCreate.length === 0;
       stepsToCreate.push({
         request_id: requestId,
         step_index: stepsToCreate.length + 1,
         step_type: stepDef.type,
-        approver_user_id: approverId,
+        approver_user_id: effectiveApproverId,
         approver_role: stepDef.approverType === 'role' ? stepDef.approverValue : null,
-        // PARALLEL: All steps are pending; SEQUENTIAL: Only first step is pending
-        status: useParallelApprovals ? 'pending' : (stepsToCreate.length === 0 ? 'pending' : 'waiting'),
+        status: isPendingNow ? 'pending' : 'waiting',
+        // "Received on this approver's desk" — stamped when the step is active.
+        activated_at: isPendingNow ? new Date().toISOString() : null,
         due_at: dueAt,
         step_definition: stepDef, // Store the step config snapshot
+        ...delegationFields,
       });
     }
     
@@ -743,6 +769,11 @@ export class ApprovalEngine {
             { title: 'Request fully approved', senderId: approverId, sendEmail: false }
           );
 
+          // On-behalf: notify the principal exactly once — only now, on full
+          // approval. Throughout the flow the assistant (creator) got the
+          // progress updates; this is the principal's single notification.
+          await this.notifyOnBehalfPrincipalOnApproval(requestId, request, requestRef, requestType, approverId);
+
           // Travel-auth: prompt requester to optionally process a petty cash voucher.
           await this.maybeNotifyPettyCashCta(requestId, request, requestType);
 
@@ -758,6 +789,10 @@ export class ApprovalEngine {
 
           // CAPEX Tracker: flip status to awaiting funding. Safe for all types — hook guards internally.
           await onCapexApproved(requestId, approverId);
+
+          // Price Variation: if this was a variation raised against an approved
+          // CAPEX, stamp + notify the parent. No-op for other request types.
+          await this.linkPriceVariationToParent(requestId, request, approverId);
         }
 
         return { success: true, message: 'Request fully approved (parallel)' };
@@ -770,16 +805,37 @@ export class ApprovalEngine {
     // Get the next step
     const { data: nextStep } = await supabaseAdmin
       .from('request_steps')
-      .select('id, approver_user_id, status')
+      .select('id, approver_user_id, status, delegation_id')
       .eq('request_id', requestId)
       .eq('step_index', currentStep.step_index + 1)
       .single();
-    
+
     if (nextStep && nextStep.status === 'waiting') {
+      // Delegation: if an active delegation now covers the next approver,
+      // route this step to the delegate as it becomes actionable. Skip steps
+      // already stamped with a delegation (created during the window).
+      let nextApproverId = nextStep.approver_user_id;
+      // Stamp activated_at so the SLA clock + timeline measure time on THIS
+      // approver's desk (from now), not from when the request was first created.
+      const activation: Record<string, any> = { status: 'pending', activated_at: new Date().toISOString() };
+      if (nextApproverId && !nextStep.delegation_id) {
+        const delegation = await getActiveDelegateFor(nextApproverId, request?.organization_id);
+        if (delegation && delegation.delegate_id !== nextApproverId) {
+          activation.approver_user_id = delegation.delegate_id;
+          activation.is_redirected = true;
+          activation.original_approver_id = nextApproverId;
+          activation.redirected_by_id = delegation.created_by;
+          activation.redirected_at = new Date().toISOString();
+          activation.redirect_reason = delegation.reason;
+          activation.delegation_id = delegation.id;
+          nextApproverId = delegation.delegate_id;
+        }
+      }
+
       // Activate the next step - SEQUENTIAL APPROVAL
       await supabaseAdmin
         .from('request_steps')
-        .update({ status: 'pending' })
+        .update(activation)
         .eq('id', nextStep.id);
       
       // Update current_step in request metadata
@@ -801,7 +857,7 @@ export class ApprovalEngine {
           .eq('id', requestId);
       }
       
-      if (request && nextStep.approver_user_id) {
+      if (request && nextApproverId) {
         // Get total steps for the notification message
         const { count: totalSteps } = await supabaseAdmin
           .from('request_steps')
@@ -814,7 +870,7 @@ export class ApprovalEngine {
         // SEQUENTIAL NOTIFICATION: Notify the next approver only when their turn comes
         await this.notifyApprover(
           requestId,
-          nextStep.approver_user_id,
+          nextApproverId,
           request.organization_id,
           approverId,
           `Request "${request.title}" is ready for your approval${stepsInfo}`
@@ -824,7 +880,7 @@ export class ApprovalEngine {
         const { data: nextApprover } = await supabaseAdmin
           .from('app_users')
           .select('display_name, job_title')
-          .eq('id', nextStep.approver_user_id)
+          .eq('id', nextApproverId)
           .single();
         const nextApproverName = nextApprover?.display_name || 'the next approver';
         const nextApproverLabel = nextApprover?.job_title
@@ -875,6 +931,11 @@ export class ApprovalEngine {
           { title: 'Request fully approved', senderId: approverId, sendEmail: false }
         );
 
+        // On-behalf: notify the principal exactly once — only now, on full
+        // approval. Throughout the flow the assistant (creator) got the
+        // progress updates; this is the principal's single notification.
+        await this.notifyOnBehalfPrincipalOnApproval(requestId, request, requestRef, requestType, approverId);
+
         // Travel-auth: prompt requester to optionally process a petty cash voucher.
         await this.maybeNotifyPettyCashCta(requestId, request, requestType);
 
@@ -890,6 +951,10 @@ export class ApprovalEngine {
 
         // CAPEX Tracker: flip status to awaiting funding. Safe for all types — hook guards internally.
         await onCapexApproved(requestId, approverId);
+
+        // Price Variation: if this was a variation raised against an approved
+        // CAPEX, stamp + notify the parent. No-op for other request types.
+        await this.linkPriceVariationToParent(requestId, request, approverId);
       }
 
       return { success: true, message: 'Request fully approved' };
@@ -1042,7 +1107,10 @@ export class ApprovalEngine {
       return { success: false, error: 'Request not found' };
     }
 
-    if (request.creator_id !== userId) {
+    if (
+      request.creator_id !== userId &&
+      !(await assistantCanActOn(userId, (request as any).organization_id, request as any, 'can_edit'))
+    ) {
       return { success: false, error: 'Only the requester can resubmit this request' };
     }
 
@@ -1198,15 +1266,18 @@ export class ApprovalEngine {
     
     const { data: request } = await supabaseAdmin
       .from('requests')
-      .select('creator_id, status, workflow_definition_id')
+      .select('creator_id, status, workflow_definition_id, organization_id, metadata')
       .eq('id', requestId)
       .single();
-    
+
     if (!request) {
       return { success: false, error: 'Request not found' };
     }
-    
-    if (request.creator_id !== userId) {
+
+    if (
+      request.creator_id !== userId &&
+      !(await assistantCanActOn(userId, (request as any).organization_id, request as any, 'can_withdraw'))
+    ) {
       return { success: false, error: 'Only the requester can withdraw' };
     }
     
@@ -1226,10 +1297,122 @@ export class ApprovalEngine {
       .from('requests')
       .update({ status: 'withdrawn' })
       .eq('id', requestId);
-    
+
     return { success: true };
   }
-  
+
+  /**
+   * Unsubmit a pending request back to an editable draft.
+   *
+   * Unlike `withdraw` (terminal), this pulls a request out of the approval
+   * queue so the requester can amend and resubmit it — but ONLY while no
+   * approver has acted yet. The steps are cleared (they're rebuilt from the
+   * possibly-amended approvers when the draft is published again) and any
+   * approver who was waiting on it is told it was pulled back.
+   */
+  static async unsubmitRequest(
+    requestId: string,
+    userId: string
+  ): Promise<{ success: boolean; error?: string }> {
+
+    const { data: request } = await supabaseAdmin
+      .from('requests')
+      .select('creator_id, status, organization_id, title, metadata, request_steps(status, approver_user_id)')
+      .eq('id', requestId)
+      .single();
+
+    if (!request) {
+      return { success: false, error: 'Request not found' };
+    }
+
+    if (
+      request.creator_id !== userId &&
+      !(await assistantCanActOn(userId, (request as any).organization_id, request as any, 'can_withdraw'))
+    ) {
+      return { success: false, error: 'Only the requester can unsubmit this request' };
+    }
+
+    if (request.status === 'draft') {
+      return { success: false, error: 'This request is already an editable draft' };
+    }
+
+    // Pending → unsubmit (pull back to edit); Cancelled → revive (reopen).
+    const isRevive = request.status === 'cancelled';
+    if (request.status !== 'pending' && !isRevive) {
+      return { success: false, error: 'Only pending or cancelled requests can be reopened' };
+    }
+
+    const steps = (request.request_steps as any[]) || [];
+    if (isRevive) {
+      // Don't reopen something that had already been fully approved before it was cancelled.
+      const prevStatus = (request.metadata as any)?.cancellation?.previousStatus;
+      const fullyApproved = steps.length > 0 && steps.every((s) => s.status === 'approved');
+      if (prevStatus === 'approved' || fullyApproved) {
+        return { success: false, error: 'This request was already approved before it was cancelled and cannot be reopened.' };
+      }
+    } else {
+      const anyReviewed = steps.some((s) => s.status === 'approved' || s.status === 'rejected');
+      if (anyReviewed) {
+        return {
+          success: false,
+          error: 'An approver has already reviewed this request, so it can no longer be unsubmitted. Use Cancel instead.',
+        };
+      }
+    }
+
+    // Who was waiting on this so we can tell them it's been pulled back.
+    const pendingApproverIds = Array.from(
+      new Set(
+        steps
+          .filter((s) => (s.status === 'pending' || s.status === 'waiting') && s.approver_user_id)
+          .map((s) => s.approver_user_id as string)
+      )
+    );
+
+    // Clear the steps — they're rebuilt from the (possibly amended) approvers on republish.
+    const { error: delError } = await supabaseAdmin
+      .from('request_steps')
+      .delete()
+      .eq('request_id', requestId);
+    if (delError) {
+      console.error('Failed to clear steps on unsubmit:', delError);
+      return { success: false, error: 'Failed to unsubmit request' };
+    }
+
+    const metadata: Record<string, any> = { ...(request.metadata || {}) };
+    if (isRevive) {
+      metadata.revivedAt = new Date().toISOString();
+      delete metadata.cancellation; // reopened — no longer cancelled
+    } else {
+      metadata.unsubmittedAt = new Date().toISOString();
+    }
+    delete metadata.current_step;
+    delete metadata.total_steps;
+
+    const { error: updateError } = await supabaseAdmin
+      .from('requests')
+      .update({ status: 'draft', metadata, updated_at: new Date().toISOString() })
+      .eq('id', requestId);
+    if (updateError) {
+      console.error('Failed to unsubmit request:', updateError);
+      return { success: false, error: 'Failed to reopen request' };
+    }
+
+    const requestRef = (metadata as any)?.referenceCode || request.title || 'a request';
+    const note = isRevive
+      ? `The requester reopened ${requestRef} to amend and resubmit it.`
+      : `The requester pulled back ${requestRef} to amend it. No action is needed for now — you'll be re-notified if it's resubmitted.`;
+    for (const approverId of pendingApproverIds) {
+      try {
+        await this.notifyApprover(requestId, approverId, request.organization_id, userId, note);
+      } catch (e) {
+        console.error('Failed to notify approver on reopen:', e);
+      }
+    }
+
+    return { success: true };
+  }
+
 
   /**
    * Cancel a request with a mandatory reason.
@@ -1292,6 +1475,18 @@ export class ApprovalEngine {
     if (updateError) {
       console.error('Failed to cancel request:', updateError);
       return { success: false, error: 'Failed to cancel request' };
+    }
+
+    // Take any still-active steps out of the flow so no stale "current approver"
+    // lingers on the timeline / reminder queue for a cancelled request.
+    try {
+      await supabaseAdmin
+        .from('request_steps')
+        .update({ status: 'skipped' })
+        .eq('request_id', requestId)
+        .in('status', ['pending', 'waiting']);
+    } catch (e) {
+      console.error('Failed to skip steps on cancel:', e);
     }
 
     // Take the CAPEX tracker row out of the active pipeline (no-op otherwise).
@@ -1372,6 +1567,19 @@ export class ApprovalEngine {
       console.error('Failed to notify approver:', error);
     }
 
+    // Copy the task to the approver's notification-managing assistants.
+    await fanoutToNotificationAssistants(approverId, organizationId, {
+      type: 'task',
+      title: 'Approval Required',
+      message,
+      senderId,
+      metadata: {
+        request_id: requestId,
+        action_label: 'Review Request',
+        action_url: `/requests/${requestId}`,
+      },
+    });
+
     // Mirror the in-app task by email (gated by the approver's preferences).
     await sendUserNotificationEmail({
       userId: approverId,
@@ -1440,6 +1648,19 @@ export class ApprovalEngine {
       console.error('Failed to notify requester:', error);
     }
 
+    // Copy the update to the requester's notification-managing assistants.
+    await fanoutToNotificationAssistants(requesterId, organizationId, {
+      type: 'info',
+      title: options?.title || 'Request Update',
+      message,
+      senderId: options?.senderId || null,
+      metadata: {
+        request_id: requestId,
+        action_label: options?.actionLabel || 'View Request',
+        action_url: actionUrl,
+      },
+    });
+
     if (options?.sendEmail !== false) {
       await sendUserNotificationEmail({
         userId: requesterId,
@@ -1451,6 +1672,62 @@ export class ApprovalEngine {
         actionLabel: options?.actionLabel || 'View Request',
       });
     }
+  }
+
+  /**
+   * On-behalf-of principal notification, fired once on full approval.
+   *
+   * When a request was filed on someone's behalf (an assistant filing for an
+   * executive), the assistant is the creator_id and receives every progress
+   * update. The principal, however, should hear about it only once — when the
+   * request is fully approved. This inserts that single notification (and a
+   * matching email). No-op when the request isn't on-behalf-of anyone, or when
+   * the beneficiary happens to be the filer.
+   */
+  private static async notifyOnBehalfPrincipalOnApproval(
+    requestId: string,
+    request: { creator_id: string; organization_id: string; metadata?: any },
+    requestRef: string,
+    requestType?: string,
+    approverId?: string | null
+  ): Promise<void> {
+    const principalId = request.metadata?.onBehalfOf?.userId;
+    if (!principalId || principalId === request.creator_id) return;
+
+    const isComplimentaryRequest = requestType === 'hotel_booking' || requestType === 'voucher_request';
+    const actionUrl = isComplimentaryRequest ? `/requests/comp/${requestId}` : `/requests/${requestId}`;
+    const message = `A request filed on your behalf, ${requestRef}, has been fully approved. The approved document is available to preview and download.`;
+
+    try {
+      await supabaseAdmin
+        .from('notifications')
+        .insert({
+          organization_id: request.organization_id,
+          recipient_id: principalId,
+          sender_id: approverId || null,
+          type: 'info',
+          title: 'Request approved on your behalf',
+          message,
+          metadata: {
+            request_id: requestId,
+            action_label: 'View Request',
+            action_url: actionUrl,
+          },
+          is_read: false,
+        });
+    } catch (error) {
+      console.error('Failed to notify on-behalf principal:', error);
+    }
+
+    await sendUserNotificationEmail({
+      userId: principalId,
+      kind: 'request_updates',
+      subject: 'A request filed on your behalf was approved — The Circle',
+      heading: 'Request approved on your behalf',
+      bodyHtml: `<p>${escapeHtml(message)}</p>`,
+      actionUrl,
+      actionLabel: 'View Request',
+    });
   }
 
   /**
@@ -1524,6 +1801,96 @@ export class ApprovalEngine {
         });
     } catch (error) {
       console.error('Failed to send petty cash CTA notification:', error);
+    }
+  }
+
+  /**
+   * Hook fired when a Price Variation request reaches fully-approved.
+   *
+   * A price variation is raised against an already-approved CAPEX (see
+   * pages/requests/new/price-variation.tsx). Once fully signed off we stamp the
+   * parent CAPEX's metadata with a `priceVariations` entry — so anyone opening
+   * the CAPEX can see a pricing variation exists — and notify the CAPEX
+   * creator, its approvers and its watchers.
+   *
+   * No-op for any other request type. Fully guarded; a failure here must never
+   * affect the approval outcome.
+   */
+  private static async linkPriceVariationToParent(
+    variationRequestId: string,
+    request: { creator_id: string; organization_id: string; title: string; metadata?: any },
+    approverId: string
+  ): Promise<void> {
+    const type = request.metadata?.type || request.metadata?.requestType;
+    if (type !== 'price-variation') return;
+
+    const parentId = request.metadata?.parentRequestId;
+    if (!parentId) return;
+
+    try {
+      const { data: parent } = await supabaseAdmin
+        .from('requests')
+        .select('id, creator_id, organization_id, title, metadata, request_steps(approver_user_id)')
+        .eq('id', parentId)
+        .single();
+      if (!parent) return;
+
+      const existing = Array.isArray(parent.metadata?.priceVariations) ? parent.metadata.priceVariations : [];
+      // Idempotent: don't double-record if the hook runs twice.
+      if (existing.some((v: any) => v.id === variationRequestId)) return;
+
+      const updatedVariations = [
+        ...existing,
+        {
+          id: variationRequestId,
+          amount: request.metadata?.amount ?? null,
+          variance: request.metadata?.variance ?? null,
+          supplierName: request.metadata?.supplierName ?? null,
+          approvedAt: new Date().toISOString(),
+        },
+      ];
+
+      await supabaseAdmin
+        .from('requests')
+        .update({ metadata: { ...parent.metadata, priceVariations: updatedVariations } })
+        .eq('id', parentId);
+
+      // Notify everyone attached to the parent CAPEX: creator, approvers, watchers.
+      const recipientIds = new Set<string>();
+      if (parent.creator_id) recipientIds.add(parent.creator_id);
+      for (const step of (parent.request_steps as any[] | undefined) || []) {
+        if (step.approver_user_id) recipientIds.add(step.approver_user_id);
+      }
+      const watchers = Array.isArray(parent.metadata?.watchers) ? parent.metadata.watchers : [];
+      for (const w of watchers) {
+        const id = typeof w === 'string' ? w : w?.id;
+        if (id) recipientIds.add(id);
+      }
+
+      const message = `A price variation has been approved for "${parent.title}". Open the CAPEX request to review the pricing variation.`;
+      for (const recipientId of recipientIds) {
+        try {
+          await supabaseAdmin.from('notifications').insert({
+            organization_id: parent.organization_id,
+            recipient_id: recipientId,
+            sender_id: approverId || null,
+            type: 'info',
+            title: 'Price variation recorded',
+            message,
+            metadata: {
+              request_id: parentId,
+              action_label: 'View CAPEX',
+              action_url: `/requests/${parentId}`,
+              variation_request_id: variationRequestId,
+            },
+            is_read: false,
+          });
+        } catch (err) {
+          console.error('Failed to notify recipient about price variation:', err);
+        }
+      }
+    } catch (error) {
+      console.error('linkPriceVariationToParent failed:', error);
     }
   }
 

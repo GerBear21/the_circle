@@ -4,6 +4,42 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---------------------------------------------------------------------------
+ * App loader (three bouncing balls). Defined in global CSS + inline styles so
+ * it is SSR-safe (no runtime class-name hashing / hydration mismatch). The
+ * animation is authored at the native 200x60 design and scaled by the Loader
+ * component via transform.
+ * ------------------------------------------------------------------------- */
+@keyframes loader-bounce {
+  0% {
+    top: 60px;
+    height: 5px;
+    border-radius: 50px 50px 25px 25px;
+    transform: scaleX(1.7);
+  }
+  40% {
+    height: 20px;
+    border-radius: 50%;
+    transform: scaleX(1);
+  }
+  100% {
+    top: 0%;
+  }
+}
+@keyframes loader-shadow {
+  0% {
+    transform: scaleX(1.5);
+  }
+  40% {
+    transform: scaleX(1);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scaleX(0.2);
+    opacity: 0.4;
+  }
+}
+
 /* Safe area insets for notched devices */
 @supports (padding: max(0px)) {
   .pb-safe {

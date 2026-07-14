@@ -8,6 +8,9 @@ import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import { useUnsavedChangesPrompt, useFormAutosave } from '../../../hooks';
 import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
 import { calculateTollgatesForItinerary, getTollgateRouteInfo, TollgateRouteType } from '../../../lib/formConfig';
+import { OnBehalfOfField, type OnBehalfOf } from '../../../components/requests/OnBehalfOfField';
+import { AssociatesField, type Associate } from '../../../components/requests/AssociatesField';
+import { SupportingDocuments, uploadSupportingDocuments, makeSupportingDoc, type SupportingDoc } from '../../../components/requests/SupportingDocuments';
 
 interface SelectedBusinessUnit {
     instanceId: string; // Unique ID for each booking instance (allows same hotel multiple times)
@@ -38,12 +41,16 @@ interface TollgateEntry {
     totalCost: string;
 }
 
-// AA Rate table based on engine capacity and fuel type (USD per km)
-const AA_RATES: Record<string, { petrol: number; diesel: number }> = {
-    '1.1L-1.5L': { petrol: 0.28, diesel: 0.26 },
-    '1.6L-2.0L': { petrol: 0.35, diesel: 0.32 },
-    '2.1L-3.0L': { petrol: 0.48, diesel: 0.45 },
-    'Above 3.0L': { petrol: 0.59, diesel: 0.56 },
+// AA Rate table based on engine capacity and fuel type (USD per km).
+// Defaults mirror the AA Zimbabwe "Estimated Vehicle Operating Costs" schedule
+// (wet rate). Administrators can override these in Admin → Financial Rates; the
+// live values are loaded from /api/settings/rates at runtime.
+type AARateTable = Record<string, { petrol: number; diesel: number }>;
+const AA_RATES_DEFAULTS: AARateTable = {
+    '1.1L-1.5L': { petrol: 0.32, diesel: 0.30 },
+    '1.6L-2.0L': { petrol: 0.40, diesel: 0.36 },
+    '2.1L-3.0L': { petrol: 0.54, diesel: 0.50 },
+    'Above 3.0L': { petrol: 0.66, diesel: 0.62 },
 };
 
 interface CostAllocation {
@@ -137,7 +144,7 @@ export default function HotelBookingPage() {
     const approvalRoles = [
         { key: 'line_manager', label: 'Line Manager', description: 'Recommendation' },
         { key: 'functional_head', label: 'Functional Head', description: 'Functional Approval' },
-        { key: 'hrd', label: 'HR Director', description: 'HR Director Approval' },
+        { key: 'hrd', label: 'Chief Human Capital Officer', description: 'Human Capital Approval' },
         { key: 'ceo', label: 'CEO', description: 'Authorisation' },
     ];
     const [users, setUsers] = useState<Array<{ id: string; display_name: string; email: string; job_title?: string }>>([]);
@@ -148,6 +155,18 @@ export default function HotelBookingPage() {
         hrd: '',
         ceo: '',
     });
+    const [onBehalfOf, setOnBehalfOf] = useState<OnBehalfOf | null>(null);
+    // Accompanying associates: directory picks carry an id (→ request watchers);
+    // non-RTG guests are free-text only. `formData.guestNames` is kept in sync as
+    // the joined display string used in the title/metadata/preview.
+    const [associates, setAssociates] = useState<Associate[]>([]);
+    // Supporting documents attached to the travel authorization section.
+    const [travelSupportingDocs, setTravelSupportingDocs] = useState<SupportingDoc[]>([]);
+    const associateWatcherIds = associates.map((a) => a.id).filter((id): id is string => !!id);
+    const handleAssociatesChange = (next: Associate[]) => {
+        setAssociates(next);
+        setFormData((prev) => ({ ...prev, guestNames: next.map((a) => a.name).join(', ') }));
+    };
     const [approverSearch, setApproverSearch] = useState<Record<string, string>>({
         line_manager: '',
         functional_head: '',
@@ -164,9 +183,28 @@ export default function HotelBookingPage() {
         fuelType: 'petrol',
     });
 
+    // Live AA rate table — starts from the AA Zimbabwe defaults and is replaced
+    // with any admin overrides configured in Admin → Financial Rates.
+    const [aaRates, setAaRates] = useState<AARateTable>(AA_RATES_DEFAULTS);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetch('/api/settings/rates');
+                if (!res.ok) return;
+                const data = await res.json();
+                if (!cancelled && data?.aa) setAaRates((prev) => ({ ...prev, ...data.aa }));
+            } catch {
+                // Keep defaults on failure.
+            }
+        })();
+        return () => { cancelled = true; };
+    }, []);
+
     // Get AA Rate based on engine capacity and fuel type
     const getAARate = (): number => {
-        const rates = AA_RATES[aaCalculator.engineCapacity];
+        const rates = aaRates[aaCalculator.engineCapacity];
         if (!rates) return 0;
         return rates[aaCalculator.fuelType];
     };
@@ -475,6 +513,39 @@ export default function HotelBookingPage() {
                     processTravelDocument: metadata.processTravelDocument || false,
                 });
 
+                // Restore associates: prefer the structured list, else split the
+                // legacy joined guestNames string into free-text guests.
+                if (Array.isArray(metadata.associates) && metadata.associates.length > 0) {
+                    setAssociates(metadata.associates);
+                } else if (metadata.guestNames) {
+                    setAssociates(
+                        String(metadata.guestNames)
+                            .split(/[,\n]/)
+                            .map((s: string) => s.trim())
+                            .filter(Boolean)
+                            .map((name: string) => ({ name }))
+                    );
+                }
+
+                // Load any existing supporting documents so they appear in the
+                // travel section (and aren't re-uploaded).
+                try {
+                    const docRes = await fetch(`/api/requests/${editRequestId}/documents`);
+                    if (docRes.ok) {
+                        const docData = await docRes.json();
+                        const docs = (docData.documents || []).map((d: any) =>
+                            makeSupportingDoc({
+                                label: d.label || '',
+                                description: d.description || '',
+                                existing: { id: d.id, filename: d.filename, download_url: d.download_url },
+                            })
+                        );
+                        if (docs.length > 0) setTravelSupportingDocs(docs);
+                    }
+                } catch {
+                    // Non-fatal — start with an empty documents list.
+                }
+
                 // Set business units
                 if (metadata.selectedBusinessUnits && Array.isArray(metadata.selectedBusinessUnits)) {
                     setSelectedBusinessUnits(metadata.selectedBusinessUnits);
@@ -730,6 +801,8 @@ export default function HotelBookingPage() {
                         type: 'hotel_booking',
                         referenceCode: existingReferenceCode || referenceCode || undefined,
                         guestNames: formData.guestNames,
+                        associates: associates,
+                        watchers: associateWatcherIds,
                         isExternalGuest: formData.isExternalGuest,
                         selectedBusinessUnits: selectedBusinessUnits,
                         allocationType: formData.allocationType,
@@ -743,6 +816,7 @@ export default function HotelBookingPage() {
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
                         useParallelApprovals: false,
+                        onBehalfOf: onBehalfOf || null,
                     },
                 }),
             });
@@ -759,6 +833,10 @@ export default function HotelBookingPage() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ fieldChanges }),
                 });
+            }
+
+            if (formData.processTravelDocument) {
+                await uploadSupportingDocuments(String(editRequestId), travelSupportingDocs);
             }
 
             router.push(`/requests/${editRequestId}`);
@@ -787,6 +865,8 @@ export default function HotelBookingPage() {
                         type: 'hotel_booking',
                         referenceCode: existingReferenceCode || referenceCode || undefined,
                         guestNames: formData.guestNames,
+                        associates: associates,
+                        watchers: associateWatcherIds,
                         isExternalGuest: formData.isExternalGuest,
                         selectedBusinessUnits: selectedBusinessUnits,
                         allocationType: formData.allocationType,
@@ -800,6 +880,7 @@ export default function HotelBookingPage() {
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
                         useParallelApprovals: false,
+                        onBehalfOf: onBehalfOf || null,
                     },
                 }),
             });
@@ -807,6 +888,10 @@ export default function HotelBookingPage() {
             if (!response.ok) {
                 const errorData = await response.json();
                 throw new Error(errorData.error || 'Failed to save draft');
+            }
+
+            if (formData.processTravelDocument) {
+                await uploadSupportingDocuments(String(editRequestId), travelSupportingDocs);
             }
 
             router.push(`/requests/${editRequestId}`);
@@ -1370,6 +1455,8 @@ export default function HotelBookingPage() {
                     metadata: {
                         referenceCode: existingReferenceCode || referenceCode || undefined,
                         guestNames: formData.guestNames,
+                        associates: associates,
+                        watchers: associateWatcherIds,
                         isExternalGuest: formData.isExternalGuest,
                         selectedBusinessUnits: selectedBusinessUnits,
                         allocationType: formData.allocationType,
@@ -1385,6 +1472,7 @@ export default function HotelBookingPage() {
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
                         useParallelApprovals: false,
+                        onBehalfOf: onBehalfOf || null,
                     },
                 }),
             });
@@ -1393,6 +1481,10 @@ export default function HotelBookingPage() {
 
             if (!response.ok) {
                 throw new Error(data.error || 'Failed to create hotel booking request');
+            }
+
+            if (formData.processTravelDocument) {
+                await uploadSupportingDocuments(data.request.id, travelSupportingDocs);
             }
 
             router.push(`/requests/comp/${data.request.id}`);
@@ -1431,6 +1523,8 @@ export default function HotelBookingPage() {
                     metadata: {
                         referenceCode: existingReferenceCode || referenceCode || undefined,
                         guestNames: formData.guestNames,
+                        associates: associates,
+                        watchers: associateWatcherIds,
                         isExternalGuest: formData.isExternalGuest,
                         selectedBusinessUnits: selectedBusinessUnits,
                         allocationType: formData.allocationType,
@@ -1446,6 +1540,7 @@ export default function HotelBookingPage() {
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
                         useParallelApprovals: false,
+                        onBehalfOf: onBehalfOf || null,
                     },
                 }),
             });
@@ -1454,6 +1549,10 @@ export default function HotelBookingPage() {
 
             if (!response.ok) {
                 throw new Error(data.error || 'Failed to save draft');
+            }
+
+            if (formData.processTravelDocument) {
+                await uploadSupportingDocuments(data.request.id, travelSupportingDocs);
             }
 
             router.push(`/requests/comp/${data.request.id}`);
@@ -1509,6 +1608,11 @@ export default function HotelBookingPage() {
                 )}
 
                 <div className="space-y-6">
+                    {/* Filing on behalf of — shown at the top; only assigned assistants see it */}
+                    <Card className="p-6">
+                        <OnBehalfOfField value={onBehalfOf} onChange={setOnBehalfOf} />
+                    </Card>
+
                     {/* Requestor Information Section */}
                     <Card className="p-6">
                         <h3 className="text-sm font-semibold text-gray-700 mb-4 uppercase border-b pb-2">Requestor Information</h3>
@@ -1543,16 +1647,7 @@ export default function HotelBookingPage() {
                     {/* Guest Section */}
                     <Card className="p-6">
                         <div className="space-y-6">
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-1 uppercase">Accompanying Associate(s)</label>
-                                <textarea
-                                    className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all resize-none min-h-[80px]"
-                                    placeholder="Enter full names of all accompanying associates"
-                                    value={formData.guestNames}
-                                    onChange={(e) => setFormData({ ...formData, guestNames: e.target.value })}
-                                    required
-                                />
-                            </div>
+                            <AssociatesField value={associates} onChange={handleAssociatesChange} />
                         </div>
                     </Card>
 
@@ -2170,26 +2265,18 @@ export default function HotelBookingPage() {
                                                             </tr>
                                                         </thead>
                                                         <tbody>
-                                                            <tr className={`border-b border-gray-100 ${aaCalculator.engineCapacity === '1.1L-1.5L' ? 'bg-[#F3EADC]' : ''}`}>
-                                                                <td className="py-1 px-2">1.1L – 1.5L</td>
-                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.1L-1.5L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-[#5E4426]' : ''}`}>0.28</td>
-                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.1L-1.5L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-[#5E4426]' : ''}`}>0.26</td>
-                                                            </tr>
-                                                            <tr className={`border-b border-gray-100 ${aaCalculator.engineCapacity === '1.6L-2.0L' ? 'bg-[#F3EADC]' : ''}`}>
-                                                                <td className="py-1 px-2">1.6L – 2.0L</td>
-                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.6L-2.0L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-[#5E4426]' : ''}`}>0.35</td>
-                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '1.6L-2.0L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-[#5E4426]' : ''}`}>0.32</td>
-                                                            </tr>
-                                                            <tr className={`border-b border-gray-100 ${aaCalculator.engineCapacity === '2.1L-3.0L' ? 'bg-[#F3EADC]' : ''}`}>
-                                                                <td className="py-1 px-2">2.1L – 3.0L</td>
-                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '2.1L-3.0L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-[#5E4426]' : ''}`}>0.48</td>
-                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === '2.1L-3.0L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-[#5E4426]' : ''}`}>0.45</td>
-                                                            </tr>
-                                                            <tr className={`${aaCalculator.engineCapacity === 'Above 3.0L' ? 'bg-[#F3EADC]' : ''}`}>
-                                                                <td className="py-1 px-2">Above 3.0L</td>
-                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === 'Above 3.0L' && aaCalculator.fuelType === 'petrol' ? 'font-bold text-[#5E4426]' : ''}`}>0.59</td>
-                                                                <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === 'Above 3.0L' && aaCalculator.fuelType === 'diesel' ? 'font-bold text-[#5E4426]' : ''}`}>0.56</td>
-                                                            </tr>
+                                                            {([
+                                                                ['1.1L-1.5L', '1.1L – 1.5L'],
+                                                                ['1.6L-2.0L', '1.6L – 2.0L'],
+                                                                ['2.1L-3.0L', '2.1L – 3.0L'],
+                                                                ['Above 3.0L', 'Above 3.0L'],
+                                                            ] as const).map(([key, label], idx, arr) => (
+                                                                <tr key={key} className={`${idx < arr.length - 1 ? 'border-b border-gray-100 ' : ''}${aaCalculator.engineCapacity === key ? 'bg-[#F3EADC]' : ''}`}>
+                                                                    <td className="py-1 px-2">{label}</td>
+                                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === key && aaCalculator.fuelType === 'petrol' ? 'font-bold text-[#5E4426]' : ''}`}>{(aaRates[key]?.petrol ?? 0).toFixed(2)}</td>
+                                                                    <td className={`text-center py-1 px-2 ${aaCalculator.engineCapacity === key && aaCalculator.fuelType === 'diesel' ? 'font-bold text-[#5E4426]' : ''}`}>{(aaRates[key]?.diesel ?? 0).toFixed(2)}</td>
+                                                                </tr>
+                                                            ))}
                                                         </tbody>
                                                     </table>
                                                 </div>
@@ -2500,6 +2587,15 @@ export default function HotelBookingPage() {
                                         <p className="text-xs text-gray-500">
                                             The HR Director will allocate the cost across business units when approving this request.
                                         </p>
+                                    </div>
+
+                                    {/* Supporting documents for the travel authorization */}
+                                    <div className="mt-6 pt-6 border-t border-gray-200">
+                                        <SupportingDocuments
+                                            documents={travelSupportingDocs}
+                                            onChange={setTravelSupportingDocs}
+                                            helpText="Attach any supporting documents for this travel authorization (e.g. invitations, quotations, itineraries). Give each a short label and description."
+                                        />
                                     </div>
                                 </div>
                             </div>
