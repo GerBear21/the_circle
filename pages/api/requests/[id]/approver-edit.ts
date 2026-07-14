@@ -130,14 +130,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             updatedMetadata[fieldName] = newValue;
           }
 
-          // Record the modification
+          // Record the modification. Object values (e.g. the travel budget) are
+          // stored as-is in metadata above, but recorded as JSON here so the
+          // timeline shows something meaningful instead of "[object Object]".
+          const asRecord = (v: any) =>
+            v === undefined || v === null
+              ? null
+              : typeof v === 'object'
+              ? JSON.stringify(v)
+              : String(v);
+
           modifications.push({
             request_id: requestId,
             modified_by: userId,
             modification_type: 'field_edit',
             field_name: fieldName,
-            old_value: oldValue !== undefined ? String(oldValue) : null,
-            new_value: newValue !== undefined ? String(newValue) : null,
+            old_value: asRecord(oldValue),
+            new_value: asRecord(newValue),
           });
         }
       }

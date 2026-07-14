@@ -14,6 +14,7 @@ import type { PreviewSection, DocumentHeader } from '../../../components/ui';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import { useUnsavedChangesPrompt, useFormAutosave } from '../../../hooks';
 import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
+import { OnBehalfOfField, type OnBehalfOf } from '../../../components/requests/OnBehalfOfField';
 
 const CURRENCY_OPTIONS = ['USD', 'ZWG'];
 
@@ -104,6 +105,7 @@ export default function JournalEntryPage() {
     const [showApproverDropdown, setShowApproverDropdown] = useState<string | null>(null);
 
     const [selectedWatchers, setSelectedWatchers] = useState<Array<{ id: string; display_name: string; email: string }>>([]);
+    const [onBehalfOf, setOnBehalfOf] = useState<OnBehalfOf | null>(null);
     const [watcherSearch, setWatcherSearch] = useState('');
     const [showWatcherDropdown, setShowWatcherDropdown] = useState(false);
 
@@ -313,6 +315,7 @@ export default function JournalEntryPage() {
         ].filter(Boolean),
         approverRoles: selectedApprovers,
         useParallelApprovals: false,
+        onBehalfOf: onBehalfOf || null,
         watchers: selectedWatchers,
     });
 
@@ -661,6 +664,11 @@ export default function JournalEntryPage() {
                 )}
 
                 <div className="space-y-6">
+                    {/* Filing on behalf of — shown at the top; only assigned assistants see it */}
+                    <Card className="p-6">
+                        <OnBehalfOfField value={onBehalfOf} onChange={setOnBehalfOf} />
+                    </Card>
+
                     {/* Requestor Information */}
                     <Card className="p-6">
                         <h3 className="text-sm font-semibold text-gray-700 mb-4 uppercase border-b pb-2">Requestor Information</h3>

@@ -4,6 +4,7 @@ import { authOptions } from '../../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { createCapexTrackerRow } from '@/lib/capexTrackerHooks';
 import { getRequestTypeLabel } from '@/lib/requestCode';
+import { buildAndNotifySteps } from '@/lib/requestSteps';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -52,40 +53,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'Only draft requests can be published' });
     }
 
-    // Get approvers from metadata - handle both array and object formats
-    let approverIds: string[] = [];
-    const approversData = request.metadata?.approvers;
-    
-    if (Array.isArray(approversData)) {
-      // Format: ['user-id-1', 'user-id-2', ...]
-      approverIds = approversData.filter(Boolean);
-    } else if (approversData && typeof approversData === 'object') {
-      // Format: { hod: 'user-id', hr_director: 'user-id', ... }
-      approverIds = Object.values(approversData).filter(Boolean) as string[];
-    }
+    // Build steps + notify the relevant approver(s). Single source of truth,
+    // shared with POST /api/requests. Runs BEFORE the status flips so a failure
+    // leaves the request as an editable draft.
+    const stepResult = await buildAndNotifySteps({
+      requestId: id,
+      organizationId,
+      creatorId: userId,
+      title: request.title,
+      metadata: request.metadata || {},
+      requestType: request.metadata?.requestType || request.metadata?.type,
+    });
 
-    if (approverIds.length === 0) {
-      return res.status(400).json({ error: 'No approvers assigned. Please add approvers before publishing.' });
-    }
-
-    // Create request_steps for each approver
-    // SEQUENTIAL APPROVAL: Only first step is 'pending', rest are 'waiting'
-    const requestSteps = approverIds.map((approverId, index) => ({
-      request_id: id,
-      step_index: index + 1,
-      step_type: 'approval',
-      approver_role: `Approver ${index + 1}`,
-      approver_user_id: approverId,
-      status: index === 0 ? 'pending' : 'waiting',
-    }));
-
-    const { error: stepsError } = await supabaseAdmin
-      .from('request_steps')
-      .insert(requestSteps);
-
-    if (stepsError) {
-      console.error('Error creating request steps:', stepsError);
-      throw stepsError;
+    if (!stepResult.success) {
+      return res.status(400).json({ error: stepResult.error });
     }
 
     // Update request status to pending
@@ -127,30 +108,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const requestTypeLabel = getRequestTypeLabel(requestType);
     const requestTitle = request.title;
 
-    // Notify the first approver
-    if (approverIds.length > 0) {
-      try {
-        await supabaseAdmin
-          .from('notifications')
-          .insert({
-            organization_id: organizationId,
-            recipient_id: approverIds[0],
-            sender_id: userId,
-            type: 'task',
-            title: 'New Approval Request',
-            message: `${requesterName} has submitted a ${requestTypeLabel} request "${requestTitle}" for your approval.`,
-            metadata: {
-              request_id: id,
-              request_type: requestType,
-              action_label: 'Review Request',
-              action_url: `/requests/comp/${id}`,
-            },
-            is_read: false,
-          });
-      } catch (notifError) {
-        console.error('Failed to create approver notification:', notifError);
-      }
-    }
+    // (First-approver notification is handled by buildAndNotifySteps above.)
 
     // Notify watchers if any
     const watcherIds: string[] = request.metadata?.watchers || [];

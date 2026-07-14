@@ -2,6 +2,9 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
+import { audit } from '../../../../lib/auditLog';
+import { isPermanentWatcherOf } from '../../../../lib/permanentWatchers';
+import { assistantCanActOn } from '../../../../lib/assistantAssignments';
 import formidable from 'formidable';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -56,27 +59,44 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(404).json({ error: 'Request not found' });
     }
 
-    // SEQUENTIAL APPROVAL VISIBILITY CHECK
+    // Relationship checks. Viewing keeps the sequential model (an approver can't
+    // peek before their turn); permanent watchers get read-only view. Uploading
+    // is allowed for anyone in the request's scope — the creator, ANY approver on
+    // the chain (even before their turn), or a per-request watcher — but NOT a
+    // permanent watcher (read-only) or an unrelated user.
     const isCreator = request.creator_id === userId;
-    
+
     const watcherIds = request.metadata?.watchers || [];
-    const isWatcher = Array.isArray(watcherIds) && watcherIds.some((w: any) => 
+    const isWatcher = Array.isArray(watcherIds) && watcherIds.some((w: any) =>
       typeof w === 'string' ? w === userId : w?.id === userId
     );
-    
+
     const userStep = request.request_steps?.find(
       (step: any) => step.approver_user_id === userId
     );
     const canApproverView = userStep && userStep.status !== 'waiting';
-    
-    if (!isCreator && !isWatcher && !canApproverView) {
+
+    const isPermanentWatcher = await isPermanentWatcherOf(userId, organizationId, request as any);
+
+    // An assistant with the `can_upload` capability for this request's creator
+    // or on-behalf principal may also attach documents.
+    const isUploadAssistant =
+      !isCreator && (await assistantCanActOn(userId, organizationId, request as any, 'can_upload'));
+
+    const canView = isCreator || isWatcher || canApproverView || isPermanentWatcher || isUploadAssistant;
+    const canUpload = isCreator || isWatcher || !!userStep || isUploadAssistant; // any approver + upload-assistant, not permanent watchers
+
+    if (req.method === 'GET' && !canView) {
       if (userStep && userStep.status === 'waiting') {
-        return res.status(403).json({ 
+        return res.status(403).json({
           error: 'This request is not yet ready for your review.',
-          code: 'APPROVAL_NOT_YOUR_TURN'
+          code: 'APPROVAL_NOT_YOUR_TURN',
         });
       }
       return res.status(403).json({ error: 'You do not have permission to access this request' });
+    }
+    if ((req.method === 'POST' || req.method === 'DELETE') && !canUpload) {
+      return res.status(403).json({ error: 'You do not have permission to change this request\'s documents' });
     }
 
     if (req.method === 'GET') {
@@ -92,9 +112,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(200).json({ documents: [] });
       }
 
+      // Resolve uploader display names in one query (avoids FK-embed fragility).
+      const uploaderIds = Array.from(
+        new Set((documents || []).map((d: any) => d.uploaded_by).filter(Boolean))
+      );
+      const uploaderMap: Record<string, { id: string; display_name: string; email: string }> = {};
+      if (uploaderIds.length > 0) {
+        const { data: uploaders } = await supabaseAdmin
+          .from('app_users')
+          .select('id, display_name, email')
+          .in('id', uploaderIds);
+        for (const u of uploaders || []) uploaderMap[u.id] = u as any;
+      }
+
       // Generate signed URLs for each document
       const documentsWithUrls = await Promise.all(
         (documents || []).map(async (doc) => {
+          const uploader = doc.uploaded_by ? uploaderMap[doc.uploaded_by] || null : null;
           try {
             const { data: signedUrl } = await supabaseAdmin.storage
               .from(STORAGE_BUCKET)
@@ -102,10 +136,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
             return {
               ...doc,
+              uploader,
               download_url: signedUrl?.signedUrl || null,
             };
           } catch (e) {
-            return { ...doc, download_url: null };
+            return { ...doc, uploader, download_url: null };
           }
         })
       );
@@ -126,6 +161,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (!file) {
         return res.status(400).json({ error: 'No file provided' });
       }
+
+      // Optional label + description for the supporting document.
+      const label = (Array.isArray(fields.label) ? fields.label[0] : fields.label) || null;
+      const description = (Array.isArray(fields.description) ? fields.description[0] : fields.description) || null;
 
       // Read the file
       const fileBuffer = fs.readFileSync(file.filepath);
@@ -159,6 +198,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           storage_path: storagePath,
           file_size: fileSize,
           mime_type: mimeType,
+          label,
+          description,
+          uploaded_by: userId,
         })
         .select()
         .single();
@@ -169,6 +211,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         console.error('Database insert error:', dbError);
         return res.status(500).json({ error: `Failed to save document record: ${dbError.message}` });
       }
+
+      // Record who uploaded what, when — into the immutable audit trail.
+      await audit(req, user, {
+        category: 'transaction',
+        action: 'request.document_uploaded',
+        targetType: 'request',
+        targetId: requestId,
+        requestId,
+        details: {
+          documentId: document.id,
+          filename: originalFilename,
+          label: label || null,
+          actingFor: isUploadAssistant ? (request.metadata?.onBehalfOf?.userId || request.creator_id) : undefined,
+        },
+      });
 
       // Clean up temp file
       try {

@@ -8,6 +8,7 @@ import { Card, Button, Input, RequestPreviewModal, UnsavedChangesModal, Referenc
 import type { PreviewSection, DocumentHeader } from '../../../components/ui';
 import { useUnsavedChangesPrompt, useFormAutosave } from '../../../hooks';
 import { useToast } from '../../../components/ui/ToastProvider';
+import { OnBehalfOfField, type OnBehalfOf } from '../../../components/requests/OnBehalfOfField';
 
 interface DocumentMetadata {
   file: File;
@@ -75,6 +76,7 @@ export default function NewCapexRequestPage() {
   const [quotationJustification, setQuotationJustification] = useState('');
   const [quotationReason, setQuotationReason] = useState<string>('');
   const [supportingDocuments, setSupportingDocuments] = useState<DocumentMetadata[]>([]);
+  const [onBehalfOf, setOnBehalfOf] = useState<OnBehalfOf | null>(null);
 
   // Supplier directory (auto-populated from prior CAPEX requests) powering the
   // supplier-name autocomplete on each quotation. activeSupplierField tracks
@@ -91,7 +93,7 @@ export default function NewCapexRequestPage() {
 
   const requiresMdApproval = quotationReason === 'other';
 
-  // When "Other" is chosen the Managing Director must pre-approve. The MD is
+  // When "Other" is chosen the Chief Operating Officer must pre-approve. The COO is
   // taken straight from the HRIMS-resolved approval chain (managing_director
   // role) — there is no manual picker. They are prepended to the approval
   // trail so the request can't proceed until the MD signs off.
@@ -913,7 +915,7 @@ export default function NewCapexRequestPage() {
             return;
           }
           if (!mdApproverId) {
-            setError('Selecting "Other" requires the Managing Director to pre-approve, but no MD could be resolved from HRIMS for your approval chain. Please contact an administrator.');
+            setError('Selecting "Other" requires the Chief Operating Officer to pre-approve');
             setLoading(false);
             return;
           }
@@ -1207,6 +1209,7 @@ export default function NewCapexRequestPage() {
             approvers: approversArray, // Sequential array of approver IDs
             approverRoles: selectedApprovers, // Keep original object for reference
             useParallelApprovals: useParallelApprovals, // Parallel or sequential approval mode
+            onBehalfOf: onBehalfOf || null,
             watchers: selectedWatchers,
             quotations: quotationDocuments.map(doc => ({
               name: doc.file.name,
@@ -1567,6 +1570,11 @@ export default function NewCapexRequestPage() {
             <p className="text-danger-600 text-sm">{error}</p>
           </Card>
         )}
+
+        {/* Filing on behalf of — shown at the top; only assigned assistants see it */}
+        <Card>
+          <OnBehalfOfField value={onBehalfOf} onChange={setOnBehalfOf} />
+        </Card>
 
         {/* General Information */}
         <Card>
@@ -2136,17 +2144,17 @@ export default function NewCapexRequestPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01M4.93 19h14.14a2 2 0 001.74-3L13.74 4a2 2 0 00-3.48 0L3.19 16a2 2 0 001.74 3z" />
                     </svg>
                     <div className="flex-1">
-                      <h4 className="text-sm font-semibold text-danger-800">MD Pre-Approval Required</h4>
+                      <h4 className="text-sm font-semibold text-danger-800">COO Pre-Approval Required</h4>
                       <p className="text-xs text-danger-700 mt-1">
                         Because you selected &ldquo;Other&rdquo;, this CAPEX cannot enter the official approval trail until the
-                        Managing Director has reviewed and approved it. The MD is taken automatically from HRIMS.
+                        Chief Operating Officer has reviewed and approved it.
                       </p>
                     </div>
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-danger-800 mb-1">
-                      Reason for MD pre-approval <span className="text-danger-500">*</span>
+                      Reason for COO pre-approval <span className="text-danger-500">*</span>
                     </label>
                     <textarea
                       className="w-full px-4 py-3 min-h-[80px] rounded-xl border border-danger-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-danger-500 focus:border-transparent resize-none transition-all"
@@ -2156,49 +2164,11 @@ export default function NewCapexRequestPage() {
                       required={requiresMdApproval}
                     />
                     <p className="text-[11px] text-danger-700 mt-1">
-                      This reason is shared with the MD for pre-approval and is not printed on the request form.
+                      This reason is shared with the COO for pre-approval and is not printed on the request form.
                     </p>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold text-danger-800 mb-1">
-                      Managing Director (Pre-Approver)
-                    </label>
-                    {(() => {
-                      const mdUser = users.find(u => u.id === mdApproverId);
-                      if (mdUser) {
-                        return (
-                          <div className="flex items-center gap-3 p-3 bg-white border border-danger-200 rounded-xl">
-                            <div className="w-8 h-8 rounded-full bg-danger-100 flex items-center justify-center flex-shrink-0">
-                              <span className="text-sm font-medium text-danger-600">
-                                {mdUser.display_name?.charAt(0)?.toUpperCase() || '?'}
-                              </span>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-gray-900 truncate">{mdUser.display_name}</p>
-                              <p className="text-xs text-gray-500 truncate">{mdUser.email}</p>
-                            </div>
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">
-                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7" />
-                              </svg>
-                              Auto from HRIMS
-                            </span>
-                          </div>
-                        );
-                      }
-                      return (
-                        <div className="p-3 bg-white border border-danger-200 rounded-xl text-xs text-danger-700">
-                          No Managing Director could be resolved from HRIMS for your approval chain.
-                          Please contact an administrator before submitting.
-                        </div>
-                      );
-                    })()}
-                    <p className="text-[11px] text-danger-700 mt-1">
-                      The MD is added as the first signatory. The official approval trail will only begin
-                      after the MD approves.
-                    </p>
-                  </div>
+                  
                 </div>
               )}
             </div>

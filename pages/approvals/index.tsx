@@ -52,6 +52,21 @@ function getRequestDetailPath(request: any): string {
   return `/requests/${request.id}`;
 }
 
+// Humanise a duration in ms as e.g. "3h", "2d 4h", "45m".
+function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  const mins = Math.floor(ms / 60000);
+  if (mins < 60) return `${Math.max(mins, 1)}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) {
+    const rem = mins % 60;
+    return rem ? `${hours}h ${rem}m` : `${hours}h`;
+  }
+  const days = Math.floor(hours / 24);
+  const remH = hours % 24;
+  return remH ? `${days}d ${remH}h` : `${days}d`;
+}
+
 const statusConfig: Record<string, { label: string; bg: string; text: string }> = {
   pending: { label: 'Pending', bg: 'bg-yellow-100', text: 'text-yellow-800' },
   pending_approval: { label: 'Pending', bg: 'bg-yellow-100', text: 'text-yellow-800' },
@@ -131,8 +146,12 @@ export const getServerSideProps: GetServerSideProps<ApprovalsPageProps> = async 
             approver_role,
             approver_user_id,
             status,
-            due_at
-          )
+            due_at,
+            created_at,
+            activated_at,
+            first_viewed_at
+          ),
+          documents ( count )
         `)
         .in('id', requestIds)
         .in('status', ['pending', 'pending_approval'])
@@ -175,8 +194,12 @@ export const getServerSideProps: GetServerSideProps<ApprovalsPageProps> = async 
           approver_role,
           approver_user_id,
           status,
-          due_at
-        )
+          due_at,
+          created_at,
+          activated_at,
+          first_viewed_at
+        ),
+        documents ( count )
       `)
       .eq('organization_id', organizationId)
       .order('created_at', { ascending: false });
@@ -701,6 +724,16 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
                 const amount = request.metadata?.amount || request.metadata?.total_amount;
                 const currency = request.metadata?.currency || '$';
 
+                // How long the request has been on the current approver's desk, and
+                // how many supporting documents it carries.
+                const pendingStep = request.request_steps?.find((s: any) => s.status === 'pending') || currentStep;
+                const receivedAt = pendingStep?.activated_at || pendingStep?.created_at || null;
+                const waitingMs = receivedAt ? Date.now() - new Date(receivedAt).getTime() : null;
+                const waitingOverdue = waitingMs != null && waitingMs > 24 * 60 * 60 * 1000;
+                const attachmentCount = Array.isArray(request.documents)
+                  ? (request.documents[0]?.count ?? request.documents.length ?? 0)
+                  : (request.documents?.count ?? 0);
+
                 return (
                   <div
                     key={request.id}
@@ -812,6 +845,28 @@ export default function ApprovalsPage({ initialPendingApprovals, initialWatching
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                               </svg>
                               <span className="text-sm font-medium">{dueStatus.label}</span>
+                            </div>
+                          )}
+
+                          {/* Time on the current approver's desk (turns red past a day). */}
+                          {activeTab === 'pending' && waitingMs != null && (
+                            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg ${waitingOverdue ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600'}`}>
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              <span className="text-sm font-medium">
+                                Waiting {formatDuration(waitingMs)}{waitingOverdue ? ' · overdue' : ''}
+                              </span>
+                            </div>
+                          )}
+
+                          {/* Supporting documents count. */}
+                          {attachmentCount > 0 && (
+                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 rounded-lg">
+                              <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                              </svg>
+                              <span className="text-sm font-medium text-gray-700">{attachmentCount} file{attachmentCount === 1 ? '' : 's'}</span>
                             </div>
                           )}
 

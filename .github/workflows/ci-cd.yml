@@ -148,7 +148,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment:
       name: production
-      url: https://the-circle-approvals.vercel.app  # update when custom domain is ready
+      url: https://thecircle.rtgapps.com
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

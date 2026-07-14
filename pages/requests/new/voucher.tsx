@@ -7,6 +7,7 @@ import type { PreviewSection } from '../../../components/ui';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import { useUnsavedChangesPrompt, useFormAutosave } from '../../../hooks';
 import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
+import { OnBehalfOfField, type OnBehalfOf } from '../../../components/requests/OnBehalfOfField';
 import { Span } from 'next/dist/trace';
 
 interface SelectedBusinessUnit {
@@ -128,6 +129,7 @@ export default function VoucherRequestPage() {
     // Watchers state
     const [selectedWatchers, setSelectedWatchers] = useState<Array<{ id: string; display_name: string; email: string }>>([]);
     const [watcherSearch, setWatcherSearch] = useState('');
+    const [onBehalfOf, setOnBehalfOf] = useState<OnBehalfOf | null>(null);
     const [showWatcherDropdown, setShowWatcherDropdown] = useState(false);
 
     // Autosave / crash recovery (serializable slices only). Disabled in edit mode.
@@ -610,6 +612,7 @@ export default function VoucherRequestPage() {
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
                         useParallelApprovals: false,
+                        onBehalfOf: onBehalfOf || null,
                         watchers: selectedWatchers,
                         supportingDocuments: [
                             ...(Array.isArray(existingSupportingDocs) ? existingSupportingDocs : []),
@@ -707,6 +710,7 @@ export default function VoucherRequestPage() {
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
                         useParallelApprovals: false,
+                        onBehalfOf: onBehalfOf || null,
                         watchers: selectedWatchers,
                         supportingDocuments: [
                             ...(Array.isArray(existingSupportingDocs) ? existingSupportingDocs : []),
@@ -954,6 +958,7 @@ export default function VoucherRequestPage() {
                         approvers: approversArray, // Sequential array of approver IDs
                         approverRoles: selectedApprovers, // Keep original object for reference
                         useParallelApprovals: false,
+                        onBehalfOf: onBehalfOf || null,
                         watchers: selectedWatchers, // Users who can view and generate voucher
                         supportingDocuments: supportingDocuments.map(doc => ({
                             name: doc.file.name,
@@ -1048,6 +1053,7 @@ export default function VoucherRequestPage() {
                         approvers: approversArray,
                         approverRoles: selectedApprovers,
                         useParallelApprovals: false,
+                        onBehalfOf: onBehalfOf || null,
                         watchers: selectedWatchers,
                         supportingDocuments: supportingDocuments.map(doc => ({
                             name: doc.file.name,
@@ -1150,6 +1156,11 @@ export default function VoucherRequestPage() {
                 )}
 
                 <div className="space-y-6">
+                    {/* Filing on behalf of — shown at the top; only assigned assistants see it */}
+                    <Card className="p-6">
+                        <OnBehalfOfField value={onBehalfOf} onChange={setOnBehalfOf} />
+                    </Card>
+
                     {/* Requestor Information Section */}
                     <Card className="p-6">
                         <h3 className="text-sm font-semibold text-gray-700 mb-4 uppercase border-b pb-2">Requestor Information</h3>
@@ -1669,7 +1680,8 @@ export default function VoucherRequestPage() {
                                 ))}
                             </div>
                         )}
-                    </Card>                    {/* Approval Section - 2 Fixed Roles */}
+                    </Card>
+                    {/* Approval Section - 2 Fixed Roles */}
                     <Card className="p-6">
                         <h3 className="text-xl font-bold text-gray-900 mb-2 font-heading">Approval Workflow</h3>
                         <p className="text-sm text-gray-500 mb-6">
