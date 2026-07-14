@@ -62,8 +62,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           approver_role,
           approver_user_id,
           status,
-          due_at
-        )
+          due_at,
+          created_at,
+          activated_at,
+          first_viewed_at
+        ),
+        documents ( count )
       `)
       .in('id', requestIds)
       .in('status', ['pending', 'pending_approval'])
