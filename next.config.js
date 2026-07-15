@@ -1,4 +1,16 @@
 /** @type {import('next').NextConfig} */
+
+// next-auth v4 reads process.env.NEXTAUTH_URL at module-import time and passes it
+// straight to `new URL()`. Its internal fallback only guards null/undefined, so an
+// *empty-string* NEXTAUTH_URL (a blank Vercel env var) crashes `next build` during
+// "Collecting page data" with `TypeError: Invalid URL, input: ''`. Normalize a
+// blank value to unset so next-auth's own fallback (VERCEL_URL / localhost) applies.
+// NOTE: this only prevents the build crash — production still needs a real
+// NEXTAUTH_URL set for auth callbacks to target the correct domain at runtime.
+if (typeof process.env.NEXTAUTH_URL === 'string' && process.env.NEXTAUTH_URL.trim() === '') {
+  delete process.env.NEXTAUTH_URL;
+}
+
 const isProd = process.env.NODE_ENV === 'production';
 
 // ---------------------------------------------------------------------------
