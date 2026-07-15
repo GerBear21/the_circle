@@ -149,7 +149,9 @@
       "Bash(mv .env.local .env.local.bak)",
       "Bash(NEXTAUTH_URL=http://localhost:3000 NEXTAUTH_SECRET=placeholder NEXT_PUBLIC_SUPABASE_URL='' NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder SUPABASE_URL=https://placeholder.supabase.co SUPABASE_SERVICE_ROLE_KEY=placeholder AZURE_CLIENT_ID=placeholder AZURE_CLIENT_SECRET=placeholder AZURE_TENANT=common HRIMS_SUPABASE_URL=https://placeholder.supabase.co HRIMS_SUPABASE_SERVICE_ROLE_KEY=placeholder npm run build)",
       "Bash(node -e ' *)",
-      "Bash(NEXTAUTH_URL='' NEXTAUTH_SECRET=placeholder NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder SUPABASE_URL=https://placeholder.supabase.co SUPABASE_SERVICE_ROLE_KEY=placeholder AZURE_CLIENT_ID=placeholder AZURE_CLIENT_SECRET=placeholder AZURE_TENANT=common HRIMS_SUPABASE_URL=https://placeholder.supabase.co HRIMS_SUPABASE_SERVICE_ROLE_KEY=placeholder npm run build)"
+      "Bash(NEXTAUTH_URL='' NEXTAUTH_SECRET=placeholder NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder SUPABASE_URL=https://placeholder.supabase.co SUPABASE_SERVICE_ROLE_KEY=placeholder AZURE_CLIENT_ID=placeholder AZURE_CLIENT_SECRET=placeholder AZURE_TENANT=common HRIMS_SUPABASE_URL=https://placeholder.supabase.co HRIMS_SUPABASE_SERVICE_ROLE_KEY=placeholder npm run build)",
+      "Bash(NODE_OPTIONS='--require ./trace-url.js' NEXTAUTH_URL='' NEXTAUTH_SECRET=placeholder NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder SUPABASE_URL=https://placeholder.supabase.co SUPABASE_SERVICE_ROLE_KEY=placeholder AZURE_CLIENT_ID=placeholder AZURE_CLIENT_SECRET=placeholder AZURE_TENANT=common HRIMS_SUPABASE_URL=https://placeholder.supabase.co HRIMS_SUPABASE_SERVICE_ROLE_KEY=placeholder npm run build)",
+      "Bash(git stash *)"
     ]
   }
 }
