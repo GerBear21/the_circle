@@ -73,3 +73,45 @@ export async function searchDirectoryUsers(query: string, top = 20): Promise<Dir
       jobTitle: u.jobTitle || null,
     }));
 }
+
+/**
+ * Look up a single directory user by their exact email (mail or UPN). Used to
+ * resolve an HRIMS employee onto their Azure AD identity so approver resolution
+ * can provision an `app_users` row keyed on the real `azure_oid` (a later
+ * interactive sign-in then reuses that row rather than creating a duplicate).
+ *
+ * Returns `null` if Graph is unavailable or no matching directory user exists.
+ */
+export async function getDirectoryUserByEmail(email: string): Promise<DirectoryUser | null> {
+  const token = await getAppToken();
+  if (!token) return null;
+
+  const safe = (email || '').replace(/'/g, "''").trim();
+  if (!safe) return null;
+
+  const params = new URLSearchParams();
+  params.set('$filter', `mail eq '${safe}' or userPrincipalName eq '${safe}'`);
+  params.set('$select', 'id,displayName,mail,userPrincipalName,jobTitle,accountEnabled');
+  params.set('$top', '1');
+
+  const resp = await fetch(`https://graph.microsoft.com/v1.0/users?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    console.error('graphDirectory: getUserByEmail failed:', resp.status, text);
+    return null;
+  }
+
+  const json: any = await resp.json();
+  const u = (json.value || [])[0];
+  if (!u || u.accountEnabled === false) return null;
+
+  return {
+    azureOid: u.id,
+    displayName: u.displayName || u.userPrincipalName || u.mail || 'Unknown',
+    email: u.mail || u.userPrincipalName || '',
+    jobTitle: u.jobTitle || null,
+  };
+}
