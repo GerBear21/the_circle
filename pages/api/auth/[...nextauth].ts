@@ -5,7 +5,7 @@ import { verifyDemoPassword } from "../../../lib/demoPassword";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { recordAuditEvent } from "../../../lib/auditLog";
 import { IDLE_TIMEOUT_SECONDS } from "../../../lib/sessionTimeout";
-import { saveMsTokens } from "../../../lib/msTokenStore";
+import { saveMsTokens, MS_SCOPE } from "../../../lib/msTokenStore";
 
 // DEMO MODE — staging only. When DEMO_MODE=true (set ONLY on the staging
 // deployment, never in production) we additionally enable an email/password
@@ -37,7 +37,7 @@ const providers: NextAuthOptions["providers"] = [
     tenantId: process.env.AZURE_TENANT || "common",
     authorization: {
       params: {
-        scope: "openid profile email offline_access User.Read Mail.Send",
+        scope: MS_SCOPE,
         prompt: "select_account",
       },
     },

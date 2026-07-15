@@ -4,6 +4,7 @@ import { authOptions } from '../auth/[...nextauth]';
 import { findEmployeeByPositionTitle, hrimsClient, HrimsEmployee } from '@/lib/hrimsClient';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { getDirectoryUserByEmail, isGraphDirectoryConfigured } from '@/lib/graphDirectory';
+import { getValidMsAccessToken } from '@/lib/msTokenStore';
 
 interface ResolvedApprover {
   userId: string;
@@ -28,6 +29,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { email, formType } = req.query;
     const user = session.user as any;
     const organizationId = user.org_id;
+    const sessionUserId = user.id;
 
     if (!email || typeof email !== 'string') {
       return res.status(400).json({ error: 'Requestor email is required' });
@@ -47,11 +49,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const canProvisionFromAzure =
       process.env.USER_DIRECTORY_SOURCE === 'azure' && isGraphDirectoryConfigured();
 
+    // Delegated Graph token of the signed-in requester. The directory lookup for
+    // an unprovisioned approver runs on this token (no app-only credential), so
+    // it inherits the caller's Conditional-Access-compliant session. Resolved
+    // once and reused across the many findAppUserByEmail calls below.
+    const delegatedGraphToken = canProvisionFromAzure
+      ? await getValidMsAccessToken(sessionUserId)
+      : null;
+
     // Helper: find an app_user by their email within the organization.
     // Falls back to Azure AD provisioning so approvers who exist in HRIMS/AD but
     // have never signed into The Circle still resolve. The provisioned row is
     // keyed on the real azure_oid, so a later interactive sign-in reuses it
-    // rather than creating a duplicate (no-op until Graph is reachable).
+    // rather than creating a duplicate (no-op when Graph is unreachable).
     async function findAppUserByEmail(empEmail: string): Promise<{ id: string; display_name: string; email: string } | null> {
       const { data } = await supabaseAdmin
         .from('app_users')
@@ -63,9 +73,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       if (data) return data;
 
-      if (!canProvisionFromAzure) return null;
+      if (!canProvisionFromAzure || !delegatedGraphToken) return null;
 
-      const dirUser = await getDirectoryUserByEmail(empEmail);
+      const dirUser = await getDirectoryUserByEmail(delegatedGraphToken, empEmail);
       if (!dirUser?.azureOid || !dirUser.email) return null;
 
       const { data: provisioned, error: provisionError } = await supabaseAdmin

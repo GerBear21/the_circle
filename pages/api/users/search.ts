@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { isGraphDirectoryConfigured, searchDirectoryUsers } from '@/lib/graphDirectory';
+import { getValidMsAccessToken } from '@/lib/msTokenStore';
 
 /**
  * User picker search for approvers / watchers.
@@ -40,6 +41,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const user = session.user as any;
     const organizationId = user.org_id;
+    const userId = user.id;
     if (!organizationId) {
       return res.status(400).json({ error: 'Organization ID not found' });
     }
@@ -80,7 +82,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    const dirUsers = await searchDirectoryUsers(q);
+    // Delegated directory search runs as the signed-in user (no app-only token),
+    // so it inherits their Conditional-Access-compliant session. If the user
+    // has no usable Graph token yet (e.g. signed in before User.Read.All was
+    // granted, so they must re-authenticate), degrade to the local list.
+    const graphToken = await getValidMsAccessToken(userId);
+    if (!graphToken) {
+      return res.status(200).json({ users: await searchAppUsers(), source: 'app_users_no_token' });
+    }
+
+    const dirUsers = await searchDirectoryUsers(graphToken, q);
     if (!dirUsers) {
       // Graph unavailable — degrade to the local list rather than failing.
       return res.status(200).json({ users: await searchAppUsers(), source: 'app_users_fallback' });
