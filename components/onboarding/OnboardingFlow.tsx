@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -22,6 +22,20 @@ interface HrimsEmployee {
   business_unit_id: string;
 }
 interface NamedRecord { id: string; name: string; code?: string }
+interface DirectoryUser { id: string; display_name: string | null; email: string; job_title?: string | null }
+
+/** Collapse departments that share a name (they repeat across business units). */
+function dedupeByName(records: NamedRecord[]): NamedRecord[] {
+  const seen = new Set<string>();
+  const out: NamedRecord[] = [];
+  for (const r of records) {
+    const key = (r.name || '').trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(r);
+  }
+  return out;
+}
 
 interface OnboardingFlowProps {
   user: { id: string; department_id?: string | null; business_unit_id?: string | null };
@@ -58,8 +72,19 @@ export default function OnboardingFlow({ user, needsProfileSetup, hasSignature, 
   const [businessUnits, setBusinessUnits] = useState<NamedRecord[]>([]);
   const [selectedDeptId, setSelectedDeptId] = useState(user.department_id || '');
   const [selectedBuId, setSelectedBuId] = useState(user.business_unit_id || '');
+  const [deptLoading, setDeptLoading] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
+
+  // Step 2 (AD-only users) — job title + who they report to, picked from the
+  // directory. Persisted to the Circle profile and queued for HR to add to HRIMS.
+  const [jobTitle, setJobTitle] = useState('');
+  const [reportsTo, setReportsTo] = useState<DirectoryUser | null>(null);
+  const [managerSearch, setManagerSearch] = useState('');
+  const [managerResults, setManagerResults] = useState<DirectoryUser[]>([]);
+  const [managerLoading, setManagerLoading] = useState(false);
+  const [managerOpen, setManagerOpen] = useState(false);
+  const managerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Step 3 — signature
   const [signatureSaved, setSignatureSaved] = useState(hasSignature);
@@ -94,11 +119,9 @@ export default function OnboardingFlow({ user, needsProfileSetup, hasSignature, 
           setHrimsBusinessUnit(data.businessUnit);
         } else {
           setHrimsFound(false);
-          const [deptRes, buRes] = await Promise.all([
-            fetch('/api/hrims/departments'),
-            fetch('/api/hrims/business-units'),
-          ]);
-          if (deptRes.ok) setDepartments((await deptRes.json()).departments || []);
+          // Departments are loaded per business unit (see effect below) so the
+          // list stays scoped and free of the cross-unit name repetition.
+          const buRes = await fetch('/api/hrims/business-units');
           if (buRes.ok) setBusinessUnits((await buRes.json()).businessUnits || []);
         }
       } catch {
@@ -110,6 +133,54 @@ export default function OnboardingFlow({ user, needsProfileSetup, hasSignature, 
     checkHrims();
     return () => { cancelled = true; };
   }, [session?.user?.email]);
+
+  // Load departments for the selected business unit (deduped by name). Scoping
+  // to the chosen unit removes the long list of repeated department names.
+  useEffect(() => {
+    if (hrimsFound || !selectedBuId) {
+      setDepartments([]);
+      return;
+    }
+    let cancelled = false;
+    setDeptLoading(true);
+    (async () => {
+      try {
+        const res = await fetch(`/api/hrims/departments?business_unit_id=${encodeURIComponent(selectedBuId)}`);
+        const data = res.ok ? await res.json() : { departments: [] };
+        if (cancelled) return;
+        const deduped = dedupeByName(data.departments || []);
+        setDepartments(deduped);
+        // Drop a stale department selection that isn't in the new unit's list.
+        setSelectedDeptId((prev) => (deduped.some((d) => d.id === prev) ? prev : ''));
+      } catch {
+        if (!cancelled) setDepartments([]);
+      } finally {
+        if (!cancelled) setDeptLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedBuId, hrimsFound]);
+
+  // Directory (Azure AD) search for the "who do you report to?" picker.
+  useEffect(() => {
+    if (managerTimer.current) clearTimeout(managerTimer.current);
+    const q = managerSearch.trim();
+    if (q.length < 2) { setManagerResults([]); return; }
+    managerTimer.current = setTimeout(async () => {
+      setManagerLoading(true);
+      try {
+        const res = await fetch(`/api/users/search?q=${encodeURIComponent(q)}`);
+        const data = res.ok ? await res.json() : { users: [] };
+        setManagerResults((data.users || []).filter((u: DirectoryUser) => u.id !== user.id));
+      } catch {
+        setManagerResults([]);
+      } finally {
+        setManagerLoading(false);
+      }
+    }, 250);
+    return () => { if (managerTimer.current) clearTimeout(managerTimer.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [managerSearch]);
 
   const go = (next: number) => {
     setDir(next > step ? 1 : -1);
@@ -125,30 +196,50 @@ export default function OnboardingFlow({ user, needsProfileSetup, hasSignature, 
     setSavingProfile(true);
     setProfileError(null);
     try {
-      let payload: Record<string, any>;
       if (hrimsFound && hrimsEmployee) {
-        payload = {
-          department_id: hrimsEmployee.department_id,
-          business_unit_id: hrimsEmployee.business_unit_id,
-          hrims_employee_id: hrimsEmployee.id,
-          job_title: hrimsEmployee.job_title,
-          first_name: hrimsEmployee.first_name,
-          last_name: hrimsEmployee.last_name,
-        };
+        const res = await fetch('/api/user/profile', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            department_id: hrimsEmployee.department_id,
+            business_unit_id: hrimsEmployee.business_unit_id,
+            hrims_employee_id: hrimsEmployee.id,
+            job_title: hrimsEmployee.job_title,
+            first_name: hrimsEmployee.first_name,
+            last_name: hrimsEmployee.last_name,
+          }),
+        });
+        if (!res.ok) throw new Error();
       } else {
         if (!selectedDeptId || !selectedBuId) {
           setProfileError('Please select your business unit and department.');
           setSavingProfile(false);
           return;
         }
-        payload = { department_id: selectedDeptId, business_unit_id: selectedBuId };
+        if (!jobTitle.trim()) {
+          setProfileError('Please enter your job title / position.');
+          setSavingProfile(false);
+          return;
+        }
+        if (!reportsTo) {
+          setProfileError('Please select who you report to.');
+          setSavingProfile(false);
+          return;
+        }
+        // AD-only user: save the Circle profile and queue the reporting line
+        // for HR to add to the HRIMS organogram.
+        const res = await fetch('/api/onboarding/reporting-line', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            business_unit_id: selectedBuId,
+            department_id: selectedDeptId,
+            job_title: jobTitle.trim(),
+            reports_to_user_id: reportsTo.id,
+          }),
+        });
+        if (!res.ok) throw new Error();
       }
-      const res = await fetch('/api/user/profile', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) throw new Error();
       go(step + 1);
     } catch {
       setProfileError('We couldn’t save your details. Please try again.');
@@ -190,7 +281,8 @@ export default function OnboardingFlow({ user, needsProfileSetup, hasSignature, 
     }
   };
 
-  const hrimsReady = !hrimsLoading && (hrimsFound || (!!selectedBuId && !!selectedDeptId) || !needsProfileSetup);
+  const manualComplete = !!selectedBuId && !!selectedDeptId && !!jobTitle.trim() && !!reportsTo;
+  const hrimsReady = !hrimsLoading && (hrimsFound || manualComplete || !needsProfileSetup);
 
   // ---- per-step content ----------------------------------------------------
   const visuals = [
@@ -236,7 +328,7 @@ export default function OnboardingFlow({ user, needsProfileSetup, hasSignature, 
     // 1 — HRIMS
     <div key="b1" className="space-y-5">
       <Eyebrow>Step 2 · Connect</Eyebrow>
-      <h2 className="text-2xl font-bold tracking-tight text-text-primary">Link your HRIMS profile</h2>
+      <h2 className="text-2xl font-bold tracking-tight text-text-primary">Link your RTG Atlas (HR system) profile</h2>
       <p className="text-text-secondary leading-relaxed">
         The Circle securely connects to <span className="font-semibold text-text-primary">RTG Atlas (HRIMS)</span>{' '}
         to bring in your role, department and reporting line — so approvals route to the right people automatically.
@@ -244,12 +336,12 @@ export default function OnboardingFlow({ user, needsProfileSetup, hasSignature, 
       {profileError && <Alert tone="danger">{profileError}</Alert>}
       {hrimsLoading ? (
         <div className="flex items-center gap-3 py-4 text-text-secondary">
-          <Spinner /> Looking up your profile in HRIMS…
+          <Spinner /> Looking up your profile in RTG Atlas…
         </div>
       ) : hrimsFound && hrimsEmployee ? (
         <div className="rounded-xl border border-success-100 bg-success-50 p-4 space-y-3">
           <div className="flex items-center gap-2 text-success-600 font-semibold text-sm">
-            <CheckIcon /> Profile found in HRIMS
+            <CheckIcon /> Profile found in RTG Atlas
           </div>
           <div className="grid grid-cols-2 gap-x-4 gap-y-3">
             <Field label="Name" value={`${hrimsEmployee.first_name} ${hrimsEmployee.last_name}`} />
@@ -261,10 +353,52 @@ export default function OnboardingFlow({ user, needsProfileSetup, hasSignature, 
       ) : (
         <div className="space-y-4">
           <Alert tone="warning">
-            We couldn’t match your email in HRIMS. Please confirm your business unit and department.
+            We couldn’t match your email in RTG Atlas. Tell us where you sit and who you report to — HR will
+            add you to the organogram, and approvals will route correctly in the meantime.
           </Alert>
           <Select label="Business unit" value={selectedBuId} onChange={setSelectedBuId} options={businessUnits} />
-          <Select label="Department" value={selectedDeptId} onChange={setSelectedDeptId} options={departments} />
+          {deptLoading ? (
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-1.5">Department <span className="text-danger">*</span></label>
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-neutral-300 bg-neutral-50 text-text-secondary text-sm">
+                <Spinner /> Loading departments…
+              </div>
+            </div>
+          ) : (
+            <Select
+              label="Department"
+              value={selectedDeptId}
+              onChange={setSelectedDeptId}
+              options={departments}
+              placeholder={!selectedBuId ? 'Select a business unit first' : undefined}
+            />
+          )}
+
+          <div>
+            <label className="block text-sm font-medium text-text-primary mb-1.5">
+              Your job title / position <span className="text-danger">*</span>
+            </label>
+            <input
+              type="text"
+              value={jobTitle}
+              onChange={(e) => setJobTitle(e.target.value)}
+              placeholder="e.g. Financial Accountant"
+              maxLength={120}
+              className="w-full px-3 py-2.5 bg-white border border-neutral-300 rounded-lg text-text-primary focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            />
+          </div>
+
+          <ManagerPicker
+            selected={reportsTo}
+            onSelect={(u) => { setReportsTo(u); setManagerSearch(''); setManagerResults([]); setManagerOpen(false); }}
+            onClear={() => setReportsTo(null)}
+            search={managerSearch}
+            onSearchChange={(v) => { setManagerSearch(v); setManagerOpen(true); }}
+            results={managerResults}
+            loading={managerLoading}
+            open={managerOpen}
+            onOpen={() => setManagerOpen(true)}
+          />
         </div>
       )}
     </div>,
@@ -360,7 +494,8 @@ export default function OnboardingFlow({ user, needsProfileSetup, hasSignature, 
         return { label: 'Enter The Circle', disabled: false, onClick: onComplete, loading: false };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, consent, hrimsReady, savingProfile, signatureSaved, deviceStatus, webauthnSupported]);
+  }, [step, consent, hrimsReady, savingProfile, signatureSaved, deviceStatus, webauthnSupported,
+      hrimsFound, selectedBuId, selectedDeptId, jobTitle, reportsTo, deviceName]);
 
   const showBack = step > 0 && step < 4;
   const showSkip = step === 3 && deviceStatus !== 'success' && deviceStatus !== 'registering';
@@ -524,12 +659,15 @@ function Select({
   value,
   onChange,
   options,
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   options: NamedRecord[];
+  placeholder?: string;
 }) {
+  const emptyLabel = placeholder || `No ${label.toLowerCase()}s available`;
   return (
     <div>
       <label className="block text-sm font-medium text-text-primary mb-1.5">
@@ -541,11 +679,87 @@ function Select({
         disabled={options.length === 0}
         className="w-full px-3 py-2.5 bg-white border border-neutral-300 rounded-lg text-text-primary focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:bg-neutral-100 disabled:text-text-muted"
       >
-        <option value="">{options.length === 0 ? `No ${label.toLowerCase()}s available` : `Select ${label.toLowerCase()}…`}</option>
+        <option value="">{options.length === 0 ? emptyLabel : `Select ${label.toLowerCase()}…`}</option>
         {options.map((o) => (
           <option key={o.id} value={o.id}>{o.name}</option>
         ))}
       </select>
+    </div>
+  );
+}
+
+function ManagerPicker({
+  selected,
+  onSelect,
+  onClear,
+  search,
+  onSearchChange,
+  results,
+  loading,
+  open,
+  onOpen,
+}: {
+  selected: DirectoryUser | null;
+  onSelect: (u: DirectoryUser) => void;
+  onClear: () => void;
+  search: string;
+  onSearchChange: (v: string) => void;
+  results: DirectoryUser[];
+  loading: boolean;
+  open: boolean;
+  onOpen: () => void;
+}) {
+  return (
+    <div>
+      <label className="block text-sm font-medium text-text-primary mb-1.5">
+        Who do you report to? <span className="text-danger">*</span>
+      </label>
+      {selected ? (
+        <div className="flex items-center gap-3 bg-primary-50 border border-primary-200 p-3 rounded-lg">
+          <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
+            <span className="text-sm font-medium text-primary-600">{(selected.display_name || selected.email)?.charAt(0)?.toUpperCase() || '?'}</span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-text-primary truncate">{selected.display_name || selected.email}</p>
+            {selected.job_title ? <p className="text-xs text-text-muted truncate">{selected.job_title}</p> : <p className="text-xs text-text-muted truncate">{selected.email}</p>}
+          </div>
+          <button type="button" onClick={onClear} className="p-1.5 rounded-lg text-text-muted hover:text-danger-500 hover:bg-danger-50 transition-colors" title="Change">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+      ) : (
+        <div>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => onSearchChange(e.target.value)}
+            onFocus={onOpen}
+            placeholder="Search your manager’s name…"
+            className="w-full px-3 py-2.5 bg-white border border-neutral-300 rounded-lg text-text-primary focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+          />
+          {open && (search.trim().length >= 1 || loading) && (
+            <div className="mt-1 w-full bg-white border border-neutral-200 rounded-lg shadow-sm max-h-56 overflow-y-auto overscroll-contain">
+              {loading ? (
+                <div className="flex items-center gap-2 p-3 text-sm text-text-secondary"><Spinner /> Searching the directory…</div>
+              ) : search.trim().length < 2 ? (
+                <div className="p-3 text-sm text-text-muted">Keep typing to search…</div>
+              ) : results.length === 0 ? (
+                <div className="p-3 text-sm text-text-muted">No matching people found.</div>
+              ) : (
+                results.slice(0, 10).map((u) => (
+                  <button key={u.id} type="button" onClick={() => onSelect(u)} className="w-full flex items-center gap-3 p-3 hover:bg-neutral-50 transition-colors text-left">
+                    <div className="w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center flex-shrink-0"><span className="text-sm font-medium text-text-secondary">{(u.display_name || u.email)?.charAt(0)?.toUpperCase() || '?'}</span></div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-text-primary truncate">{u.display_name || u.email}</p>
+                      <p className="text-xs text-text-muted truncate">{u.job_title || u.email}</p>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -75,7 +75,7 @@ function num(value: any): number {
 const APPROVAL_ROLES: Array<{ key: string; label: string; description: string }> = [
     { key: 'line_manager', label: 'Line Manager', description: 'Recommendation' },
     { key: 'functional_head', label: 'Functional Head', description: 'Functional Approval' },
-    { key: 'hrd', label: 'HR Director', description: 'HR Director Approval' },
+    { key: 'hrd', label: 'Chief Human Capital Officer', description: 'CHCO Approval' },
     { key: 'ceo', label: 'CEO', description: 'Authorisation' },
 ];
 

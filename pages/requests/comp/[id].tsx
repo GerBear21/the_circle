@@ -573,10 +573,12 @@ export const getServerSideProps: GetServerSideProps<CompHotelBookingDetailsPageP
       },
     };
   } catch (err: any) {
+    // Log the real error server-side; never surface a raw message/stack to the UI.
+    console.error('Comp request details getServerSideProps error:', err);
     return {
       props: {
         initialRequest: null,
-        initialError: err.message || 'Failed to load request details',
+        initialError: 'We couldn’t load this request. It may have been removed, or you may not have access to it.',
       },
     };
   }

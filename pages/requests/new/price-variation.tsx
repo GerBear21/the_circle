@@ -6,6 +6,7 @@ import { AppLayout } from '../../../components/layout';
 import { Card, Button, Input } from '../../../components/ui';
 import { useToast } from '../../../components/ui/ToastProvider';
 import { OnBehalfOfField, type OnBehalfOf } from '../../../components/requests/OnBehalfOfField';
+import ApproverSectionLoader from '../../../components/requests/ApproverSectionLoader';
 
 /**
  * Price Variation Form — raised against an already fully-approved CAPEX.
@@ -69,7 +70,7 @@ export default function PriceVariationPage() {
   const [onBehalfOf, setOnBehalfOf] = useState<OnBehalfOf | null>(null);
   const [approverSearch, setApproverSearch] = useState<Record<string, string>>({});
   const [showApproverDropdown, setShowApproverDropdown] = useState<string | null>(null);
-  const [loadingApproverResolution, setLoadingApproverResolution] = useState(false);
+  const [loadingApproverResolution, setLoadingApproverResolution] = useState(true);
 
   const amountNumeric = parseFloat((formData.amount || '').replace(/[^0-9.]/g, '')) || 0;
   const requiresCfo = amountNumeric > CFO_THRESHOLD;
@@ -412,7 +413,8 @@ export default function PriceVariationPage() {
               ? 'Amount exceeds $5,000 — the Chief Finance Officer must also authorise.'
               : 'For amounts of $5,000 or below the Chief Finance Officer step is not required.'}
           </p>
-          <div className="space-y-3">
+          {loadingApproverResolution && <ApproverSectionLoader rows={activeRoles.length} />}
+          <div className={`space-y-3 ${loadingApproverResolution ? 'hidden' : ''}`}>
             {activeRoles.map((role, index) => {
               const selectedId = selectedApprovers[role.key];
               const selectedUser = users.find((u) => u.id === selectedId);
