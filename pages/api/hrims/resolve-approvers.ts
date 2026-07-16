@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { findEmployeeByPositionTitle, hrimsClient, HrimsEmployee } from '@/lib/hrimsClient';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { getDirectoryUserByEmail, isGraphDirectoryConfigured } from '@/lib/graphDirectory';
+import { getValidMsAccessToken } from '@/lib/msTokenStore';
 
 interface ResolvedApprover {
   userId: string;
@@ -27,6 +29,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { email, formType } = req.query;
     const user = session.user as any;
     const organizationId = user.org_id;
+    const sessionUserId = user.id;
 
     if (!email || typeof email !== 'string') {
       return res.status(400).json({ error: 'Requestor email is required' });
@@ -40,18 +43,61 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'Organization ID not found' });
     }
 
-    // Helper: find an app_user by their email within the organization
+    // Whether we may fall back to Azure AD to provision an approver who has
+    // never signed in. Tied to the same flag as the user picker so behaviour is
+    // consistent across environments (production only).
+    const canProvisionFromAzure =
+      process.env.USER_DIRECTORY_SOURCE === 'azure' && isGraphDirectoryConfigured();
+
+    // Delegated Graph token of the signed-in requester. The directory lookup for
+    // an unprovisioned approver runs on this token (no app-only credential), so
+    // it inherits the caller's Conditional-Access-compliant session. Resolved
+    // once and reused across the many findAppUserByEmail calls below.
+    const delegatedGraphToken = canProvisionFromAzure
+      ? await getValidMsAccessToken(sessionUserId)
+      : null;
+
+    // Helper: find an app_user by their email within the organization.
+    // Falls back to Azure AD provisioning so approvers who exist in HRIMS/AD but
+    // have never signed into The Circle still resolve. The provisioned row is
+    // keyed on the real azure_oid, so a later interactive sign-in reuses it
+    // rather than creating a duplicate (no-op when Graph is unreachable).
     async function findAppUserByEmail(empEmail: string): Promise<{ id: string; display_name: string; email: string } | null> {
-      const { data, error } = await supabaseAdmin
+      const { data } = await supabaseAdmin
         .from('app_users')
         .select('id, display_name, email')
         .eq('organization_id', organizationId)
         .ilike('email', empEmail)
         .limit(1)
+        .maybeSingle();
+
+      if (data) return data;
+
+      if (!canProvisionFromAzure || !delegatedGraphToken) return null;
+
+      const dirUser = await getDirectoryUserByEmail(delegatedGraphToken, empEmail);
+      if (!dirUser?.azureOid || !dirUser.email) return null;
+
+      const { data: provisioned, error: provisionError } = await supabaseAdmin
+        .from('app_users')
+        .upsert(
+          {
+            organization_id: organizationId,
+            azure_oid: dirUser.azureOid,
+            email: dirUser.email,
+            display_name: dirUser.displayName,
+            job_title: dirUser.jobTitle,
+          },
+          { onConflict: 'organization_id,azure_oid' }
+        )
+        .select('id, display_name, email')
         .single();
 
-      if (error || !data) return null;
-      return data;
+      if (provisionError || !provisioned) {
+        console.error('resolve-approvers: failed to provision app_user for', empEmail, provisionError?.message);
+        return null;
+      }
+      return provisioned;
     }
 
     // Helper: find the employee assigned to a position (via current_position_id or employee_id)
