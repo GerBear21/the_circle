@@ -744,7 +744,7 @@ export default function HotelBookingEditPage() {
                 </div>
 
                 {/* Fixed Bottom Action Bar */}
-                <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-lg z-50">
+                <div className="sticky bottom-0 bg-white border-t border-gray-200 p-4 shadow-lg z-50">
                     <div className="max-w-5xl mx-auto flex items-center justify-between">
                         <Button
                             type="button"

@@ -25,10 +25,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 20
+      - name: Setup Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
@@ -52,7 +52,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
       - run: npm ci
       - name: Run ESLint
@@ -71,7 +71,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
       - run: npm ci
       - name: Check for critical vulnerabilities (production deps only)
@@ -102,7 +102,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
       - run: npm ci
       - name: Build Next.js app
@@ -123,45 +123,15 @@ jobs:
           HRIMS_SUPABASE_SERVICE_ROLE_KEY: placeholder
 
   # ═══════════════════════════════════════════════════════════
-  # JOB 5 — Deploy to PRODUCTION
-  # Runs only on push to main, AFTER build passes. The manual-approval
-  # gate (GitHub "production" environment) has been removed so pushes to
-  # main deploy straight through.
+  # Deployment is intentionally NOT done here.
   #
-  # Vercel's native auto-deploy for main is disabled in vercel.json
-  # (git.deploymentEnabled.main = false), so this is the ONLY path
-  # to production — no double deploys. Staging still auto-deploys
-  # from develop via Vercel's Git integration.
+  # Vercel's native Git integration builds and deploys directly from
+  # source: main → production and develop → staging (git.deploymentEnabled
+  # is on in vercel.json). Native deployments are re-runnable from the
+  # Vercel dashboard ("Redeploy"); the old prebuilt CLI deploy that used to
+  # live here was not, which is why redeploys failed.
   #
-  # NODE_OPTIONS preloads scripts/build-url-guard.js into every build
-  # process (incl. next build's page-data workers) so a blank URL env var
-  # in the pulled production environment can't crash the build.
+  # The malformed/blank-URL build guard still runs on Vercel because
+  # next.config.js require()s scripts/build-url-guard.js at the top, so it
+  # loads in every `next build` (including the page-data workers).
   # ═══════════════════════════════════════════════════════════
-  deploy-production:
-    name: Deploy → Production
-    runs-on: ubuntu-latest
-    needs: [build]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    env:
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install Vercel CLI
-        run: npm i -g vercel@latest
-
-      - name: Pull Vercel production environment
-        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
-
-      - name: Build (production)
-        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
-        env:
-          NODE_OPTIONS: --require ${{ github.workspace }}/scripts/build-url-guard.js
-
-      - name: Deploy prebuilt to production
-        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}

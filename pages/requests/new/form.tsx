@@ -1747,7 +1747,7 @@ export default function NewFormDesignerPage() {
         {currentStep === 5 && renderStep5()}
 
         {/* Bottom Navigation */}
-        <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-sm border-t border-gray-100 pb-safe lg:left-64 z-20">
+        <div className="sticky bottom-0 p-4 bg-white/95 backdrop-blur-sm border-t border-gray-100 pb-safe z-20">
           <div className="flex gap-3 max-w-4xl mx-auto">
             {currentStep > 1 ? (
               <Button type="button" variant="secondary" className="flex-1" onClick={() => setCurrentStep((currentStep - 1) as WizardStep)}>

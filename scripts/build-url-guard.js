@@ -17,18 +17,28 @@
  * runtime behavior (auth callback origins, etc.).
  */
 
-// 1) Neutralize blank URL-ish env vars so each library's own fallback applies.
-//    Logs the offending keys — that names the Vercel var still needing a value.
+// A URL env var is "unusable" for build purposes if it is blank OR is a bare
+// protocol with no host (e.g. "https://", "https:// ", "http://"). Both make
+// `new URL(value)` throw during `next build` → the whole build fails.
+function isUnusableUrlValue(v) {
+  if (typeof v !== 'string') return false;
+  const t = v.trim();
+  return t === '' || /^https?:\/\/$/i.test(t);
+}
+
+// 1) Neutralize blank / protocol-only URL-ish env vars so each library's own
+//    fallback applies. Logs the offending keys — that names the Vercel var
+//    still needing a real value.
 try {
   const blanked = [];
   for (const key of Object.keys(process.env)) {
-    if (key.includes('URL') && typeof process.env[key] === 'string' && process.env[key].trim() === '') {
+    if (key.includes('URL') && isUnusableUrlValue(process.env[key])) {
       blanked.push(key);
       delete process.env[key];
     }
   }
   if (blanked.length) {
-    console.warn('[build-url-guard] Neutralized blank URL env vars:', blanked.join(', '));
+    console.warn('[build-url-guard] Neutralized blank/protocol-only URL env vars:', blanked.join(', '));
   } else {
     console.warn('[build-url-guard] No blank URL env vars found.');
   }
@@ -43,22 +53,38 @@ try {
 try {
   const OriginalURL = global.URL;
   let warned = false;
+  const warnOnce = (input, reason) => {
+    if (warned) return;
+    warned = true;
+    console.warn(
+      '[build-url-guard] new URL(' + JSON.stringify(input) +
+      ') ' + reason + ' during build; using http://localhost:3000 fallback. Origin:\n' +
+      new Error().stack
+    );
+  };
   class GuardedURL extends OriginalURL {
     constructor(input, base) {
+      const noBase = base === undefined || base === null;
       const blank = input === '' || input === undefined || input === null;
-      if (blank && (base === undefined || base === null)) {
-        if (!warned) {
-          warned = true;
-          console.warn(
-            '[build-url-guard] new URL(' + JSON.stringify(input) +
-            ') intercepted during build; using http://localhost:3000 fallback. Origin:\n' +
-            new Error().stack
-          );
-        }
+      if (blank && noBase) {
+        warnOnce(input, 'intercepted (blank)');
         super('http://localhost:3000');
         return;
       }
-      super(input, base);
+      try {
+        super(input, base);
+      } catch (err) {
+        // A malformed URL from a mis-set build env var (e.g. "https://" or
+        // "https://<garbage>") must never crash `next build`. With no base to
+        // resolve against, fall back to localhost. Build-time only — real
+        // runtime values on Vercel are used directly, not through this guard.
+        if (noBase) {
+          warnOnce(input, 'was invalid');
+          super('http://localhost:3000');
+          return;
+        }
+        throw err;
+      }
     }
   }
   global.URL = GuardedURL;

@@ -1943,7 +1943,7 @@ export default function VoucherRequestPage() {
                 </div>
 
                 {/* Footer Action Bar */}
-                <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-sm border-t border-gray-100 pb-safe lg:left-64 z-10 shadow-lg">
+                <div className="sticky bottom-0 p-4 bg-white/95 backdrop-blur-sm border-t border-gray-100 pb-safe z-10 shadow-lg">
                     <div className="flex gap-3 max-w-5xl mx-auto">
                         {isApproverEditing ? (
                             <>

@@ -127,6 +127,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           title: request.title,
           description: request.description,
           status: request.status,
+          // Pass the raw metadata through so the client can render the
+          // reference-code badge, amount/currency, and — crucially — match on
+          // referenceCode when searching. Without this, `metadata` is undefined
+          // on the client and searching by a request's code returns nothing.
+          metadata: metadata,
           priority: metadata.priority || 'normal',
           category: metadata.category || 'General',
           type: metadata.type || metadata.request_type || 'approval',
