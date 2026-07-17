@@ -21,6 +21,7 @@ import {
 import { onCapexApproved, onCapexRejected, onCapexResubmitted, onCapexCancelled } from './capexTrackerHooks';
 import { autoCreatePettyCashFromTravelAuth } from './autoPettyCash';
 import { sendUserNotificationEmail, escapeHtml, appBaseUrl } from './notificationEmail';
+import { approvalLinkUrl } from './approvalLinkToken';
 import { getUserPreferences } from './userPreferences';
 import { getActiveDelegateFor } from './delegations';
 import { assistantCanActOn, fanoutToNotificationAssistants } from './assistantAssignments';
@@ -1581,14 +1582,16 @@ export class ApprovalEngine {
     });
 
     // Mirror the in-app task by email (gated by the approver's preferences).
+    // Magic link — signs the approver in from the email straight to the request.
     await sendUserNotificationEmail({
       userId: approverId,
+      actorUserId: senderId,
       kind: 'approval_tasks',
       subject: 'Approval required — The Circle',
       heading: 'A request is waiting for your approval',
       bodyHtml: `<p>${escapeHtml(message).replace(/\n/g, '<br>')}</p>`,
-      actionUrl: `/requests/${requestId}`,
-      actionLabel: 'Review Request',
+      actionUrl: approvalLinkUrl(appBaseUrl(), approverId, requestId),
+      actionLabel: 'Review & Sign',
     });
   }
   
@@ -1664,6 +1667,7 @@ export class ApprovalEngine {
     if (options?.sendEmail !== false) {
       await sendUserNotificationEmail({
         userId: requesterId,
+        actorUserId: options?.senderId,
         kind: 'request_updates',
         subject: `${options?.title || 'Request update'} — The Circle`,
         heading: options?.title || 'Request update',
@@ -1721,6 +1725,7 @@ export class ApprovalEngine {
 
     await sendUserNotificationEmail({
       userId: principalId,
+      actorUserId: approverId,
       kind: 'request_updates',
       subject: 'A request filed on your behalf was approved — The Circle',
       heading: 'Request approved on your behalf',

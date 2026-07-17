@@ -1,6 +1,8 @@
 import { supabaseAdmin } from './supabaseAdmin';
 import { getRequestTypeLabel } from './requestCode';
 import { fanoutToNotificationAssistants } from './assistantAssignments';
+import { sendUserNotificationEmail, escapeHtml, appBaseUrl } from './notificationEmail';
+import { approvalLinkUrl } from './approvalLinkToken';
 
 /**
  * Shared approval-step construction for form requests.
@@ -190,6 +192,35 @@ export async function buildAndNotifySteps(params: BuildStepsParams): Promise<Bui
       metadata: firstMetadata,
     });
   }
+
+  // Email the approver(s) whose step is ACTIVE now — derived from the step
+  // status so it can never diverge from who actually needs to act. For a
+  // sequential request that is exactly the first approver; only a genuine
+  // parallel request emails everyone. Sent as the requester (actorUserId) so it
+  // rides the delegated Graph transport. Preference-gated and non-fatal.
+  const activeApproverIds = requestSteps
+    .filter((s) => s.status === 'pending')
+    .map((s) => s.approver_user_id);
+  const stepWord = useParallelApprovals
+    ? `Parallel approval — ${approverIds.length} approvers`
+    : `Step 1 of ${approverIds.length}`;
+  const base = appBaseUrl();
+  await Promise.all(
+    activeApproverIds.map((approverId) =>
+      sendUserNotificationEmail({
+        userId: approverId,
+        actorUserId: creatorId,
+        kind: 'approval_tasks',
+        subject: `Approval required: ${title}`,
+        heading: 'A request is waiting for your approval',
+        bodyHtml: `<p>${escapeHtml(`${requesterName} has submitted a ${requestTypeLabel} request "${title}" for your approval. (${stepWord})`)}</p>`,
+        // Magic link — signs the approver in from the email and lands them on
+        // the request to sign, with no separate login.
+        actionUrl: approvalLinkUrl(base, approverId, requestId),
+        actionLabel: 'Review & Sign',
+      })
+    )
+  );
 
   // Stamp step-tracking metadata (merged over whatever is already stored).
   const { data: current } = await supabaseAdmin

@@ -11,6 +11,7 @@ import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
 import { calculateTollgatesForItinerary, getTollgateRouteInfo, TollgateRouteType } from '../../../lib/formConfig';
 import { SupportingDocuments, uploadSupportingDocuments, makeSupportingDoc, type SupportingDoc } from '../../../components/requests/SupportingDocuments';
 import { OnBehalfOfField, type OnBehalfOf } from '../../../components/requests/OnBehalfOfField';
+import ApproverSectionLoader from '../../../components/requests/ApproverSectionLoader';
 
 interface ItineraryRow {
     date: string;
@@ -243,7 +244,7 @@ export default function TravelAuthPage() {
         line_manager: '', functional_head: '', hrd: '', ceo: '',
     });
     const [showApproverDropdown, setShowApproverDropdown] = useState<string | null>(null);
-    const [loadingApproverResolution, setLoadingApproverResolution] = useState(false);
+    const [loadingApproverResolution, setLoadingApproverResolution] = useState(!isEditMode);
     const [autoResolvedRoles, setAutoResolvedRoles] = useState<Record<string, boolean>>({});
 
     // Emergency request state (for travel within 7 days)
@@ -617,7 +618,7 @@ export default function TravelAuthPage() {
     // Auto-resolve approvers from HRIMS organogram (only on new requests, not edits)
     useEffect(() => {
         const resolveApprovers = async () => {
-            if (!session?.user?.email || isEditMode) return;
+            if (!session?.user?.email || isEditMode) { setLoadingApproverResolution(false); return; }
             setLoadingApproverResolution(true);
             try {
                 console.log('[travel-auth] Resolving approvers for email:', session.user.email);
@@ -706,7 +707,7 @@ export default function TravelAuthPage() {
 
         if (!selectedApprovers.line_manager) errors.push('Please select an approver for Line Manager');
         if (!selectedApprovers.functional_head) errors.push('Please select an approver for Functional Head');
-        if (!selectedApprovers.hrd) errors.push('Please select an approver for HR Director');
+        if (!selectedApprovers.hrd) errors.push('Please select an approver for Chief Human Capital Officer');
         if (!selectedApprovers.ceo) errors.push('Please select an approver for CEO');
 
         return errors;
@@ -1541,7 +1542,7 @@ export default function TravelAuthPage() {
                         <div className="mt-6 pt-6 border-t border-gray-200">
                             <h4 className="font-semibold text-gray-700 uppercase text-sm mb-2">Allocation Cost to Unit</h4>
                             <p className="text-xs text-gray-500">
-                                The HR Director will allocate the cost across business units when approving this request.
+                                The Chief Human Capital Officer will allocate the cost across business units when approving this request.
                             </p>
                         </div>
                     </Card>
@@ -1563,15 +1564,11 @@ export default function TravelAuthPage() {
                         </h3>
                         <p className="text-sm text-text-secondary mb-4">Approvers are automatically assigned from the HRIMS organogram. If a role has no assigned user, you must manually select one.</p>
 
-                        {loadingApproverResolution && (
-                            <div className="mb-4 p-3 bg-primary-50 border border-primary-200 rounded-xl flex items-center gap-2">
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-500" />
-                                <span className="text-sm text-primary-700">Resolving approvers from HRIMS organogram...</span>
-                            </div>
-                        )}
-
                         {showApproverDropdown && <div className="fixed inset-0 z-10" onClick={() => setShowApproverDropdown(null)} />}
 
+                        {loadingApproverResolution ? (
+                            <ApproverSectionLoader rows={approvalRoles.length} />
+                        ) : (
                         <div className="space-y-4">
                             {approvalRoles.map((role, index) => {
                                 const selectedUserId = selectedApprovers[role.key];
@@ -1622,6 +1619,7 @@ export default function TravelAuthPage() {
                                 );
                             })}
                         </div>
+                        )}
                     </Card>
                 </div>
 

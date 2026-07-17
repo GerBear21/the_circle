@@ -12,6 +12,9 @@
 import { supabaseAdmin } from './supabaseAdmin';
 import { sendAppGraphMail, isGraphAppMailConfigured, AppMailAttachment } from './graphAppMail';
 import { sendEmail as sendResendEmail } from './email';
+import { sendGraphMail } from './graphMail';
+import { getValidMsAccessToken } from './msTokenStore';
+import { appBaseUrl, emailLogoUrl, brandedEmailShell } from './emailShell';
 import { getUserPreferences, UserPreferences } from './userPreferences';
 
 export type NotificationEmailKind =
@@ -29,9 +32,9 @@ const KIND_TO_PREF: Record<NotificationEmailKind, keyof UserPreferences> = {
   digest: 'weeklyDigest',
 };
 
-export function appBaseUrl(): string {
-  return (process.env.NEXTAUTH_URL || 'http://localhost:3000').replace(/\/+$/, '');
-}
+// Re-export the shared shell helpers so existing importers of this module
+// (approvalEngine, crons) keep working unchanged.
+export { appBaseUrl, emailLogoUrl, brandedEmailShell };
 
 /** Branded shell shared by all notification emails. */
 export function notificationEmailHtml(params: {
@@ -40,32 +43,7 @@ export function notificationEmailHtml(params: {
   actionUrl?: string | null;
   actionLabel?: string | null;
 }): string {
-  const button = params.actionUrl
-    ? `<table role="presentation" style="margin:28px 0"><tr><td>
-         <a href="${params.actionUrl}" style="display:inline-block;padding:12px 28px;background-color:#9A7545;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;border-radius:8px">
-           ${params.actionLabel || 'View in The Circle'}
-         </a>
-       </td></tr></table>`
-    : '';
-  return `
-    <div style="font-family:'Segoe UI',Arial,sans-serif;background-color:#f4f4f5;padding:32px 16px">
-      <div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">
-        <div style="background:#9A7545;padding:20px 32px">
-          <span style="color:#ffffff;font-size:18px;font-weight:700;letter-spacing:0.3px">The Circle</span>
-        </div>
-        <div style="padding:32px;color:#1f2937">
-          <h2 style="margin:0 0 12px;font-size:18px;color:#111827">${params.heading}</h2>
-          <div style="font-size:14px;line-height:1.6;color:#374151">${params.bodyHtml}</div>
-          ${button}
-        </div>
-        <div style="padding:16px 32px;background:#f9fafb;border-top:1px solid #e5e7eb">
-          <p style="margin:0;color:#9ca3af;font-size:12px">
-            Rainbow Tourism Group • The Circle Approval System.
-            You can change which emails you receive under My Settings → Notifications.
-          </p>
-        </div>
-      </div>
-    </div>`;
+  return brandedEmailShell(params);
 }
 
 async function resolveRecipient(userId?: string | null, email?: string | null): Promise<string | null> {
@@ -98,6 +76,15 @@ export async function sendUserNotificationEmail(params: {
   actionUrl?: string | null;
   actionLabel?: string | null;
   attachments?: AppMailAttachment[];
+  /**
+   * The user who triggered this notification (the approver who acted, the
+   * requester who submitted, the admin who created a delegation…). Used as the
+   * delegated sender when neither the service mailbox nor Resend is configured,
+   * so notifications still deliver in environments that only have the same
+   * delegated Graph access the e-sign flow uses. Falls back to the recipient's
+   * own token (e.g. cron reminders, which have no actor).
+   */
+  actorUserId?: string | null;
 }): Promise<{ sent: boolean; reason?: string }> {
   try {
     const prefs = await getUserPreferences(params.userId);
@@ -121,25 +108,71 @@ export async function sendUserNotificationEmail(params: {
       actionLabel: params.actionLabel,
     });
 
+    // Transport chain, most-reliable-first.
+    //
+    // When a notification has an actor (the approver/requester/admin who
+    // triggered it) we send via THEIR delegated Graph mailbox FIRST — the exact
+    // transport the e-sign invites use, which works wherever sign-in works and
+    // needs no separate application-level Mail.Send admin consent. This is the
+    // key fix: application ("service mailbox") Graph mail requires a distinct
+    // admin consent that is easy to miss, so relying on it alone silently drops
+    // approval/update emails even when GRAPH_MAIL_SENDER is set. The service
+    // mailbox and Resend remain — and are the primary path for actor-less mail
+    // (cron reminders/digests) and for attachments. A final delegated attempt
+    // from the recipient's own mailbox is the last resort for cron.
+    type Attempt = { label: string; run: () => Promise<boolean> };
+    const attempts: Attempt[] = [];
+
+    const delegatedAttempt = (senderId: string, label: string): Attempt => ({
+      label,
+      run: async () => {
+        const token = await getValidMsAccessToken(senderId);
+        if (!token) return false;
+        await sendGraphMail({
+          accessToken: token,
+          to: { email: to },
+          subject: params.subject,
+          html,
+          // System notifications shouldn't clutter the sender's Sent Items.
+          saveToSentItems: false,
+        });
+        return true;
+      },
+    });
+
+    if (params.actorUserId) {
+      attempts.push(delegatedAttempt(params.actorUserId, 'graph_delegated_actor'));
+    }
     if (isGraphAppMailConfigured()) {
-      const res = await sendAppGraphMail({
-        to,
-        subject: params.subject,
-        html,
-        attachments: params.attachments,
+      attempts.push({
+        label: 'graph_app_mail',
+        run: async () =>
+          (await sendAppGraphMail({ to, subject: params.subject, html, attachments: params.attachments })).success,
       });
-      if (res.success) return { sent: true };
-      console.warn('notificationEmail: Graph send failed, trying Resend:', res.error);
     }
-
     if (process.env.RESEND_API_KEY) {
-      // Resend fallback (no attachment support wired here — the body carries
-      // download links, which is enough when Graph mail is unavailable).
-      const res = await sendResendEmail({ to, subject: params.subject, html });
-      return { sent: !!res.success, reason: res.success ? undefined : res.error };
+      attempts.push({
+        label: 'resend',
+        run: async () => !!(await sendResendEmail({ to, subject: params.subject, html })).success,
+      });
+    }
+    if (params.userId && params.userId !== params.actorUserId) {
+      attempts.push(delegatedAttempt(params.userId, 'graph_delegated_recipient'));
     }
 
-    console.warn('notificationEmail: no email transport configured (GRAPH_MAIL_SENDER or RESEND_API_KEY). Email not sent.');
+    for (const attempt of attempts) {
+      try {
+        if (await attempt.run()) return { sent: true, reason: attempt.label };
+        console.warn(`notificationEmail: transport ${attempt.label} did not deliver to ${to}`);
+      } catch (e: any) {
+        console.warn(`notificationEmail: transport ${attempt.label} threw for ${to}:`, e?.message || e);
+      }
+    }
+
+    console.warn(
+      `notificationEmail: all transports failed for ${to} (tried: ${attempts.map((a) => a.label).join(', ') || 'none'}). ` +
+        'Need a delegated Graph token for the actor/recipient, GRAPH_MAIL_SENDER (+ application Mail.Send admin consent), or RESEND_API_KEY.'
+    );
     return { sent: false, reason: 'not_configured' };
   } catch (e: any) {
     console.error('notificationEmail: send threw (non-fatal):', e);

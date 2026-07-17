@@ -126,7 +126,7 @@ Post-implementation, the target process is:
 |---|---|---|
 | **Requester (Standard User)** | Initiates requests; tracks own request status; withdraws draft requests. | Creates requests; views own requests; responds to information requests; downloads approved archives. |
 | **Approver** | Reviews requests assigned to their workflow step; approves or rejects with comment and signature; may delegate authority. | Receives notifications; authenticates (risk-appropriate); signs and submits decisions; manages delegations. |
-| **HR Director / Finance Approver** | Responsible for cost allocation decisions on travel and accommodation requests; holds sensitive departmental approval authority. | Specific step in travel/accommodation workflows; high-risk authentication required; allocates cost centres. |
+| **chco / Finance Approver** | Responsible for cost allocation decisions on travel and accommodation requests; holds sensitive departmental approval authority. | Specific step in travel/accommodation workflows; high-risk authentication required; allocates cost centres. |
 | **System Administrator** | Manages users, roles, and permissions; configures workflows and form templates; monitors system settings. | Full access to `/admin` panel; manages `roles`, `user_roles`, `workflow_definitions`, `system_settings`. |
 | **Workflow Designer** | Designs and maintains workflow templates and form schemas stored in the database. | Accesses workflow and form template management APIs; configures step types, approver resolution, conditions. |
 | **Department Head** | May be dynamically resolved as an approver by the workflow engine for departmental requests. | Approver role; receives targeted notifications; authenticates per risk level. |
@@ -165,7 +165,7 @@ The following capabilities are within scope for the current system:
 | 15 | CAPEX tracker (capital expenditure lifecycle: awaiting funding → approved → complete) | Implemented |
 | 16 | E-signature workflow (sign existing PDFs) | Implemented |
 | 17 | Dashboard with KPI metrics and SLA compliance reporting | Implemented |
-| 18 | Cost allocation for travel/accommodation requests (HR Director step) | Implemented |
+| 18 | Cost allocation for travel/accommodation requests (CHCO step) | Implemented |
 | 19 | Reference code generation per request type | Implemented |
 | 20 | Archived document storage (Supabase Storage) | Implemented |
 | 21 | Admin panel: user management, system settings, RBAC management | Implemented |
@@ -678,7 +678,7 @@ The following measurable success criteria are defined for The Circle:
 | **A-09** | The `system_settings` table contains per-organisation configuration for elevation TTL; the default (15 minutes) is acceptable to the business. | `getElevationTtlMinutes()` reads from `system_settings` with a 15-minute default fallback. | Low — configurable per org; can be adjusted without code changes. |
 | **A-10** | The `NEXTAUTH_SECRET` environment variable is managed as a secret (not committed to version control) and is rotated periodically. | Standard NextAuth requirement; not verifiable from code alone. | **HIGH** — if this secret is compromised, all session and step-up token security collapses. |
 | **A-11** | Electronic signature data (canvas drawings, saved images) stored in Supabase Storage is not accessible to unauthenticated users. | Supabase Storage bucket policies are not visible from the application codebase. | HIGH — if buckets are public, signature data is exposed. |
-| **A-12** | The travel authorisation cost allocation step (HR Director) is always present as the final step in the travel_authorization workflow template. | Code in `action.ts` includes special handling for HR Director cost allocation in the `travel_authorization` request type. | Low — direct code observation; confirmed by special handling logic. |
+| **CHCOA-12** | The travel authorisation cost allocation step (CHCO) is always present as the final step in the travel_authorization workflow template. | Code in `action.ts` includes special handling for  cost allocation in the `travel_authorization` request type. | Low — direct code observation; confirmed by special handling logic. |
 
 ---
 

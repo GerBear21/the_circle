@@ -10,6 +10,7 @@ import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
 import { calculateTollgatesForItinerary, getTollgateRouteInfo, TollgateRouteType } from '../../../lib/formConfig';
 import { SupportingDocuments, uploadSupportingDocuments, makeSupportingDoc, type SupportingDoc } from '../../../components/requests/SupportingDocuments';
 import { OnBehalfOfField, type OnBehalfOf } from '../../../components/requests/OnBehalfOfField';
+import ApproverSectionLoader from '../../../components/requests/ApproverSectionLoader';
 
 interface SelectedBusinessUnit {
     instanceId: string; // Unique ID for each booking instance (allows same hotel multiple times)
@@ -131,7 +132,7 @@ export default function ExternalCompBookingPage() {
     const approvalRoles = [
         { key: 'line_manager', label: 'Line Manager', description: 'Recommendation' },
         { key: 'functional_head', label: 'Functional Head', description: 'Functional Approval' },
-        { key: 'hrd', label: 'HR Director', description: 'HR Director Approval' },
+        { key: 'hrd', label: 'Chief Human Capital Officer', description: 'CHCO Approval' },
         { key: 'ceo', label: 'CEO', description: 'Authorisation' },
     ];
     const [users, setUsers] = useState<Array<{ id: string; display_name: string; email: string; job_title?: string }>>([]);
@@ -149,7 +150,7 @@ export default function ExternalCompBookingPage() {
         ceo: '',
     });
     const [showApproverDropdown, setShowApproverDropdown] = useState<string | null>(null);
-    const [loadingApproverResolution, setLoadingApproverResolution] = useState(false);
+    const [loadingApproverResolution, setLoadingApproverResolution] = useState(!isEditMode);
     const [autoResolvedRoles, setAutoResolvedRoles] = useState<Record<string, boolean>>({});
 
     // AA Rates Calculator state (simplified)
@@ -549,7 +550,7 @@ export default function ExternalCompBookingPage() {
     // Auto-resolve approvers from HRIMS organogram (only on new requests, not edits)
     useEffect(() => {
         const resolveApprovers = async () => {
-            if (!session?.user?.email || isEditMode) return;
+            if (!session?.user?.email || isEditMode) { setLoadingApproverResolution(false); return; }
             setLoadingApproverResolution(true);
             try {
                 const response = await fetch(`/api/hrims/resolve-approvers?email=${encodeURIComponent(session.user.email)}&formType=hotel-booking`);
@@ -685,8 +686,8 @@ export default function ExternalCompBookingPage() {
         if (originalApprovers) {
             const roleLabels: Record<string, string> = {
                 hod: 'HOD Approver',
-                hr_director: 'HR Director Approver',
-                finance_director: 'Finance Director Approver',
+                hr_director: 'Chief Human Capital Officer Approver',
+                finance_director: 'Chief Finance Officer Approver',
                 ceo: 'CEO Approver',
             };
             for (const role of Object.keys(roleLabels)) {
@@ -921,7 +922,7 @@ export default function ExternalCompBookingPage() {
             errors.push('Please select an approver for Functional Head');
         }
         if (!selectedApprovers.hrd) {
-            errors.push('Please select an approver for HR Director');
+            errors.push('Please select an approver for Chief Human Capital Officer');
         }
         if (!selectedApprovers.ceo) {
             errors.push('Please select an approver for CEO');
@@ -2092,7 +2093,7 @@ export default function ExternalCompBookingPage() {
                                     <div className="mt-6 pt-6 border-t border-gray-200">
                                         <h4 className="font-semibold text-gray-700 uppercase text-sm mb-2">Allocation Cost to Unit</h4>
                                         <p className="text-xs text-gray-500">
-                                            The HR Director will allocate the cost across business units when approving this request.
+                                            The Chief Human Capital Officer will allocate the cost across business units when approving this request.
                                         </p>
                                     </div>
                                 </div>
@@ -2112,12 +2113,7 @@ export default function ExternalCompBookingPage() {
                             Approvers are automatically assigned from the HRIMS organogram. If a role has no assigned user, you must manually select one.
                         </p>
 
-                        {loadingApproverResolution && (
-                            <div className="mb-4 p-3 bg-primary-50 border border-primary-200 rounded-xl flex items-center gap-2">
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-500" />
-                                <span className="text-sm text-primary-700">Resolving approvers from HRIMS organogram...</span>
-                            </div>
-                        )}
+                        {loadingApproverResolution && <ApproverSectionLoader rows={approvalRoles.length} />}
 
                         {/* Click outside to close any dropdown */}
                         {showApproverDropdown && (
@@ -2128,7 +2124,7 @@ export default function ExternalCompBookingPage() {
                         )}
 
                         {/* Approval Roles */}
-                        <div className="space-y-4">
+                        <div className={`space-y-4 ${loadingApproverResolution ? 'hidden' : ''}`}>
                             {approvalRoles.map((role, index) => {
                                 const selectedUserId = selectedApprovers[role.key];
                                 const selectedUser = selectedUserId ? users.find(u => u.id === selectedUserId) : null;

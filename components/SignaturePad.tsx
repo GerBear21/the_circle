@@ -28,6 +28,8 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
     const [activeTab, setActiveTab] = useState<'draw' | 'upload' | 'mobile'>('draw');
     const [currentSignature, setCurrentSignature] = useState<string | null>(initialUrl || null);
     const sigCanvas = useRef<SignatureCanvas>(null);
+    // Debounce timer so we autosave once the user pauses drawing, not on every stroke.
+    const drawTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Keep the canvas backing store matched to its CSS size so strokes land
     // exactly under the pen/finger.
@@ -104,27 +106,21 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
     }, [isPolling, sessionId, onSave]);
 
     const clear = () => {
+        if (drawTimer.current) clearTimeout(drawTimer.current);
         sigCanvas.current?.clear();
         setCurrentSignature(null);
+        setStatusMessage('');
     };
 
-    const save = async () => {
-        if (activeTab === 'upload') {
-            // Upload logic already handled active file selection? 
-            // We need to implement the upload logic here if not already done
-            return;
-        }
+    // Clean up any pending autosave timer on unmount.
+    useEffect(() => () => { if (drawTimer.current) clearTimeout(drawTimer.current); }, []);
 
-        if (sigCanvas.current?.isEmpty()) return;
-
-        // Use getCanvas instead of getTrimmedCanvas to avoid trim_canvas dependency issue
-        const canvas = sigCanvas.current?.getCanvas();
-        if (!canvas) return;
-        const dataURL = canvas.toDataURL('image/png');
-        if (!dataURL) return;
-
+    // Persist a signature image to storage. `keepCanvas` leaves the drawing
+    // surface editable (used for the live autosave while drawing) instead of
+    // swapping to the saved-image preview.
+    const persistSignature = async (dataURL: string, opts?: { keepCanvas?: boolean }) => {
         try {
-            setStatusMessage('Saving...');
+            setStatusMessage('Saving…');
             const res = await fetch('/api/signature/upload', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -132,9 +128,9 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
             });
             const data = await res.json();
             if (data.url) {
-                setCurrentSignature(data.url);
+                if (!opts?.keepCanvas) setCurrentSignature(data.url);
                 if (onSave) onSave(data.url);
-                setStatusMessage('Signature saved successfully.');
+                setStatusMessage('Signature saved automatically.');
             } else {
                 setStatusMessage('Failed to save signature.');
             }
@@ -144,6 +140,19 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
         }
     };
 
+    // Called by the canvas on every stroke end — debounced so we save once the
+    // user pauses, keeping the canvas editable so they can keep signing.
+    const handleDrawEnd = () => {
+        if (drawTimer.current) clearTimeout(drawTimer.current);
+        drawTimer.current = setTimeout(() => {
+            if (activeTab !== 'draw') return;
+            if (!sigCanvas.current || sigCanvas.current.isEmpty()) return;
+            const canvas = sigCanvas.current.getCanvas();
+            const dataURL = canvas?.toDataURL('image/png');
+            if (dataURL) void persistSignature(dataURL, { keepCanvas: true });
+        }, 700);
+    };
+
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -151,25 +160,7 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
         const reader = new FileReader();
         reader.onload = async (event) => {
             const base64 = event.target?.result as string;
-            try {
-                setStatusMessage('Saving...');
-                const res = await fetch('/api/signature/upload', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ image: base64 }),
-                });
-                const data = await res.json();
-                if (data.url) {
-                    setCurrentSignature(data.url);
-                    if (onSave) onSave(data.url);
-                    setStatusMessage('Signature saved successfully.');
-                } else {
-                    setStatusMessage('Failed to save signature.');
-                }
-            } catch (err) {
-                console.error('Upload error', err);
-                setStatusMessage('Failed to save signature.');
-            }
+            if (base64) await persistSignature(base64);
         };
         reader.readAsDataURL(file);
     };
@@ -220,6 +211,7 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
                             ) : (
                                 <SignatureCanvas
                                     ref={sigCanvas}
+                                    onEnd={handleDrawEnd}
                                     canvasProps={{
                                         className: 'w-full h-40 cursor-crosshair rounded-lg',
                                         // Stop touch scrolling from hijacking pen/finger strokes.
@@ -233,12 +225,10 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
                             )}
                         </div>
                         {!currentSignature && (
-                            <div className="flex justify-end gap-2">
+                            <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs text-gray-400">Your signature saves automatically as you draw.</span>
                                 <button onClick={clear} className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-md transition-colors">
                                     Clear
-                                </button>
-                                <button onClick={save} className="px-3 py-1.5 text-sm bg-brand-600 text-white rounded-md hover:bg-brand-700 transition-colors shadow-sm">
-                                    Save Signature
                                 </button>
                             </div>
                         )}

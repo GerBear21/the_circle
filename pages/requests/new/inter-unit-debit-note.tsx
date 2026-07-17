@@ -8,6 +8,7 @@ import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import { useUnsavedChangesPrompt, useFormAutosave } from '../../../hooks';
 import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
 import { OnBehalfOfField, type OnBehalfOf } from '../../../components/requests/OnBehalfOfField';
+import ApproverSectionLoader from '../../../components/requests/ApproverSectionLoader';
 
 // Business units that can issue or receive an inter-unit debit note. Mirrors
 // the cost-allocation list used elsewhere in the finance forms.
@@ -97,7 +98,7 @@ export default function InterUnitDebitNoteRequestPage() {
         from_accountant: '', from_finance_manager: '', to_accountant: '',
     });
     const [showApproverDropdown, setShowApproverDropdown] = useState<string | null>(null);
-    const [loadingApproverResolution, setLoadingApproverResolution] = useState(false);
+    const [loadingApproverResolution, setLoadingApproverResolution] = useState(!isEditMode);
     const [autoResolvedRoles, setAutoResolvedRoles] = useState<Record<string, boolean>>({});
 
     // Receiving Accountant search — pulls from app_users (people who have logged into the system).
@@ -227,7 +228,7 @@ export default function InterUnitDebitNoteRequestPage() {
     // receiving accountant follows the selected hotel/business unit.
     useEffect(() => {
         const resolveApprovers = async () => {
-            if (!session?.user?.email || isEditMode) return;
+            if (!session?.user?.email || isEditMode) { setLoadingApproverResolution(false); return; }
             setLoadingApproverResolution(true);
             try {
                 const params = new URLSearchParams({
@@ -1229,16 +1230,11 @@ export default function InterUnitDebitNoteRequestPage() {
                             Approvers are auto-assigned from HRIMS; you can override manually if needed.
                         </p>
 
-                        {loadingApproverResolution && (
-                            <div className="mb-4 p-3 bg-primary-50 border border-primary-200 rounded-xl flex items-center gap-2">
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-500" />
-                                <span className="text-sm text-primary-700">Resolving approvers from HRIMS organogram...</span>
-                            </div>
-                        )}
+                        {loadingApproverResolution && <ApproverSectionLoader rows={approvalRoles.length} />}
 
                         {showApproverDropdown && <div className="fixed inset-0 z-10" onClick={() => setShowApproverDropdown(null)} />}
 
-                        <div className="space-y-4">
+                        <div className={`space-y-4 ${loadingApproverResolution ? 'hidden' : ''}`}>
                             {approvalRoles.map((role, index) => {
                                 const selectedUserId = selectedApprovers[role.key];
                                 const selectedUser = selectedUserId ? users.find(u => u.id === selectedUserId) : null;

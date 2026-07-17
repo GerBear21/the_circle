@@ -75,7 +75,7 @@ function num(value: any): number {
 const APPROVAL_ROLES: Array<{ key: string; label: string; description: string }> = [
     { key: 'line_manager', label: 'Line Manager', description: 'Recommendation' },
     { key: 'functional_head', label: 'Functional Head', description: 'Functional Approval' },
-    { key: 'hrd', label: 'HR Director', description: 'HR Director Approval' },
+    { key: 'hrd', label: 'Chief Human Capital Officer', description: 'CHCO Approval' },
     { key: 'ceo', label: 'CEO', description: 'Authorisation' },
 ];
 
@@ -300,25 +300,7 @@ export function buildTravelAuthPreviewSections(input: TravelAuthPreviewInput): P
                 </table>
             ),
         },
-        // 4. Hotel reservation placeholder (the form has an inline note here).
-        {
-            title: 'Hotel Reservation',
-            content: (
-                <table style={tableStyle}>
-                    <tbody>
-                        <tr>
-                            <td style={labelCellStyle}>Hotel Reservation Details</td>
-                            <td style={cellStyle}>
-                                <span style={{ color: '#666', fontStyle: 'italic' }}>
-                                    Submit a separate Hotel Booking request if accommodation is required.
-                                </span>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            ),
-        },
-        // 5. Travel budget.
+        // 4. Travel budget.
         {
             title: 'Travel Budget',
             content: (

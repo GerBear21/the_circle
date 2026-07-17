@@ -9,6 +9,7 @@ import type { PreviewSection, DocumentHeader } from '../../../components/ui';
 import { useUnsavedChangesPrompt, useFormAutosave } from '../../../hooks';
 import { useToast } from '../../../components/ui/ToastProvider';
 import { OnBehalfOfField, type OnBehalfOf } from '../../../components/requests/OnBehalfOfField';
+import ApproverSectionLoader from '../../../components/requests/ApproverSectionLoader';
 
 interface DocumentMetadata {
   file: File;
@@ -67,7 +68,7 @@ export default function NewCapexRequestPage() {
   });
   const [showApproverDropdown, setShowApproverDropdown] = useState<string | null>(null);
   const [useParallelApprovals, setUseParallelApprovals] = useState(false);
-  const [loadingApproverResolution, setLoadingApproverResolution] = useState(false);
+  const [loadingApproverResolution, setLoadingApproverResolution] = useState(true);
   const [autoResolvedRoles, setAutoResolvedRoles] = useState<Record<string, boolean>>({});
   const [selectedWatchers, setSelectedWatchers] = useState<Array<{ id: string; addedBy?: { id: string; name: string; isApprover: boolean }; addedAt?: string }>>([]);
   const [watcherSearch, setWatcherSearch] = useState('');
@@ -541,7 +542,7 @@ export default function NewCapexRequestPage() {
   // Auto-resolve approvers from HRIMS organogram (only on new requests, not edits)
   useEffect(() => {
     const resolveApprovers = async () => {
-      if (!session?.user?.email || isEditMode) return;
+      if (!session?.user?.email || isEditMode) { setLoadingApproverResolution(false); return; }
       setLoadingApproverResolution(true);
       try {
         const response = await fetch(
@@ -2472,7 +2473,8 @@ export default function NewCapexRequestPage() {
           </div> */}
 
           {/* Role-based Approver Selection */}
-          <div className="space-y-4">
+          {!isEditMode && loadingApproverResolution && <ApproverSectionLoader rows={approvalRoles.length} />}
+          <div className={`space-y-4 ${!isEditMode && loadingApproverResolution ? 'hidden' : ''}`}>
             {approvalRoles.map((role, index) => {
               const selectedUserId = selectedApprovers[role.key];
               const selectedUser = users.find(u => u.id === selectedUserId);

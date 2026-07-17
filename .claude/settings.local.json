@@ -151,7 +151,23 @@
       "Bash(node -e ' *)",
       "Bash(NEXTAUTH_URL='' NEXTAUTH_SECRET=placeholder NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder SUPABASE_URL=https://placeholder.supabase.co SUPABASE_SERVICE_ROLE_KEY=placeholder AZURE_CLIENT_ID=placeholder AZURE_CLIENT_SECRET=placeholder AZURE_TENANT=common HRIMS_SUPABASE_URL=https://placeholder.supabase.co HRIMS_SUPABASE_SERVICE_ROLE_KEY=placeholder npm run build)",
       "Bash(NODE_OPTIONS='--require ./trace-url.js' NEXTAUTH_URL='' NEXTAUTH_SECRET=placeholder NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder SUPABASE_URL=https://placeholder.supabase.co SUPABASE_SERVICE_ROLE_KEY=placeholder AZURE_CLIENT_ID=placeholder AZURE_CLIENT_SECRET=placeholder AZURE_TENANT=common HRIMS_SUPABASE_URL=https://placeholder.supabase.co HRIMS_SUPABASE_SERVICE_ROLE_KEY=placeholder npm run build)",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Bash(grep -n \"isEditMode =\\\\|loadingApproverResolution, setLoadingApproverResolution\\\\] = useState\\\\|session?.user?.email || isEditMode\\) return\\\\|<div className=\\\\\"space-y-4\\\\\">\\\\s*$\" inter-unit-credit-note.tsx)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(echo \"TSC EXIT: $?\")",
+      "Bash(npx eslint *)",
+      "Bash(python -c \"import pdfplumber, sys; print\\('pdfplumber ok'\\)\")",
+      "Bash(cd /tmp)",
+      "Bash(python -)",
+      "Bash(grep -rlnP \"[\\\\x{1F000}-\\\\x{1FAFF}\\\\x{2600}-\\\\x{27BF}\\\\x{2708}\\\\x{2705}\\\\x{274C}\\\\x{23F0}\\\\x{2709}]\" lib/email.ts lib/notificationEmail.ts lib/graphMail.ts lib/graphAppMail.ts lib/emailShell.ts pages/api/esign/ pages/api/requests/[id]/cash-receipt.ts lib/voucherFulfilment.ts)",
+      "Bash(echo \"--- exit $? \\(empty above = no emoji\\) ---\")",
+      "Read(//c/Users/GERALD~1.NDO/AppData/Local/Temp/claude/C--Users-Geraldine-Ndoro-the-circle/2b242d28-3cba-4808-91ef-39d830bbdee1/scratchpad/**)",
+      "Bash(node gen.cjs)",
+      "Bash(python -m http.server 8791 --bind 127.0.0.1)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:8791/sample-travel.pdf)",
+      "Bash(grep -n \"fetch\\('/api/requests\\\\|fetch\\(\\\\`/api/requests\\\\|method: 'POST'\\\\|/submit\\\\|performSubmit\\\\|from-workflow\" pages/requests/new/travel-auth.tsx)",
+      "Bash(echo \"TSC: $?\")",
+      "Bash(NEXTAUTH_SECRET=test-secret-123 node -e ' *)"
     ]
   }
 }

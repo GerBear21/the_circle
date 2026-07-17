@@ -11,7 +11,7 @@ interface ResolvedApprover {
   displayName: string;
   email: string;
   positionTitle: string;
-  source: 'organogram_chain' | 'position_title';
+  source: 'organogram_chain' | 'position_title' | 'circle_profile';
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -143,6 +143,46 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         positionTitle: result.position.position_title,
         source: 'position_title',
       };
+    }
+
+    // Helper: resolve the requestor's line manager from their Circle profile.
+    // Used when the requestor isn't in HRIMS (Azure-AD-only joiner) so their
+    // manually-chosen "reports to" still populates the Line Manager step. Once
+    // they exist in HRIMS the organogram chain resolves this instead.
+    async function resolveCircleLineManager(): Promise<ResolvedApprover | null> {
+      const { data: me } = await supabaseAdmin
+        .from('app_users')
+        .select('reports_to_user_id')
+        .eq('organization_id', organizationId)
+        .ilike('email', email as string)
+        .maybeSingle();
+
+      if (!me?.reports_to_user_id) return null;
+
+      const { data: mgr } = await supabaseAdmin
+        .from('app_users')
+        .select('id, display_name, email, job_title')
+        .eq('id', me.reports_to_user_id)
+        .maybeSingle();
+
+      if (!mgr) return null;
+
+      return {
+        userId: mgr.id,
+        displayName: mgr.display_name,
+        email: mgr.email,
+        positionTitle: mgr.job_title || 'Line Manager',
+        source: 'circle_profile',
+      };
+    }
+
+    // Helper: try several position titles concurrently and return the
+    // highest-priority match (array order = priority). Running the fallback
+    // variants in parallel instead of sequentially is the main latency win —
+    // a role with four title variants used to cost four serial round-trips.
+    async function resolveFirstPositionTitle(titles: string[]): Promise<ResolvedApprover | null> {
+      const results = await Promise.all(titles.map((t) => resolveByPositionTitle(t)));
+      return results.find((r) => r) || null;
     }
 
     // Helper: build a resolved approver from an HRIMS employee
@@ -283,41 +323,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       // HRD = find by position title.
       // 2026 organogram: "HR Director" is now "Chief Human Capital Officer".
-      // Search the new title first, fall back to the legacy titles.
-      approvers.hrd = await resolveByPositionTitle('Chief Human Capital Officer');
+      // Search the new title first, fall back to the legacy titles. HRD and CEO
+      // are independent of each other and of the organogram chain above, so
+      // resolve them (and their title variants) concurrently.
+      const [hrd, ceo] = await Promise.all([
+        resolveFirstPositionTitle([
+          'Chief Human Capital Officer',
+          'Human Resources Director',
+          'HR Director',
+          'Director of Human Resources',
+        ]),
+        resolveFirstPositionTitle(['CEO', 'Chief Executive Officer']),
+      ]);
+      approvers.hrd = hrd;
+      approvers.ceo = ceo;
 
-      // CEO = find by position title
-      approvers.ceo = await resolveByPositionTitle('CEO');
-
-      // Fallback title searches for HRD
-      if (!approvers.hrd) {
-        approvers.hrd = await resolveByPositionTitle('Human Resources Director');
-      }
-      if (!approvers.hrd) {
-        approvers.hrd = await resolveByPositionTitle('HR Director');
-      }
-      if (!approvers.hrd) {
-        approvers.hrd = await resolveByPositionTitle('Director of Human Resources');
-      }
-
-      // Fallback title searches for CEO
-      if (!approvers.ceo) {
-        approvers.ceo = await resolveByPositionTitle('Chief Executive Officer');
+      // Line Manager fallback: if the requestor isn't in HRIMS (so the
+      // organogram chain above couldn't run), use who they told us they report
+      // to during onboarding, stored on their Circle profile.
+      if (!approvers.line_manager) {
+        approvers.line_manager = await resolveCircleLineManager();
+        if (approvers.line_manager) {
+          debug.push(`OK: Line Manager resolved from Circle profile: ${approvers.line_manager.displayName}`);
+        }
       }
 
     } else if (formType === 'capex') {
-      // Finance Manager
-      approvers.finance_manager = await resolveByPositionTitle('Finance Manager');
-      if (!approvers.finance_manager) {
-        approvers.finance_manager = await resolveByPositionTitle('Accountant');
-      }
-
       // Head of Department — resolve the head of the requestor's own department.
       // Resolution order:
       //   1. departments.department_head_id (authoritative HRIMS source)
       //   2. Organogram positions tagged with department_id whose title looks like a head
       //   3. Walk up the requestor's position chain for a head-like title (skipping direct line manager)
-      {
+      const resolveDepartmentHead = async (): Promise<ResolvedApprover | null> => {
         const { data: requestorEmp } = await hrimsClient
           .from('employees')
           .select('id, first_name, last_name, email, current_position_id, department_id')
@@ -408,80 +445,53 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           }
         }
 
-        approvers.general_manager = resolved;
-      }
+        return resolved;
+      };
 
-      // Procurement Manager
-      approvers.procurement_manager = await resolveByPositionTitle('Procurement Manager');
-      if (!approvers.procurement_manager) {
-        approvers.procurement_manager = await resolveByPositionTitle('Head of Procurement');
-      }
-
-      // Corporate Head of Department
-      approvers.corporate_hod = await resolveByPositionTitle('Corporate Head of Department');
-      if (!approvers.corporate_hod) {
-        approvers.corporate_hod = await resolveByPositionTitle('Head of Department');
-      }
-
-      // Projects Manager
-      approvers.projects_manager = await resolveByPositionTitle('Projects Manager');
-      if (!approvers.projects_manager) {
-        approvers.projects_manager = await resolveByPositionTitle('Project Manager');
-      }
-
-      // Managing Director — 2026 organogram: the MD role is now "Chief Operating Officer".
-      approvers.managing_director = await resolveByPositionTitle('Chief Operating Officer');
-      if (!approvers.managing_director) {
-        approvers.managing_director = await resolveByPositionTitle('COO');
-      }
-      if (!approvers.managing_director) {
-        approvers.managing_director = await resolveByPositionTitle('Managing Director');
-      }
-      if (!approvers.managing_director) {
-        approvers.managing_director = await resolveByPositionTitle('MD');
-      }
-
-      // Finance Director — 2026 organogram: now "Chief Finance Officer".
-      approvers.finance_director = await resolveByPositionTitle('Chief Finance Officer');
-      if (!approvers.finance_director) {
-        approvers.finance_director = await resolveByPositionTitle('CFO');
-      }
-      if (!approvers.finance_director) {
-        approvers.finance_director = await resolveByPositionTitle('Finance Director');
-      }
-      if (!approvers.finance_director) {
-        approvers.finance_director = await resolveByPositionTitle('Director of Finance');
-      }
-
-      // CEO
-      approvers.ceo = await resolveByPositionTitle('CEO');
-      if (!approvers.ceo) {
-        approvers.ceo = await resolveByPositionTitle('Chief Executive Officer');
-      }
+      // Every capex approver is independent, so resolve them all concurrently
+      // (each title variant list resolves its own fallbacks in parallel too).
+      const [
+        finance_manager,
+        general_manager,
+        procurement_manager,
+        corporate_hod,
+        projects_manager,
+        managing_director,
+        finance_director,
+        capexCeo,
+      ] = await Promise.all([
+        resolveFirstPositionTitle(['Finance Manager', 'Accountant']),
+        resolveDepartmentHead(),
+        resolveFirstPositionTitle(['Procurement Manager', 'Head of Procurement']),
+        resolveFirstPositionTitle(['Corporate Head of Department', 'Head of Department']),
+        resolveFirstPositionTitle(['Projects Manager', 'Project Manager']),
+        resolveFirstPositionTitle(['Chief Operating Officer', 'COO', 'Managing Director', 'MD']),
+        resolveFirstPositionTitle(['Chief Finance Officer', 'CFO', 'Finance Director', 'Director of Finance']),
+        resolveFirstPositionTitle(['CEO', 'Chief Executive Officer']),
+      ]);
+      approvers.finance_manager = finance_manager;
+      approvers.general_manager = general_manager;
+      approvers.procurement_manager = procurement_manager;
+      approvers.corporate_hod = corporate_hod;
+      approvers.projects_manager = projects_manager;
+      approvers.managing_director = managing_director;
+      approvers.finance_director = finance_director;
+      approvers.ceo = capexCeo;
 
     } else if (formType === 'voucher') {
-      // Commercial Director — 2026 organogram: now "Chief Commercial Officer".
-      approvers.commercial_director = await resolveByPositionTitle('Chief Commercial Officer');
-
-      // CEO = find by position title
-      approvers.ceo = await resolveByPositionTitle('CEO');
-
-      // Fallback title searches
-      if (!approvers.commercial_director) {
-        approvers.commercial_director = await resolveByPositionTitle('Commercial Director');
-      }
-      if (!approvers.commercial_director) {
-        approvers.commercial_director = await resolveByPositionTitle('Director of Commercial');
-      }
-      if (!approvers.ceo) {
-        approvers.ceo = await resolveByPositionTitle('Chief Executive Officer');
-      }
+      // Commercial Director + CEO are independent — resolve concurrently.
+      const [commercial_director, voucherCeo] = await Promise.all([
+        resolveFirstPositionTitle(['Chief Commercial Officer', 'Commercial Director', 'Director of Commercial']),
+        resolveFirstPositionTitle(['CEO', 'Chief Executive Officer']),
+      ]);
+      approvers.commercial_director = commercial_director;
+      approvers.ceo = voucherCeo;
     } else if (formType === 'petty-cash') {
       // Petty cash workflow: Department Head -> Accountant -> Finance Manager (sequential)
 
       // Department Head — head of the requestor's own department.
       // Resolution mirrors the capex branch: departments.department_head_id is authoritative.
-      {
+      const resolvePettyDepartmentHead = async (): Promise<ResolvedApprover | null> => {
         const { data: requestorEmp } = await hrimsClient
           .from('employees')
           .select('id, first_name, last_name, email, current_position_id, department_id')
@@ -544,26 +554,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           }
         }
 
-        approvers.department_head = resolved;
-      }
+        return resolved;
+      };
 
-      // Accountant
-      approvers.accountant = await resolveByPositionTitle('Accountant');
-      if (!approvers.accountant) {
-        approvers.accountant = await resolveByPositionTitle('Senior Accountant');
-      }
-      if (!approvers.accountant) {
-        approvers.accountant = await resolveByPositionTitle('Group Accountant');
-      }
-
-      // Finance Manager
-      approvers.finance_manager = await resolveByPositionTitle('Finance Manager');
-      if (!approvers.finance_manager) {
-        approvers.finance_manager = await resolveByPositionTitle('Head of Finance');
-      }
-      if (!approvers.finance_manager) {
-        approvers.finance_manager = await resolveByPositionTitle('Finance Director');
-      }
+      const [department_head, accountant, pettyFinanceManager] = await Promise.all([
+        resolvePettyDepartmentHead(),
+        resolveFirstPositionTitle(['Accountant', 'Senior Accountant', 'Group Accountant']),
+        resolveFirstPositionTitle(['Finance Manager', 'Head of Finance', 'Finance Director']),
+      ]);
+      approvers.department_head = department_head;
+      approvers.accountant = accountant;
+      approvers.finance_manager = pettyFinanceManager;
     } else if (formType === 'inter-unit-debit-note' || formType === 'inter-unit-credit-note') {
       // Inter-unit debit note: From Unit Accountant (the requestor signs themselves) ->
       // From Unit Finance Manager -> Receiving Unit Accountant.
