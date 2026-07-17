@@ -8,6 +8,8 @@
  * no shared "noreply" mailbox required.
  */
 
+import { brandedEmailShell } from './emailShell';
+
 export interface GraphMailRecipient {
   email: string;
   name?: string;
@@ -97,78 +99,33 @@ export function getSignInviteEmailHtml(params: {
   const greeting = signerName ? `Hi ${escapeHtml(signerName)},` : "Hello,";
   const messageBlock = message
     ? `
-      <table role="presentation" style="width: 100%; background-color: #f3f4f6; border-left: 4px solid #2563eb; border-radius: 8px; margin: 24px 0;">
-        <tr>
-          <td style="padding: 16px 20px;">
-            <p style="margin: 0 0 6px; color: #6b7280; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Personal message</p>
-            <p style="margin: 0; color: #374151; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${escapeHtml(message)}</p>
-          </td>
-        </tr>
+      <table role="presentation" style="width:100%;background-color:#f7f2ea;border-left:4px solid #9A7545;border-radius:8px;margin:22px 0">
+        <tr><td style="padding:16px 20px">
+          <p style="margin:0 0 6px;color:#8a8279;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em">Personal message</p>
+          <p style="margin:0;color:#374151;font-size:14px;line-height:1.6;white-space:pre-wrap">${escapeHtml(message)}</p>
+        </td></tr>
       </table>`
     : "";
 
-  return `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0;padding:0;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background-color:#f4f4f5;">
-  <table role="presentation" style="width:100%;border-collapse:collapse;">
-    <tr>
-      <td align="center" style="padding:40px 20px;">
-        <table role="presentation" style="width:100%;max-width:600px;border-collapse:collapse;background-color:#ffffff;border-radius:12px;box-shadow:0 4px 6px rgba(0,0,0,0.1);overflow:hidden;">
-          <tr>
-            <td style="padding:32px 40px;background:linear-gradient(135deg,#2563eb 0%,#1d4ed8 100%);">
-              <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:600;">
-                ✍️ You have a document to sign
-              </h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:40px;">
-              <p style="margin:0 0 16px;color:#374151;font-size:16px;line-height:1.6;">${greeting}</p>
-              <p style="margin:0 0 20px;color:#374151;font-size:16px;line-height:1.6;">
-                <strong>${escapeHtml(requesterName)}</strong> has invited you to electronically sign the document
-                <strong>"${escapeHtml(documentName)}"</strong>.
-              </p>
-              ${messageBlock}
-              <table role="presentation" style="width:100%;margin:32px 0;">
-                <tr>
-                  <td align="center">
-                    <a href="${signingUrl}" style="display:inline-block;padding:14px 36px;background-color:#2563eb;color:#ffffff;text-decoration:none;font-size:16px;font-weight:600;border-radius:8px;box-shadow:0 2px 4px rgba(37,99,235,0.3);">
-                      Review &amp; Sign Document
-                    </a>
-                  </td>
-                </tr>
-              </table>
-              <table role="presentation" style="width:100%;background-color:#fef3c7;border-radius:8px;margin:24px 0;">
-                <tr>
-                  <td style="padding:14px 16px;">
-                    <p style="margin:0;color:#92400e;font-size:13px;">
-                      ⏰ This signing link expires in ${expiresInDays} days.
-                    </p>
-                  </td>
-                </tr>
-              </table>
-              <p style="margin:24px 0 0;color:#6b7280;font-size:13px;line-height:1.6;">
-                If the button doesn't work, copy and paste this link into your browser:
-              </p>
-              <p style="margin:8px 0 0;word-break:break-all;">
-                <a href="${signingUrl}" style="color:#2563eb;font-size:12px;">${signingUrl}</a>
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:20px 40px;background-color:#f9fafb;border-top:1px solid #e5e7eb;">
-              <p style="margin:0;color:#9ca3af;font-size:12px;text-align:center;">
-                Sent via The Circle on behalf of ${escapeHtml(requesterName)}.
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`;
+  return brandedEmailShell({
+    heading: "You have a document to sign",
+    preheader: `${escapeHtml(requesterName)} invited you to sign “${escapeHtml(documentName)}”.`,
+    bodyHtml: `
+      <p style="margin:0 0 16px">${greeting}</p>
+      <p style="margin:0 0 18px"><strong>${escapeHtml(requesterName)}</strong> has invited you to electronically sign the document <strong>“${escapeHtml(documentName)}”</strong>.</p>
+      ${messageBlock}
+      <table role="presentation" style="width:100%;background:#f7f2ea;border:1px solid #eadfce;border-radius:8px;margin:20px 0">
+        <tr><td style="padding:13px 16px;color:#8a6d3b;font-size:13px;line-height:1.5">
+          This signing link expires in <strong>${expiresInDays} days</strong>.
+        </td></tr>
+      </table>
+      <p style="margin:18px 0 4px;color:#6b7280;font-size:13px">If the button doesn’t work, copy and paste this link into your browser:</p>
+      <p style="margin:0;word-break:break-all"><a href="${signingUrl}" style="color:#9A7545;font-size:12px">${signingUrl}</a></p>
+    `,
+    actionUrl: signingUrl,
+    actionLabel: "Review & sign document",
+    footerNote: `Sent via The Circle on behalf of ${escapeHtml(requesterName)}.`,
+  });
 }
 
 function escapeHtml(s: string): string {

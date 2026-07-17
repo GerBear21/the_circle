@@ -6,6 +6,7 @@ import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { recordAuditEvent } from "../../../lib/auditLog";
 import { IDLE_TIMEOUT_SECONDS } from "../../../lib/sessionTimeout";
 import { saveMsTokens, MS_SCOPE } from "../../../lib/msTokenStore";
+import { verifyApprovalLinkToken } from "../../../lib/approvalLinkToken";
 
 // DEMO MODE — staging only. When DEMO_MODE=true (set ONLY on the staging
 // deployment, never in production) we additionally enable an email/password
@@ -40,6 +41,50 @@ const providers: NextAuthOptions["providers"] = [
         scope: MS_SCOPE,
         prompt: "select_account",
       },
+    },
+  }),
+  // Magic-link sign-in for approval emails. The link carries an HMAC-signed
+  // token bound to (approver, request); clicking it signs that approver in and
+  // drops them on the request to sign — no separate login. Registered in every
+  // environment because approvals happen in production.
+  CredentialsProvider({
+    id: "approval-link",
+    name: "Approval Link",
+    credentials: {
+      token: { label: "Token", type: "text" },
+    },
+    async authorize(credentials) {
+      const token = credentials?.token;
+      if (!token || !supabaseAdmin) return null;
+
+      const parsed = verifyApprovalLinkToken(token);
+      if (!parsed) return null;
+
+      // Defence in depth: the token is signed, but re-check the user really is
+      // an approver on that request before granting a session.
+      const { data: step } = await supabaseAdmin
+        .from("request_steps")
+        .select("id")
+        .eq("request_id", parsed.requestId)
+        .eq("approver_user_id", parsed.approverId)
+        .limit(1)
+        .maybeSingle();
+      if (!step) return null;
+
+      const { data: appUser } = await supabaseAdmin
+        .from("app_users")
+        .select("id, organization_id, role, display_name, email")
+        .eq("id", parsed.approverId)
+        .maybeSingle();
+      if (!appUser) return null;
+
+      return {
+        id: appUser.id,
+        email: appUser.email,
+        name: appUser.display_name || appUser.email,
+        org_id: appUser.organization_id,
+        role: appUser.role || "requester",
+      } as any;
     },
   }),
 ];
@@ -166,6 +211,12 @@ export const authOptions: NextAuthOptions = {
           return DEMO_MODE;
         }
 
+        // Approval magic-link: the token was verified and the user confirmed to
+        // be an approver on the request inside authorize(), so allow it.
+        if (account?.provider === "approval-link") {
+          return true;
+        }
+
         if (!supabaseAdmin) {
           console.error("supabaseAdmin not initialized - check SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY");
           return false;
@@ -212,10 +263,10 @@ export const authOptions: NextAuthOptions = {
           (token as any).loginAt = Date.now();
         }
 
-        // Demo credentials sign-in: the authorize() callback already resolved
-        // the app_users row, so copy its identity onto the token and skip all
-        // Azure/Graph-specific logic (there is no MS access token here).
-        if (account?.provider === "credentials" && user) {
+        // Demo credentials OR approval magic-link sign-in: the authorize()
+        // callback already resolved the app_users row, so copy its identity onto
+        // the token and skip all Azure/Graph-specific logic (no MS token here).
+        if ((account?.provider === "credentials" || account?.provider === "approval-link") && user) {
           const u = user as any;
           token.user_id = u.id;
           token.org_id = u.org_id;
@@ -391,11 +442,20 @@ export const authOptions: NextAuthOptions = {
     },
 
     async redirect({ url, baseUrl }) {
-      // Redirect to dashboard after successful sign in
-      if (url === baseUrl || url.startsWith(baseUrl + '/')) {
-        return baseUrl + '/dashboard';
+      const dashboard = `${baseUrl}/dashboard`;
+      // Bare sign-in with no specific destination → dashboard.
+      if (url === baseUrl || url === `${baseUrl}/`) return dashboard;
+      // Honour a relative deep link (e.g. an approval email → sign in →
+      // /requests/{id}) so the approver lands exactly where they were headed
+      // instead of the dashboard.
+      if (url.startsWith('/') && !url.startsWith('//')) return `${baseUrl}${url}`;
+      // Honour a same-origin absolute URL; reject anything cross-origin.
+      try {
+        if (new URL(url).origin === baseUrl) return url;
+      } catch {
+        /* not a parseable URL */
       }
-      return url;
+      return dashboard;
     },
   },
 

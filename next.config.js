@@ -58,6 +58,12 @@ const securityHeaders = [
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false, // drop the X-Powered-By: Next.js fingerprint
+  // Ensure the RTG logo file is bundled into the PDF-generating serverless
+  // functions on Vercel (fs.readFileSync at runtime needs it traced in).
+  outputFileTracingIncludes: {
+    '/api/archives/**': ['./public/images/RTG_LOGO.png', './images/RTG_LOGO.png'],
+    '/api/requests/**': ['./public/images/RTG_LOGO.png', './images/RTG_LOGO.png'],
+  },
   images: {
     domains: [
       'kidreqxqapouxndqomdp.supabase.co', // staging Supabase storage

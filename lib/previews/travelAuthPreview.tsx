@@ -300,25 +300,7 @@ export function buildTravelAuthPreviewSections(input: TravelAuthPreviewInput): P
                 </table>
             ),
         },
-        // 4. Hotel reservation placeholder (the form has an inline note here).
-        {
-            title: 'Hotel Reservation',
-            content: (
-                <table style={tableStyle}>
-                    <tbody>
-                        <tr>
-                            <td style={labelCellStyle}>Hotel Reservation Details</td>
-                            <td style={cellStyle}>
-                                <span style={{ color: '#666', fontStyle: 'italic' }}>
-                                    Submit a separate Hotel Booking request if accommodation is required.
-                                </span>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            ),
-        },
-        // 5. Travel budget.
+        // 4. Travel budget.
         {
             title: 'Travel Budget',
             content: (

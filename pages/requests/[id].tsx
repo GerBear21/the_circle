@@ -1106,9 +1106,13 @@ export const getServerSideProps: GetServerSideProps<RequestDetailsPageProps> = a
   const session = await getServerSession(context.req, context.res, authOptions);
 
   if (!session?.user) {
+    // Preserve the deep link so that after sign-in (e.g. from an approval
+    // email) the approver lands on this request, not the dashboard.
+    const reqId = typeof context.query.id === 'string' ? context.query.id : '';
+    const callbackUrl = encodeURIComponent(`/requests/${reqId}`);
     return {
       redirect: {
-        destination: '/',
+        destination: `/?callbackUrl=${callbackUrl}`,
         permanent: false,
       },
     };
