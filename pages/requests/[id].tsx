@@ -1106,9 +1106,13 @@ export const getServerSideProps: GetServerSideProps<RequestDetailsPageProps> = a
   const session = await getServerSession(context.req, context.res, authOptions);
 
   if (!session?.user) {
+    // Preserve the deep link so that after sign-in (e.g. from an approval
+    // email) the approver lands on this request, not the dashboard.
+    const reqId = typeof context.query.id === 'string' ? context.query.id : '';
+    const callbackUrl = encodeURIComponent(`/requests/${reqId}`);
     return {
       redirect: {
-        destination: '/',
+        destination: `/?callbackUrl=${callbackUrl}`,
         permanent: false,
       },
     };
@@ -1288,10 +1292,12 @@ export const getServerSideProps: GetServerSideProps<RequestDetailsPageProps> = a
       },
     };
   } catch (err: any) {
+    // Log the real error server-side; never surface a raw message/stack to the UI.
+    console.error('Request details getServerSideProps error:', err);
     return {
       props: {
         initialRequest: null,
-        initialError: err.message || 'Failed to load request details',
+        initialError: 'We couldn’t load this request. It may have been removed, or you may not have access to it.',
       },
     };
   }

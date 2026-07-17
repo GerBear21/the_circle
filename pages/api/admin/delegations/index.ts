@@ -201,6 +201,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
       await sendUserNotificationEmail({
         userId: delegateId,
+        actorUserId: userId,
         kind: 'approval_tasks',
         subject: 'You are now an approval delegate — The Circle',
         heading: 'Approval delegation assigned to you',

@@ -517,6 +517,154 @@ function drawCheckboxField(doc: any, label: string, checked: boolean, yPos: numb
   return yPos + 18;
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// Official-form layout helpers (Travel & CAPEX) — mirror the printed RTG forms
+// ════════════════════════════════════════════════════════════════════════
+// Professional black/white/grey palette matching the printed RTG forms — no
+// colour accents, just ink on paper with light-grey shading and borders.
+const OFORM = { ink: '#111827', mute: '#4b5563', line: '#9ca3af', shade: '#f3f4f6', tableHead: '#e5e7eb', tableHeadInk: '#111827', rule: '#6b7280' };
+
+function humanizeRole(s: string): string {
+  if (!s) return '';
+  if (/[a-z]/.test(s) && /\s/.test(s)) return s; // already a human label
+  return s.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Light-grey section bar with dark label. */
+function oHeading(doc: any, text: string, y: number, pw: number): number {
+  if (y > 730) { doc.addPage(); y = 50; }
+  doc.rect(50, y, pw, 18).fillColor(OFORM.tableHead).fill();
+  doc.rect(50, y, pw, 18).strokeColor(OFORM.line).lineWidth(0.5).stroke();
+  doc.fontSize(9).fillColor(OFORM.tableHeadInk).font('Helvetica-Bold').text(text.toUpperCase(), 56, y + 5, { width: pw - 12 });
+  doc.font('Helvetica');
+  return y + 26;
+}
+
+/** Row of bordered label/value cells. */
+function oInfoRow(doc: any, cells: Array<{ label: string; value: string }>, y: number, pw: number, h = 30): number {
+  if (y + h > 780) { doc.addPage(); y = 50; }
+  const colW = pw / cells.length;
+  cells.forEach((c, i) => {
+    const x = 50 + i * colW;
+    doc.rect(x, y, colW, h).strokeColor(OFORM.line).lineWidth(0.7).stroke();
+    doc.rect(x + 0.5, y + 0.5, colW - 1, 13).fillColor(OFORM.shade).fill();
+    doc.fontSize(6.5).fillColor(OFORM.mute).font('Helvetica-Bold').text((c.label || '').toUpperCase(), x + 5, y + 3.5, { width: colW - 10 });
+    doc.font('Helvetica').fontSize(9).fillColor(OFORM.ink).text(c.value || 'N/A', x + 5, y + 17, { width: colW - 10 });
+  });
+  return y + h;
+}
+
+/** Full-width label/value cell. */
+function oFullRow(doc: any, label: string, value: string, y: number, pw: number, h = 30): number {
+  if (y + h > 780) { doc.addPage(); y = 50; }
+  doc.rect(50, y, pw, h).strokeColor(OFORM.line).lineWidth(0.7).stroke();
+  doc.rect(50.5, y + 0.5, pw - 1, 13).fillColor(OFORM.shade).fill();
+  doc.fontSize(6.5).fillColor(OFORM.mute).font('Helvetica-Bold').text((label || '').toUpperCase(), 55, y + 3.5, { width: pw - 10 });
+  doc.font('Helvetica').fontSize(9).fillColor(OFORM.ink).text(value || 'N/A', 55, y + 17, { width: pw - 10 });
+  return y + h;
+}
+
+/** Bordered table with a shaded header. */
+function oTable(doc: any, headers: string[], rows: string[][], widthsPct: number[], y: number, pw: number): number {
+  const widths = widthsPct.map((p) => pw * p);
+  const rh = 18;
+  if (y + rh > 780) { doc.addPage(); y = 50; }
+  let x = 50;
+  headers.forEach((hd, i) => {
+    doc.rect(x, y, widths[i], rh).fillColor(OFORM.tableHead).fill();
+    doc.rect(x, y, widths[i], rh).strokeColor(OFORM.line).lineWidth(0.7).stroke();
+    doc.fontSize(7).fillColor(OFORM.tableHeadInk).font('Helvetica-Bold').text(hd.toUpperCase(), x + 4, y + 5.5, { width: widths[i] - 8 });
+    x += widths[i];
+  });
+  doc.font('Helvetica');
+  y += rh;
+  rows.forEach((r) => {
+    if (y + rh > 790) { doc.addPage(); y = 50; }
+    x = 50;
+    r.forEach((cell, i) => {
+      doc.rect(x, y, widths[i], rh).strokeColor('#e5e7eb').lineWidth(0.5).stroke();
+      doc.fontSize(8).fillColor(OFORM.ink).text(String(cell ?? ''), x + 4, y + 5, { width: widths[i] - 8 });
+      x += widths[i];
+    });
+    y += rh;
+  });
+  return y;
+}
+
+/** Emphasised total row. */
+function oTotalRow(doc: any, label: string, value: string, y: number, pw: number): number {
+  if (y + 20 > 790) { doc.addPage(); y = 50; }
+  doc.rect(50, y, pw, 20).fillColor(OFORM.tableHead).fill();
+  doc.rect(50, y, pw, 20).strokeColor(OFORM.line).lineWidth(0.7).stroke();
+  doc.fontSize(9).fillColor(OFORM.ink).font('Helvetica-Bold').text(label.toUpperCase(), 55, y + 6, { width: pw * 0.6 });
+  doc.text(value, 55, y + 6, { width: pw - 10, align: 'right' });
+  doc.font('Helvetica');
+  return y + 20;
+}
+
+/** Allocation-to-unit tick boxes, 5 per row. */
+function oTickBoxes(doc: any, items: Array<{ label: string; checked?: boolean; cost?: string }>, y: number, pw: number): number {
+  const perRow = 5;
+  const cellW = pw / perRow;
+  items.forEach((it, i) => {
+    const col = i % perRow;
+    if (i > 0 && col === 0) y += 20;
+    if (y + 12 > 790) { doc.addPage(); y = 50; }
+    const x = 50 + col * cellW;
+    doc.rect(x, y, 9, 9).strokeColor(OFORM.mute).lineWidth(0.8).stroke();
+    if (it.checked) doc.moveTo(x + 1.5, y + 4.5).lineTo(x + 3.5, y + 7).lineTo(x + 7.5, y + 2).strokeColor(OFORM.ink).lineWidth(1.2).stroke();
+    doc.fontSize(8).fillColor(OFORM.ink).font('Helvetica').text(it.label + (it.checked && it.cost ? ` (${it.cost})` : ''), x + 14, y + 0.5, { width: cellW - 18 });
+  });
+  return y + 22;
+}
+
+export interface OfficialApprovalSlot {
+  role: string;
+  name: string;
+  date: string | null;
+  sig: Buffer | null;
+  redirected?: boolean;
+}
+
+/** Official-style approval blocks with captured signature + name + date. */
+function oApprovals(doc: any, slots: OfficialApprovalSlot[], y: number, pw: number): number {
+  const perRow = 2;
+  const gap = 14;
+  const boxW = (pw - gap) / perRow;
+  const boxH = 76;
+  slots.forEach((s, i) => {
+    const col = i % perRow;
+    if (i > 0 && col === 0) y += boxH + 10;
+    if (y + boxH > 790) { doc.addPage(); y = 50; }
+    const x = 50 + col * (boxW + gap);
+    doc.rect(x, y, boxW, boxH).strokeColor(OFORM.line).lineWidth(0.8).stroke();
+    doc.rect(x + 0.5, y + 0.5, boxW - 1, 15).fillColor(OFORM.shade).fill();
+    doc.fontSize(7).fillColor(OFORM.tableHeadInk).font('Helvetica-Bold').text((s.role || '').toUpperCase(), x + 6, y + 4.5, { width: boxW - 12 });
+    if (s.sig) {
+      try { doc.image(s.sig, x + 8, y + 20, { fit: [boxW - 60, 30] }); } catch { /* ignore */ }
+    } else {
+      doc.moveTo(x + 8, y + 47).lineTo(x + boxW - 70, y + 47).strokeColor('#9ca3af').lineWidth(0.6).stroke();
+    }
+    doc.font('Helvetica').fontSize(8).fillColor(OFORM.ink).text(s.name || '', x + 8, y + 51, { width: boxW - 16 });
+    doc.fontSize(6.5).fillColor(OFORM.mute).text(s.date ? `Signed ${formatDate(s.date)}` : 'Pending', x + 8, y + 63, { width: boxW - 16 });
+  });
+  return y + boxH + 8;
+}
+
+/** Grey document-control strip (doc no / department / page). */
+function oDocControl(doc: any, parts: string[], y: number, pw: number): number {
+  y += 4;
+  if (y + 16 > 790) { doc.addPage(); y = 50; }
+  doc.rect(50, y, pw, 16).fillColor('#faf8f4').fill();
+  doc.rect(50, y, pw, 16).strokeColor(OFORM.line).lineWidth(0.5).stroke();
+  const colW = pw / parts.length;
+  parts.forEach((p, i) => {
+    doc.fontSize(6.5).fillColor(OFORM.mute).font('Helvetica-Bold').text(p, 55 + i * colW, y + 5, { width: colW - 6, align: i === 0 ? 'left' : i === parts.length - 1 ? 'right' : 'center' });
+  });
+  doc.font('Helvetica');
+  return y + 20;
+}
+
 // ── Detect form type from metadata ──
 function detectFormType(metadata: any): string {
   if (!metadata) return 'generic';
@@ -527,133 +675,181 @@ function detectFormType(metadata: any): string {
   return 'generic';
 }
 
-// ── Render Travel Authorization form data ──
-function renderTravelAuth(doc: any, formData: Record<string, any>, yPos: number, pageWidth: number, creator: any, creatorDept: any): number {
-  // Requestor Information
-  yPos = drawSectionHeading(doc, 'Requestor Information', yPos, pageWidth);
-  yPos = drawFieldRow(doc, 'Name', creator?.display_name || 'N/A', yPos, pageWidth);
-  yPos = drawFieldRow(doc, 'Department', creatorDept?.name || 'N/A', yPos, pageWidth);
-  yPos += 5;
+// ── Render Travel Authorization form data (official HR APX-27 layout) ──
+function renderTravelAuth(
+  doc: any,
+  formData: Record<string, any>,
+  yPos: number,
+  pageWidth: number,
+  creator: any,
+  creatorDept: any,
+  approvalSlots: OfficialApprovalSlot[] = [],
+  selfSig: Buffer | null = null,
+): number {
+  const pw = pageWidth;
 
-  // Travel Details
-  yPos = drawSectionHeading(doc, 'Travel Details', yPos, pageWidth);
-  yPos = drawFieldRow(doc, 'Date of Intended Travel', formatDate(formData.dateOfIntendedTravel), yPos, pageWidth);
-  yPos = drawFieldRow(doc, 'Purpose of Travel', formData.purposeOfTravel || 'N/A', yPos, pageWidth);
-  yPos = drawFieldRow(doc, 'Accompanying Associates', formData.accompanyingAssociates || 'None', yPos, pageWidth);
-  yPos = drawFieldRow(doc, 'Travel Mode', formData.travelMode || 'N/A', yPos, pageWidth);
-  yPos += 5;
+  // Employee / request details grid
+  yPos = oInfoRow(doc, [
+    { label: 'Name of Employee', value: creator?.display_name || 'N/A' },
+    { label: 'Department', value: formData.department || creatorDept?.name || 'N/A' },
+  ], yPos, pw);
+  yPos = oInfoRow(doc, [
+    { label: 'Date of Request', value: formatDate(formData.dateOfRequest || formData.createdAt) },
+    { label: 'Date of Intended Travel', value: formatDate(formData.dateOfIntendedTravel) },
+  ], yPos, pw);
+  yPos = oFullRow(doc, 'Purpose of Travel', formData.purposeOfTravel || 'N/A', yPos, pw, 34);
+  yPos = oFullRow(doc, 'Accompanying Associates', formData.accompanyingAssociates || 'None', yPos, pw);
+  yPos = oFullRow(doc, 'Travel Mode (Vehicle Registration if Driving)',
+    [formData.travelMode, formData.vehicleRegistration].filter(Boolean).join(' — ') || 'N/A', yPos, pw);
+  yPos += 8;
 
   // Conditions of Travel
-  yPos = drawSectionHeading(doc, 'Conditions of Travel', yPos, pageWidth);
-  if (yPos > 720) { doc.addPage(); yPos = 50; }
-  doc.fontSize(8).fillColor('#4b5563').text('1. Authorization must be sought using this form at least 7 days prior to departure.', 55, yPos, { width: pageWidth - 10 });
-  yPos += 12;
-  doc.fontSize(8).fillColor('#4b5563').text('2. Travel expenses must be claimed within 30 days after completion of travel, otherwise the claim shall be void.', 55, yPos, { width: pageWidth - 10 });
-  yPos += 12;
-  doc.fontSize(8).fillColor('#4b5563').text('3. It is an act of misconduct to travel without authority.', 55, yPos, { width: pageWidth - 10 });
-  yPos += 14;
-  yPos = drawCheckboxField(doc, 'I have read these conditions and accept them.', !!formData.acceptConditions, yPos, pageWidth);
-  yPos += 5;
+  yPos = oHeading(doc, 'Conditions of Travel', yPos, pw);
+  const conds = [
+    'Authorization must be sought using this form at least 7 days prior to departure.',
+    'Travel expenses must be claimed within 30 days after completion of travel, otherwise the claim shall be void.',
+    'It is an act of misconduct to travel without authority.',
+  ];
+  conds.forEach((c, i) => {
+    if (yPos > 760) { doc.addPage(); yPos = 50; }
+    const line = `${i + 1}. ${c}`;
+    doc.fontSize(8).fillColor('#4b5563').text(line, 55, yPos, { width: pw - 10 });
+    yPos += doc.heightOfString(line, { width: pw - 10 }) + 3;
+  });
+  doc.rect(55, yPos, 9, 9).strokeColor(OFORM.mute).lineWidth(0.8).stroke();
+  if (formData.acceptConditions) doc.moveTo(56.5, yPos + 4.5).lineTo(58.5, yPos + 7).lineTo(62.5, yPos + 2).strokeColor(OFORM.ink).lineWidth(1.2).stroke();
+  doc.fontSize(8).fillColor(OFORM.ink).font('Helvetica').text('I have read these conditions and accept them.', 70, yPos + 0.5);
+  yPos += 18;
 
-  // Travel Itinerary Table
-  if (formData.itinerary && Array.isArray(formData.itinerary) && formData.itinerary.length > 0) {
-    yPos = drawSectionHeading(doc, 'Travel Itinerary', yPos, pageWidth);
-    const itinHeaders = ['Date/Time', 'From', 'To', 'KM', 'Justification'];
-    const itinWidths = [pageWidth * 0.18, pageWidth * 0.2, pageWidth * 0.2, pageWidth * 0.1, pageWidth * 0.32];
-    const itinRows = formData.itinerary
-      .filter((row: any) => row.date || row.from || row.to)
-      .map((row: any) => [
-        row.date ? formatDate(row.date) : '',
-        row.from || '',
-        row.to || '',
-        row.km || '',
-        row.justification || '',
-      ]);
-    if (itinRows.length > 0) {
-      yPos = drawTable(doc, itinHeaders, itinRows, yPos, pageWidth, itinWidths);
-    }
-    yPos += 5;
-  }
+  // Signature of traveller
+  doc.fontSize(6.5).fillColor(OFORM.mute).font('Helvetica-Bold').text('SIGNATURE OF TRAVELLER', 55, yPos);
+  yPos += 10;
+  if (selfSig) { try { doc.image(selfSig, 55, yPos, { fit: [150, 34] }); } catch { /* ignore */ } yPos += 36; }
+  else { doc.moveTo(55, yPos + 16).lineTo(205, yPos + 16).strokeColor('#9ca3af').lineWidth(0.6).stroke(); yPos += 22; }
+  doc.font('Helvetica');
+  yPos = oDocControl(doc, ['DOC NO: HR APX-27', 'DEPARTMENT: HUMAN RESOURCES', 'PAGE: 1 of 1'], yPos, pw);
+  yPos += 6;
 
-  // Travel Budget Table
+  // Travel Itinerary
+  yPos = oHeading(doc, 'Travel Itinerary', yPos, pw);
+  const itinRows = (Array.isArray(formData.itinerary) ? formData.itinerary : [])
+    .filter((r: any) => r.date || r.from || r.to)
+    .map((r: any) => [r.date ? formatDate(r.date) : '', r.from || '', r.to || '', r.km || '', r.justification || '']);
+  yPos = oTable(doc, ['Date/Time', 'From', 'To', 'Km', 'Justification'],
+    itinRows.length ? itinRows : [['', '', '', '', '']], [0.18, 0.2, 0.2, 0.1, 0.32], yPos, pw);
+  yPos += 10;
+
+  // Travel Budget
   if (formData.budget && typeof formData.budget === 'object') {
-    yPos = drawSectionHeading(doc, 'Travel Budget', yPos, pageWidth);
-    const budgetHeaders = ['Expenditure Item', 'Quantity', 'Unit Cost (USD)', 'Total Cost (USD)'];
-    const budgetWidths = [pageWidth * 0.4, pageWidth * 0.15, pageWidth * 0.2, pageWidth * 0.25];
+    yPos = oHeading(doc, 'Travel Budget', yPos, pw);
     const b = formData.budget;
-    const budgetItems: Array<{ label: string; data: any }> = [
-      { label: 'Fuel (Indicate Total litres)', data: b.fuel },
+    const items: Array<{ label: string; data: any }> = [
+      { label: 'Fuel (Indicate total litres)', data: b.fuel },
       { label: 'AA Rates (Indicate total mileage)', data: b.aaRates },
       { label: 'Air/Bus Tickets', data: b.airBusTickets },
-      // `b.b&b` was a typo: JS parses it as `b.b & b` (bitwise AND on an
-      // object → 0), silently dropping the B&B row. The actual key on the
-      // budget object is `bb` (set by the form).
       { label: 'Overnight Accommodation (b&b)', data: b.bb || b['b&b'] },
       { label: 'Lunch/Dinner', data: b.lunchDinner },
       { label: 'Conferencing Cost', data: b.conferencingCost },
       { label: 'Tollgates', data: b.tollgates },
-      { label: b.other?.description || 'Other', data: b.other },
+      { label: b.other?.description || 'Other (Specify)', data: b.other },
     ];
-    const budgetRows = budgetItems
-      .filter(item => item.data)
-      .map(item => [
-        item.label,
-        item.data.quantity || '0',
-        item.data.unitCost || '0.00',
-        item.data.totalCost || '0.00',
-      ]);
-    yPos = drawTable(doc, budgetHeaders, budgetRows, yPos, pageWidth, budgetWidths);
+    const budgetRows = items.filter((it) => it.data).map((it) => [it.label, it.data.unitCost || '0.00', it.data.totalCost || '0.00']);
+    yPos = oTable(doc, ['Expenditure Item', 'Unit Cost (USD)', 'Total Cost (USD)'],
+      budgetRows.length ? budgetRows : [['', '', '']], [0.55, 0.22, 0.23], yPos, pw);
+    yPos = oTotalRow(doc, 'Grand Total', `USD ${formData.grandTotal || '0.00'}`, yPos, pw);
+    yPos += 10;
+  }
 
-    // Grand Total row
-    if (yPos > 750) { doc.addPage(); yPos = 50; }
-    doc.rect(50, yPos, pageWidth, 22).fillColor('#e5e7eb').fill();
-    doc.rect(50, yPos, pageWidth, 22).strokeColor('#d1d5db').lineWidth(0.5).stroke();
-    doc.fontSize(9).fillColor('#111827').font('Helvetica-Bold').text('GRAND TOTAL', 54, yPos + 6, { width: pageWidth * 0.75 });
-    doc.text(`USD ${formData.grandTotal || '0.00'}`, 54, yPos + 6, { width: pageWidth - 8, align: 'right' });
-    doc.font('Helvetica');
-    yPos += 30;
+  // Allocation Cost to Unit
+  yPos = oHeading(doc, 'Allocation Cost to Unit', yPos, pw);
+  const alloc = formData.costAllocation && typeof formData.costAllocation === 'object' ? formData.costAllocation : {};
+  const UNITS = ['Corp', 'MRC', 'NAH', 'RTH', 'KHCC', 'BRH', 'VFRH', 'AZRL', 'HEXA', 'GWS'];
+  yPos = oTickBoxes(doc, UNITS.map((u) => {
+    const v = alloc[u] ?? alloc[u.toLowerCase()];
+    return { label: u, checked: v != null && v !== '' && v !== 0, cost: v ? `USD ${v}` : undefined };
+  }), yPos, pw);
+  yPos += 8;
+
+  // Approvals
+  if (approvalSlots.length) {
+    yPos = oHeading(doc, 'Approvals', yPos, pw);
+    yPos = oApprovals(doc, approvalSlots, yPos, pw);
   }
 
   return yPos;
 }
 
-// ── Render CAPEX form data ──
-function renderCapex(doc: any, formData: Record<string, any>, yPos: number, pageWidth: number, creator: any, creatorDept: any): number {
-  // Requestor Information
-  yPos = drawSectionHeading(doc, 'Requestor Information', yPos, pageWidth);
-  yPos = drawFieldRow(doc, 'Requester', formData.requester || creator?.display_name || 'N/A', yPos, pageWidth);
-  yPos = drawFieldRow(doc, 'Business Unit', formData.unit || 'N/A', yPos, pageWidth);
-  yPos = drawFieldRow(doc, 'Department', formData.department || creatorDept?.name || 'N/A', yPos, pageWidth);
-  yPos = drawFieldRow(doc, 'Budget Type', formData.budgetType || 'N/A', yPos, pageWidth);
-  yPos = drawFieldRow(doc, 'Priority / Urgency', formData.priority || 'N/A', yPos, pageWidth);
-  yPos += 5;
+// ── Render CAPEX form data (official Capital Expenditure Form layout) ──
+function renderCapex(
+  doc: any,
+  formData: Record<string, any>,
+  yPos: number,
+  pageWidth: number,
+  creator: any,
+  creatorDept: any,
+  approvalSlots: OfficialApprovalSlot[] = [],
+): number {
+  const pw = pageWidth;
+  const cur = formData.currency === 'ZIG' ? 'ZiG' : 'USD';
+  const money = (v: any) => (v != null && v !== '' ? `${cur} ${v}` : 'N/A');
 
-  // Project Details
-  yPos = drawSectionHeading(doc, 'Project Details', yPos, pageWidth);
-  yPos = drawFieldRow(doc, 'Project Name', formData.projectName || 'N/A', yPos, pageWidth);
-  if (formData.description) {
-    yPos = drawFieldRow(doc, 'Detailed Description', formData.description, yPos, pageWidth);
-  }
-  if (formData.justification) {
-    yPos = drawFieldRow(doc, 'Business Justification', formData.justification, yPos, pageWidth);
-  }
-  if (formData.startDate || formData.endDate) {
-    yPos = drawFieldRow(doc, 'Start Date', formatDate(formData.startDate), yPos, pageWidth);
-    yPos = drawFieldRow(doc, 'End Date', formatDate(formData.endDate), yPos, pageWidth);
-  }
-  yPos += 5;
+  yPos = oInfoRow(doc, [
+    { label: 'Unit', value: formData.unit || 'N/A' },
+    { label: 'Department', value: formData.department || creatorDept?.name || 'N/A' },
+  ], yPos, pw);
+  yPos = oFullRow(doc, 'Description of Project', formData.description || formData.projectName || 'N/A', yPos, pw, 40);
+  yPos = oInfoRow(doc, [
+    { label: 'Budget / Non-Budget / Emergency', value: (formData.budgetType || 'N/A').toString().replace(/_/g, ' ') },
+    { label: 'Project Requested By', value: formData.requester || creator?.display_name || 'N/A' },
+  ], yPos, pw);
+  yPos = oInfoRow(doc, [
+    { label: 'Budget Amount', value: formData.budgetAmount ? money(formData.budgetAmount) : 'NIL' },
+    { label: 'Amount Spent to Date', value: formData.amountSpent ? money(formData.amountSpent) : 'NIL' },
+    { label: 'Balance', value: formData.balance ? money(formData.balance) : 'NIL' },
+  ], yPos, pw);
+  yPos = oInfoRow(doc, [
+    { label: 'Project Cost (excl VAT)', value: money(formData.amount) },
+    { label: 'Balance After This Purchase', value: formData.balanceAfter ? money(formData.balanceAfter) : 'NIL' },
+  ], yPos, pw);
+  yPos = oFullRow(doc, 'Justification of Project', formData.justification || 'N/A', yPos, pw, 34);
+  yPos += 8;
 
-  // Financial Analysis
-  yPos = drawSectionHeading(doc, 'Financial Analysis', yPos, pageWidth);
-  const currencySymbol = formData.currency === 'ZIG' ? 'ZiG' : 'USD';
-  yPos = drawFieldRow(doc, 'Project Cost', formData.amount ? `${currencySymbol} ${formData.amount}` : 'N/A', yPos, pageWidth);
-  yPos = drawFieldRow(doc, 'Currency', formData.currency || 'USD', yPos, pageWidth);
-  yPos = drawFieldRow(doc, 'Payback Period', formData.paybackPeriod || 'N/A', yPos, pageWidth);
-  if (formData.npv) yPos = drawFieldRow(doc, 'NPV (Net Present Value)', formData.npv, yPos, pageWidth);
-  if (formData.irr) yPos = drawFieldRow(doc, 'IRR (Internal Rate of Return)', formData.irr, yPos, pageWidth);
-  if (formData.evaluation) yPos = drawFieldRow(doc, 'Evaluation', formData.evaluation, yPos, pageWidth);
-  if (formData.fundingSource) yPos = drawFieldRow(doc, 'Funding Source', formData.fundingSource, yPos, pageWidth);
-  yPos += 5;
+  // Evaluation
+  yPos = oHeading(doc, 'Evaluation (for profit improvement)', yPos, pw);
+  yPos = oInfoRow(doc, [
+    { label: 'Payback (Years)', value: formData.paybackPeriod || '-' },
+    { label: 'NPV', value: formData.npv || '-' },
+    { label: 'IRR', value: formData.irr || '-' },
+  ], yPos, pw);
+  if (formData.evaluation) yPos = oFullRow(doc, 'Evaluation Notes', formData.evaluation, yPos, pw);
+  yPos += 8;
+
+  // Quotations
+  const quotes = Array.isArray(formData.quotations) ? formData.quotations : [];
+  if (quotes.length) {
+    yPos = oHeading(doc, 'Quotations', yPos, pw);
+    const rows = quotes.map((q: any, i: number) => [
+      String(i + 1),
+      q.supplierName || q.supplier || '',
+      q.description || '',
+      q.amount ? `${cur} ${q.amount}` : '',
+    ]);
+    yPos = oTable(doc, ['#', 'Supplier', 'Description', 'Amount'], rows, [0.07, 0.28, 0.43, 0.22], yPos, pw);
+  }
+  yPos = oInfoRow(doc, [
+    { label: 'Preferred Quotation', value: formData.preferredSupplier || quotes[0]?.supplierName || 'N/A' },
+    { label: 'Project Funded From', value: formData.fundingSource || 'N/A' },
+  ], yPos, pw);
+  if (formData.quotationReason || formData.quotationJustification) {
+    yPos = oFullRow(doc, 'Reason for Preferred Supplier', formData.quotationReason || formData.quotationJustification, yPos, pw);
+  }
+  yPos += 8;
+
+  // Approvals
+  if (approvalSlots.length) {
+    yPos = oHeading(doc, 'Approvals', yPos, pw);
+    yPos = oApprovals(doc, approvalSlots, yPos, pw);
+  }
 
   return yPos;
 }
@@ -841,11 +1037,17 @@ async function generatePdfBuffer(
       const pageWidth = doc.page.width - 100; // Account for margins
       const pageCenterX = doc.page.width / 2;
 
-      // ── Header: Centred Logo ──
+      // ── Header: Centred RTG logo (required on every PDF) ──
+      // Try the several locations the file can live in across environments so
+      // the logo always renders (public/ is the reliable one on Vercel).
       let logoHeight = 0;
       try {
-        const logoPath = path.join(process.cwd(), 'images', 'RTG_LOGO.png');
-        if (fs.existsSync(logoPath)) {
+        const logoCandidates = [
+          path.join(process.cwd(), 'public', 'images', 'RTG_LOGO.png'),
+          path.join(process.cwd(), 'images', 'RTG_LOGO.png'),
+        ];
+        const logoPath = logoCandidates.find((p) => fs.existsSync(p));
+        if (logoPath) {
           const logoWidth = 160;
           const logoX = pageCenterX - logoWidth / 2;
           doc.image(logoPath, logoX, 35, { width: logoWidth });
@@ -855,9 +1057,18 @@ async function generatePdfBuffer(
         // Fallback: no logo if file not found
       }
 
+      // Form type drives whether we render the official document layout (with
+      // its own header fields + signed approval blocks) vs the generic layout.
+      const formType = detectFormType(request.metadata);
+      const isOfficialForm = formType === 'travel_authorization' || formType === 'capex';
+      const documentTitle =
+        formType === 'travel_authorization' ? 'Local Travel Authorisation'
+        : formType === 'capex' ? 'Capital Expenditure Form'
+        : request.title;
+
       // Title centred below logo
       const titleY = 35 + logoHeight + 10;
-      doc.fontSize(14).fillColor('#111827').font('Helvetica-Bold').text(request.title, 50, titleY, {
+      doc.fontSize(14).fillColor('#111827').font('Helvetica-Bold').text(documentTitle, 50, titleY, {
         width: pageWidth,
         align: 'center',
       });
@@ -874,55 +1085,71 @@ async function generatePdfBuffer(
 
       let yPos = dividerY + 12;
 
-      // ── Request Info Section ──
-      yPos = drawSectionHeading(doc, 'Request Information', yPos, pageWidth);
-
       const creator = Array.isArray(request.creator) ? request.creator[0] : request.creator;
       const creatorDept = creator?.department ? (Array.isArray(creator.department) ? creator.department[0] : creator.department) : null;
-      
-      // Get department from requestor_info if available, otherwise from creator
-      const departmentName = formData.requestor_info?.department || creatorDept?.name || 'N/A';
 
-      const infoItems = [
-        { label: 'Requester', value: creator?.display_name || 'Unknown' },
-        { label: 'Department', value: departmentName },
-        { label: 'Request Date', value: formatDate(request.created_at) },
-        { label: 'Approval Completed', value: approvalCompletedAt ? formatDateTime(approvalCompletedAt.toISOString()) : formatDateTime(request.updated_at) },
-      ];
-      
-      // Add template name if available
-      if (templateData?.name) {
-        infoItems.push({ label: 'Form Template', value: templateData.name });
+      // Generic "Request Information" grid — official forms carry their own
+      // header fields (Name / Department / Date …), so skip it for those.
+      if (!isOfficialForm) {
+        yPos = drawSectionHeading(doc, 'Request Information', yPos, pageWidth);
+
+        // Get department from requestor_info if available, otherwise from creator
+        const departmentName = formData.requestor_info?.department || creatorDept?.name || 'N/A';
+
+        const infoItems = [
+          { label: 'Requester', value: creator?.display_name || 'Unknown' },
+          { label: 'Department', value: departmentName },
+          { label: 'Request Date', value: formatDate(request.created_at) },
+          { label: 'Approval Completed', value: approvalCompletedAt ? formatDateTime(approvalCompletedAt.toISOString()) : formatDateTime(request.updated_at) },
+        ];
+
+        // Add template name if available
+        if (templateData?.name) {
+          infoItems.push({ label: 'Form Template', value: templateData.name });
+        }
+
+        // Add signed by if this is a self-signed form
+        if (signedByName) {
+          infoItems.push({ label: 'Signed By', value: signedByName });
+        }
+
+        const colWidth = (pageWidth - 20) / 2;
+        infoItems.forEach((item, idx) => {
+          if (yPos > 750) { doc.addPage(); yPos = 50; }
+          const xPos = 50 + (idx % 2) * (colWidth + 20);
+          if (idx > 0 && idx % 2 === 0) yPos += 35;
+
+          doc.rect(xPos, yPos, colWidth, 30).fillColor('#f3f4f6').fill();
+          doc.fontSize(7).fillColor('#6b7280').font('Helvetica-Bold').text(item.label.toUpperCase(), xPos + 8, yPos + 5);
+          doc.font('Helvetica').fontSize(10).fillColor('#111827').text(item.value, xPos + 8, yPos + 16);
+        });
+
+        yPos += 45;
       }
-      
-      // Add signed by if this is a self-signed form
-      if (signedByName) {
-        infoItems.push({ label: 'Signed By', value: signedByName });
-      }
 
-      const colWidth = (pageWidth - 20) / 2;
-      infoItems.forEach((item, idx) => {
-        if (yPos > 750) { doc.addPage(); yPos = 50; }
-        const xPos = 50 + (idx % 2) * (colWidth + 20);
-        if (idx > 0 && idx % 2 === 0) yPos += 35;
-
-        doc.rect(xPos, yPos, colWidth, 30).fillColor('#f3f4f6').fill();
-        doc.fontSize(7).fillColor('#6b7280').font('Helvetica-Bold').text(item.label.toUpperCase(), xPos + 8, yPos + 5);
-        doc.font('Helvetica').fontSize(10).fillColor('#111827').text(item.value, xPos + 8, yPos + 16);
+      // Official-style approval slots (role, captured signature, name, date)
+      // built from the request steps — used by the travel/capex renderers and,
+      // for every other form, by the shared approval section below.
+      const approvalSlots: OfficialApprovalSlot[] = (request.request_steps || []).map((step: any, index: number) => {
+        const approval = step.approvals?.[0];
+        const nm = step.approver?.display_name || approval?.approver?.display_name || '';
+        return {
+          role: humanizeRole(step.approver_role || `Approver ${index + 1}`),
+          name: step.is_redirected ? `pp ${nm}` : nm,
+          date: approval?.signed_at || null,
+          sig: signatureBuffers.get(index) || null,
+          redirected: step.is_redirected === true,
+        };
       });
 
-      yPos += 45;
-
       // ── Form-type-specific content ──
-      const formType = detectFormType(request.metadata);
-
       switch (formType) {
         case 'travel_authorization':
-          yPos = renderTravelAuth(doc, formData, yPos, pageWidth, creator, creatorDept);
+          yPos = renderTravelAuth(doc, formData, yPos, pageWidth, creator, creatorDept, approvalSlots, selfSignSignatureBuffer);
           break;
         case 'capex': {
           const capexData = formData.capex || formData;
-          yPos = renderCapex(doc, capexData, yPos, pageWidth, creator, creatorDept);
+          yPos = renderCapex(doc, capexData, yPos, pageWidth, creator, creatorDept, approvalSlots);
           break;
         }
         case 'hotel_booking':
@@ -937,7 +1164,8 @@ async function generatePdfBuffer(
       }
       
       // ── Self-Sign Signature Section ──
-      if (formData.signature_url && formData.signed_by) {
+      // Official forms render the traveller signature inline, so skip this.
+      if (!isOfficialForm && formData.signature_url && formData.signed_by) {
         if (yPos > 650) {
           doc.addPage();
           yPos = 50;
@@ -967,150 +1195,34 @@ async function generatePdfBuffer(
         yPos += 10;
       }
 
-      // ── Approval Signatures Section (UNCHANGED) ──
-      if (yPos > 500) {
-        doc.addPage();
-        yPos = 50;
-      }
+      // ── Approval blocks — official greyscale style for every form ──
+      // Travel/capex draw their own inline; all other forms get them here so
+      // every processed PDF has consistent, signed approval blocks.
+      if (!isOfficialForm && approvalSlots.length > 0) {
+        if (yPos > 640) { doc.addPage(); yPos = 50; }
+        yPos = oHeading(doc, 'Approvals', yPos, pageWidth);
+        yPos = oApprovals(doc, approvalSlots, yPos, pageWidth);
 
-      doc.fontSize(12).fillColor('#374151').text('Approval Signatures', 50, yPos);
-      yPos += 25;
-
-      if (request.request_steps && request.request_steps.length > 0) {
-        const sigBoxHeight = 120;
-        const sigBoxWidth = Math.min(160, (pageWidth - 40) / Math.min(request.request_steps.length, 3));
-
-        request.request_steps.forEach((step: any, index: number) => {
-          const approval = step.approvals?.[0];
-          const approverName = step.approver?.display_name || approval?.approver?.display_name || 'Unknown';
-          const signedAt = approval?.signed_at;
-          const role = step.approver_role || `Approver ${index + 1}`;
-          
-          // Check if this step was redirected (approval on behalf of someone else)
-          const isRedirected = step.is_redirected === true;
-          const redirectJobTitle = step.redirect_job_title;
-
-          // Calculate position (up to 3 per row)
-          const colIndex = index % 3;
-          if (index > 0 && colIndex === 0) {
-            yPos += sigBoxHeight + 10;
-            if (yPos > 700) {
-              doc.addPage();
-              yPos = 50;
-            }
-          }
-
-          const xPos = 50 + colIndex * (sigBoxWidth + 15);
-
-          // Signature box - amber border for redirected approvals
-          const boxColor = isRedirected ? '#f59e0b' : '#e5e7eb';
-          doc.rect(xPos, yPos, sigBoxWidth, sigBoxHeight).strokeColor(boxColor).lineWidth(isRedirected ? 2 : 1).stroke();
-
-          // Role label with 'pp' prefix if redirected
-          const roleLabel = isRedirected ? `pp ${redirectJobTitle || role}` : role;
-          doc.fontSize(8).fillColor(isRedirected ? '#b45309' : '#6b7280').text(roleLabel.toUpperCase(), xPos + 5, yPos + 8, {
-            width: sigBoxWidth - 10,
-            align: 'center',
-          });
-
-          // Embed actual signature image if available
-          const sigBuffer = signatureBuffers.get(index);
-          if (sigBuffer) {
-            try {
-              doc.image(sigBuffer, xPos + 15, yPos + 22, {
-                width: sigBoxWidth - 30,
-                height: 35,
-                fit: [sigBoxWidth - 30, 35],
-                align: 'center',
-                valign: 'center',
-              });
-            } catch {
-              doc.fontSize(9).fillColor('#9ca3af').text('Signature on file', xPos + 5, yPos + 35, {
-                width: sigBoxWidth - 10,
-                align: 'center',
-              });
-            }
-          } else {
-            doc.fontSize(9).fillColor('#9ca3af').text('Signature on file', xPos + 5, yPos + 35, {
-              width: sigBoxWidth - 10,
-              align: 'center',
-            });
-          }
-
-          // Signature line
-          doc.moveTo(xPos + 15, yPos + 62).lineTo(xPos + sigBoxWidth - 15, yPos + 62).strokeColor('#374151').lineWidth(1).stroke();
-
-          // Approver name (with 'pp' indicator if redirected)
-          const displayName = isRedirected ? `pp ${approverName}` : approverName;
-          doc.fontSize(9).fillColor('#111827').text(displayName, xPos + 5, yPos + 67, {
-            width: sigBoxWidth - 10,
-            align: 'center',
-          });
-
-          // Decision label
-          if (approval?.decision) {
-            const decisionColor = approval.decision === 'approved' ? '#22c55e' : '#ef4444';
-            doc.fontSize(7).fillColor(decisionColor).text(approval.decision.toUpperCase(), xPos + 5, yPos + 80, {
-              width: sigBoxWidth - 10,
-              align: 'center',
-            });
-          }
-
-          // Signed date
-          if (signedAt) {
-            doc.fontSize(7).fillColor('#6b7280').text(formatDateTime(signedAt), xPos + 5, yPos + 90, {
-              width: sigBoxWidth - 10,
-              align: 'center',
-            });
-          }
-
-          // "Digitally Approved" label and auth method annotation
-          if (approval?.decision === 'approved') {
-            const authMethod = approval.authentication_method;
-            const authLabel =
-              authMethod === 'biometric' ? 'Verified via biometric authentication' :
-              authMethod === 'microsoft_mfa' ? 'Verified via Microsoft authentication' :
-              'Digitally Approved';
-            doc.fontSize(6).fillColor('#16a34a').text(authLabel, xPos + 5, yPos + 100, {
-              width: sigBoxWidth - 10,
-              align: 'center',
-            });
-          }
-        });
-
-        // Adjust yPos based on number of signature rows
-        const sigRows = Math.ceil(request.request_steps.length / 3);
-        yPos += sigBoxHeight + 15;
-
-        // Render approval comments if any
-        const comments = request.request_steps
+        // Approval comments, if any.
+        const approvalComments = (request.request_steps || [])
           .map((step: any, idx: number) => {
-            const approval = step.approvals?.[0];
-            if (!approval?.comment) return null;
-            const name = step.approver?.display_name || approval?.approver?.display_name || `Approver ${idx + 1}`;
-            return { name, comment: approval.comment };
+            const a = step.approvals?.[0];
+            return a?.comment ? { name: step.approver?.display_name || `Approver ${idx + 1}`, comment: a.comment } : null;
           })
-          .filter(Boolean);
-
-        if (comments.length > 0) {
-          if (yPos > 700) {
-            doc.addPage();
-            yPos = 50;
-          }
-          doc.fontSize(11).fillColor('#374151').text('Approval Comments', 50, yPos);
+          .filter(Boolean) as Array<{ name: string; comment: string }>;
+        if (approvalComments.length > 0) {
+          if (yPos > 700) { doc.addPage(); yPos = 50; }
+          doc.fontSize(11).fillColor(OFORM.ink).font('Helvetica-Bold').text('Approval Comments', 50, yPos);
+          doc.font('Helvetica');
           yPos += 18;
-
-          comments.forEach((c: any) => {
-            if (yPos > 750) {
-              doc.addPage();
-              yPos = 50;
-            }
-            doc.fontSize(9).fillColor('#111827').text(`${c.name}:`, 55, yPos);
+          approvalComments.forEach((c) => {
+            if (yPos > 750) { doc.addPage(); yPos = 50; }
+            doc.fontSize(9).fillColor(OFORM.ink).font('Helvetica-Bold').text(`${c.name}:`, 55, yPos);
+            doc.font('Helvetica');
             yPos += 14;
             doc.fontSize(9).fillColor('#4b5563').text(c.comment, 65, yPos, { width: pageWidth - 30 });
             yPos += Math.ceil(c.comment.length / 80) * 14 + 8;
           });
-
           yPos += 5;
         }
       }

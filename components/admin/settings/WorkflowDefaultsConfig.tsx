@@ -33,8 +33,8 @@ export function WorkflowDefaultsConfig({ getSetting, queueChange }: ConfigTabPro
   const defaultTravelRoles = [
     { key: 'line_manager', label: 'Line Manager', description: 'Recommendation' },
     { key: 'functional_head', label: 'Functional Head', description: 'Functional Approval' },
-    { key: 'hrd', label: 'HR Director', description: 'HR Director Approval' },
-    { key: 'ceo', label: 'CEO', description: 'Authorisation' },
+    { key: 'hrd', label: 'Chief Human Capital Officer', description: 'CHCO Approval' },
+    { key: 'ceo', label: 'Chief Executive Officer', description: 'Authorisation' },
   ];
   const travelRoles = getSetting('workflows', 'travel_approval_roles', defaultTravelRoles);
   const [tRoles, setTRoles] = useState(Array.isArray(travelRoles) ? travelRoles : defaultTravelRoles);

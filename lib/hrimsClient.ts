@@ -490,6 +490,13 @@ export async function findEmployeeByPositionTitle(
 ): Promise<{ position: HrimsOrganogramPosition; employee: HrimsEmployee } | null> {
   if (!hrimsClient) throw new Error('HRIMS client not configured');
 
+  // HRIMS position titles sometimes carry stray surrounding whitespace
+  // (e.g. "Chief Human Capital Officer " has a trailing space). An exact
+  // `ilike` match would miss those, so we fetch candidates with a contains
+  // match and then require equality once whitespace/case is normalised. This
+  // keeps the match precise — searching "CEO" won't pick up "PA to CEO".
+  const trimmed = positionTitle.trim();
+
   let query = hrimsClient
     .from('organogram_positions')
     .select(`
@@ -497,16 +504,24 @@ export async function findEmployeeByPositionTitle(
       grade, level, description, status, parent_position_id, employee_id,
       department_id, sort_order, is_active
     `)
-    .ilike('position_title', positionTitle)
+    .ilike('position_title', `%${trimmed}%`)
     .eq('is_active', true);
 
   if (businessUnitId) {
     query = query.eq('business_unit_id', businessUnitId);
   }
 
-  const { data, error } = await query.limit(1).single();
+  const { data: candidates, error } = await query.limit(20);
 
-  if (error || !data) return null;
+  if (error || !candidates || candidates.length === 0) return null;
+
+  const wanted = trimmed.toLowerCase();
+  const data =
+    candidates.find(
+      (p: any) => (p.position_title || '').trim().toLowerCase() === wanted
+    ) || null;
+
+  if (!data) return null;
 
   // Find the employee assigned to this position via current_position_id (primary)
   // or via the position's employee_id field (fallback)

@@ -51,8 +51,8 @@ export default function HotelBookingEditPage() {
     // Approver selection state - 4 fixed roles
     const approvalRoles = [
         { key: 'hod', label: 'Head of Department', description: 'Department Approval' },
-        { key: 'hr_director', label: 'HR Director', description: 'HR Review' },
-        { key: 'finance_director', label: 'Finance Director', description: 'Financial Review' },
+        { key: 'hr_director', label: 'Chief Human Capital Officer', description: 'HR Review' },
+        { key: 'finance_director', label: 'Chief Finance Officer', description: 'Financial Review' },
         { key: 'ceo', label: 'CEO', description: 'Final Authorization' },
     ];
     const [users, setUsers] = useState<Array<{ id: string; display_name: string; email: string; job_title?: string }>>([]);
@@ -744,7 +744,7 @@ export default function HotelBookingEditPage() {
                 </div>
 
                 {/* Fixed Bottom Action Bar */}
-                <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-lg z-50">
+                <div className="sticky bottom-0 bg-white border-t border-gray-200 p-4 shadow-lg z-50">
                     <div className="max-w-5xl mx-auto flex items-center justify-between">
                         <Button
                             type="button"

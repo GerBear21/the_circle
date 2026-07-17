@@ -115,6 +115,9 @@ export default function AppLayout({
 
   // ---- Post-onboarding feature tour ---------------------------------------
   // Runs once per user, only where the nav chrome (its anchor targets) exists.
+  // "Tour done" is persisted server-side (user_preferences.tour_completed) so
+  // it follows the user across browsers/devices; localStorage is kept only as a
+  // fast, offline-friendly cache to avoid a flash before the server responds.
   const canTour = !hideSidebar && !hideNav;
   const [runTour, setRunTour] = useState(false);
   const tourDecided = useRef(false);
@@ -123,17 +126,48 @@ export default function AppLayout({
     if (runOnboarding !== false) return;   // still onboarding (or undecided) — wait
     if (tourDecided.current || !user || !canTour) return;
     tourDecided.current = true;
-    let done = false;
-    try { done = localStorage.getItem(`tour:done:${user.id}`) === 'true'; } catch {}
-    if (done) return;
-    // Small delay so the onboarding overlay is gone and the anchors are painted.
-    const t = setTimeout(() => setRunTour(true), 600);
-    return () => clearTimeout(t);
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    (async () => {
+      // Fast path: if this browser already recorded completion, never re-run.
+      let doneLocal = false;
+      try { doneLocal = localStorage.getItem(`tour:done:${user.id}`) === 'true'; } catch {}
+      if (doneLocal) return;
+
+      // Otherwise consult the server flag so a user who finished the tour on
+      // another device isn't shown it again. Fail open (show the tour) only if
+      // the lookup errors — better a repeat than silently never showing it.
+      try {
+        const res = await fetch('/api/user/preferences');
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.preferences?.tourCompleted) {
+            try { localStorage.setItem(`tour:done:${user.id}`, 'true'); } catch {}
+            return;
+          }
+        }
+      } catch { /* fall through and show the tour */ }
+
+      if (cancelled) return;
+      // Small delay so the onboarding overlay is gone and the anchors are painted.
+      timer = setTimeout(() => { if (!cancelled) setRunTour(true); }, 600);
+    })();
+
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, [runOnboarding, user, canTour]);
 
   const finishTour = () => {
     try { if (user) localStorage.setItem(`tour:done:${user.id}`, 'true'); } catch {}
     setRunTour(false);
+    // Persist across devices. Best-effort — the localStorage cache above still
+    // suppresses it on this browser even if the request fails.
+    fetch('/api/user/preferences', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tourCompleted: true }),
+    }).catch(() => {});
   };
 
   return (

@@ -38,6 +38,11 @@ export interface UserPreferences {
   oneDriveFolder: string | null;
   /** Default page to open after login (path, null = /dashboard). */
   landingPage: string | null;
+  /**
+   * Whether the user has completed/dismissed the post-onboarding feature tour.
+   * Persisted server-side so the tour doesn't re-run on a new browser/device.
+   */
+  tourCompleted: boolean;
 }
 
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
@@ -52,6 +57,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   autoArchiveOneDrive: true,
   oneDriveFolder: null,
   landingPage: null,
+  tourCompleted: false,
 };
 
 function rowToPrefs(row: any): UserPreferences {
@@ -68,6 +74,7 @@ function rowToPrefs(row: any): UserPreferences {
     autoArchiveOneDrive: row.auto_archive_onedrive ?? true,
     oneDriveFolder: row.onedrive_folder || null,
     landingPage: row.landing_page || null,
+    tourCompleted: row.tour_completed ?? false,
   };
 }
 
@@ -141,6 +148,7 @@ export async function saveUserPreferences(
     const lp = (prefs.landingPage || '').trim();
     row.landing_page = lp ? lp.slice(0, 120) : null;
   }
+  if (prefs.tourCompleted !== undefined) row.tour_completed = !!prefs.tourCompleted;
 
   const { error } = await supabaseAdmin
     .from('user_preferences')

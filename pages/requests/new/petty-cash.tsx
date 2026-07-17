@@ -9,6 +9,7 @@ import { useUnsavedChangesPrompt, useFormAutosave } from '../../../hooks';
 import { useUserHrimsProfile } from '../../../hooks/useUserHrimsProfile';
 import SignatureSelector, { type SignatureSelection } from '../../../components/approvals/SignatureSelector';
 import { OnBehalfOfField, type OnBehalfOf } from '../../../components/requests/OnBehalfOfField';
+import ApproverSectionLoader from '../../../components/requests/ApproverSectionLoader';
 
 // Cost-allocation business units mirror the travel-auth allocation list.
 // Code is stored in metadata; label is shown in the dropdown.
@@ -159,7 +160,7 @@ export default function PettyCashRequestPage() {
         department_head: '', accountant: '', finance_manager: '',
     });
     const [showApproverDropdown, setShowApproverDropdown] = useState<string | null>(null);
-    const [loadingApproverResolution, setLoadingApproverResolution] = useState(false);
+    const [loadingApproverResolution, setLoadingApproverResolution] = useState(!isEditMode);
     const [autoResolvedRoles, setAutoResolvedRoles] = useState<Record<string, boolean>>({});
 
     // Watchers (reuse same pattern as voucher form).
@@ -451,7 +452,7 @@ export default function PettyCashRequestPage() {
     // Auto-resolve approvers from HRIMS organogram for new requests.
     useEffect(() => {
         const resolveApprovers = async () => {
-            if (!session?.user?.email || isEditMode) return;
+            if (!session?.user?.email || isEditMode) { setLoadingApproverResolution(false); return; }
             setLoadingApproverResolution(true);
             try {
                 const response = await fetch(`/api/hrims/resolve-approvers?email=${encodeURIComponent(session.user.email)}&formType=petty-cash`);
@@ -1145,7 +1146,7 @@ export default function PettyCashRequestPage() {
                         {lineItemsLocked && (
                             <p className="text-xs text-gray-500 mb-3">
                                 Line items, amounts and cost allocation were carried over from the approved travel
-                                authorisation and the HR Director&apos;s cost allocation. They can&apos;t be changed here.
+                                authorisation and the Chief Human Capital Officer&apos;s cost allocation. They can&apos;t be changed here.
                             </p>
                         )}
                         <div className="overflow-x-auto">
@@ -1547,16 +1548,11 @@ export default function PettyCashRequestPage() {
                             Sequential approval: Department Head → Accountant → Finance Manager. Approvers are auto-assigned from HRIMS.
                         </p>
 
-                        {loadingApproverResolution && (
-                            <div className="mb-4 p-3 bg-primary-50 border border-primary-200 rounded-xl flex items-center gap-2">
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-500" />
-                                <span className="text-sm text-primary-700">Resolving approvers from HRIMS organogram...</span>
-                            </div>
-                        )}
+                        {loadingApproverResolution && <ApproverSectionLoader rows={approvalRoles.length} />}
 
                         {showApproverDropdown && <div className="fixed inset-0 z-10" onClick={() => setShowApproverDropdown(null)} />}
 
-                        <div className="space-y-4">
+                        <div className={`space-y-4 ${loadingApproverResolution ? 'hidden' : ''}`}>
                             {approvalRoles.map((role, index) => {
                                 const selectedUserId = selectedApprovers[role.key];
                                 const selectedUser = selectedUserId ? users.find(u => u.id === selectedUserId) : null;
@@ -1645,7 +1641,7 @@ export default function PettyCashRequestPage() {
                 </div>
 
                 {/* Fixed Bottom Actions */}
-                <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-sm border-t border-gray-100 pb-safe lg:left-64">
+                <div className="sticky bottom-0 p-4 bg-white/95 backdrop-blur-sm border-t border-gray-100 pb-safe">
                     <div className="flex gap-3 max-w-5xl mx-auto">
                         {isApproverEditing ? (
                             <>

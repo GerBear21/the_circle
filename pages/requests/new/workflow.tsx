@@ -1142,7 +1142,7 @@ export default function CustomizeWorkflowPage() {
         </div>
 
         {/* Footer Action */}
-        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 lg:pl-72 flex justify-end gap-3 z-30">
+        <div className="sticky bottom-0 bg-white border-t border-gray-200 p-4 flex justify-end gap-3 z-30">
           <Button variant="secondary" onClick={() => router.back()}>Cancel</Button>
           <Button variant="primary" onClick={handleSubmit} isLoading={loading} disabled={!workflowName || steps.length === 0}>
             {editingWorkflowId ? 'Update Design' : 'Save Design'}

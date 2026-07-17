@@ -54,6 +54,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       'autoArchiveOneDrive',
       'oneDriveFolder',
       'landingPage',
+      'tourCompleted',
     ] as const;
     const update: Record<string, any> = {};
     for (const key of allowed) {

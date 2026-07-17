@@ -121,19 +121,21 @@ export function useUserHrimsProfile() {
         } else if (response.status === 404 || (response.ok && data.found === false)) {
           // Authoritative "user not in HRIMS" — this is a SUCCESSFUL response,
           // not a network failure. Don't fall back to cache and don't surface
-          // an "unreachable" banner.
-          const empty: HrimsUserProfile = {
-            employee: null,
-            department: null,
-            businessUnit: null,
-            position: null,
-            reportsTo: null,
+          // an "unreachable" banner. The API may still return details the user
+          // saved on their Circle profile (source: 'circle'), so use those for
+          // autofill rather than showing N/A everywhere.
+          const circle: HrimsUserProfile = {
+            employee: data.employee || null,
+            department: data.department || null,
+            businessUnit: data.businessUnit || null,
+            position: data.position || null,
+            reportsTo: data.reportsTo || null,
             found: false,
           };
-          setProfile(empty);
+          setProfile(circle);
           setUsingCache(false);
           setError(null);
-          writeCache(email, empty);
+          writeCache(email, circle);
         } else {
           // 5xx / network glitch — keep whatever cache we have on screen.
           throw new Error(data?.error || `HRIMS responded ${response.status}`);

@@ -9,7 +9,15 @@ import { supabaseAdmin } from './supabaseAdmin';
  * the server. The next-auth session cookie no longer carries them.
  */
 
-const MS_SCOPE = 'openid profile email offline_access User.Read Mail.Send';
+// The delegated Graph scope requested at sign-in and on refresh. `User.Read.All`
+// (directory search for approvers/watchers) is admin-consent-required, so it is
+// only requested once directory search is switched on via USER_DIRECTORY_SOURCE.
+// Requesting it before an admin has consented would fail every sign-in with
+// "needs admin approval", so keep this gated on the same flag that enables the
+// feature — flip the flag only AFTER admin consent is granted.
+const DIRECTORY_SCOPE =
+  process.env.USER_DIRECTORY_SOURCE === 'azure' ? ' User.Read.All' : '';
+export const MS_SCOPE = `openid profile email offline_access User.Read Mail.Send${DIRECTORY_SCOPE}`;
 
 interface MsTokenInput {
   accessToken?: string | null;
