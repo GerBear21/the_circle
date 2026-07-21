@@ -39,9 +39,8 @@ export default function NewCapexRequestPage() {
   const approvalRoles = [
     { key: 'finance_manager', label: 'Finance Manager / Accountant', description: 'Financial Review' },
     { key: 'general_manager', label: 'Head of Department', description: 'Department Head Approval' },
-    { key: 'procurement_manager', label: 'Procurement Manager', description: 'Procurement Review' },
+    { key: 'procurement_manager', label: 'Procurement and Projects Manager', description: 'Procurement & Projects Review' },
     { key: 'corporate_hod', label: 'Corporate Head of Dept', description: 'Department Approval' },
-    { key: 'projects_manager', label: 'Projects Manager', description: 'Projects Review' },
     { key: 'managing_director', label: 'Chief Operating Officer', description: 'Operations Approval' },
     { key: 'finance_director', label: 'Chief Finance Officer', description: 'Final Financial Approval' },
     { key: 'ceo', label: 'Chief Executive', description: 'Final Authorization' },
@@ -51,7 +50,6 @@ export default function NewCapexRequestPage() {
     general_manager: '',
     procurement_manager: '',
     corporate_hod: '',
-    projects_manager: '',
     managing_director: '',
     finance_director: '',
     ceo: '',
@@ -61,7 +59,6 @@ export default function NewCapexRequestPage() {
     general_manager: '',
     procurement_manager: '',
     corporate_hod: '',
-    projects_manager: '',
     managing_director: '',
     finance_director: '',
     ceo: '',
@@ -379,7 +376,7 @@ export default function NewCapexRequestPage() {
         } else if (approversData && Array.isArray(approversData)) {
           // Legacy format: convert array to role-based object (best effort mapping)
           const approverArray = approversData as string[];
-          const roleKeys = ['finance_manager', 'general_manager', 'procurement_manager', 'corporate_hod', 'projects_manager', 'managing_director', 'finance_director', 'ceo'];
+          const roleKeys = ['finance_manager', 'general_manager', 'procurement_manager', 'corporate_hod', 'managing_director', 'finance_director', 'ceo'];
           const mappedApprovers: Record<string, string> = {};
           approverArray.forEach((id, index) => {
             if (index < roleKeys.length) {
@@ -880,11 +877,12 @@ export default function NewCapexRequestPage() {
         return;
       }
 
-      // Validate all 8 approvers are selected (skip for approver editing)
+      // Validate all approvers are selected (skip for approver editing)
       if (!isApproverEditing) {
-        const selectedApproverCount = Object.values(selectedApprovers).filter(Boolean).length;
-        if (selectedApproverCount < 8) {
-          setError(`All 8 approvers are required. You have selected ${selectedApproverCount} of 8.`);
+        const requiredCount = approvalRoles.length;
+        const selectedApproverCount = approvalRoles.filter(r => selectedApprovers[r.key]).length;
+        if (selectedApproverCount < requiredCount) {
+          setError(`All ${requiredCount} approvers are required. You have selected ${selectedApproverCount} of ${requiredCount}.`);
           setLoading(false);
           return;
         }
@@ -991,7 +989,6 @@ export default function NewCapexRequestPage() {
             selectedApprovers.general_manager,
             selectedApprovers.procurement_manager,
             selectedApprovers.corporate_hod,
-            selectedApprovers.projects_manager,
             selectedApprovers.managing_director,
             selectedApprovers.finance_director,
             selectedApprovers.ceo,
@@ -1157,7 +1154,7 @@ export default function NewCapexRequestPage() {
 
       // Create new request (original flow)
       // Convert approvers object to ordered array for sequential approval
-      // Order: Finance Manager -> General Manager -> Procurement Manager -> Corporate HOD -> Projects Manager -> Operations Director -> Finance Director -> CEO
+      // Order: Finance Manager -> General Manager -> Procurement and Projects Manager -> Corporate HOD -> Operations Director -> Finance Director -> CEO
       // If "Other" reason was given for <3 quotations, the COO is prepended as the first approver
       // so the request cannot move into the official approval trail until the COO signs off.
       const baseApprovers = [
@@ -1165,7 +1162,6 @@ export default function NewCapexRequestPage() {
         selectedApprovers.general_manager,
         selectedApprovers.procurement_manager,
         selectedApprovers.corporate_hod,
-        selectedApprovers.projects_manager,
         selectedApprovers.managing_director,
         selectedApprovers.finance_director,
         selectedApprovers.ceo,
@@ -1381,7 +1377,6 @@ export default function NewCapexRequestPage() {
         selectedApprovers.general_manager,
         selectedApprovers.procurement_manager,
         selectedApprovers.corporate_hod,
-        selectedApprovers.projects_manager,
         selectedApprovers.managing_director,
         selectedApprovers.finance_director,
         selectedApprovers.ceo,
@@ -2449,7 +2444,7 @@ export default function NewCapexRequestPage() {
             Select Approvers <span className="text-red-500">*</span>
           </h3>
           <p className="text-sm text-text-secondary mb-4">
-            Select users for each approval role. <span className="text-red-500 font-medium">All 8 approvers are required.</span>
+            Select users for each approval role. <span className="text-red-500 font-medium">All {approvalRoles.length} approvers are required.</span>
           </p>
 
           {/* Parallel vs Sequential Approval Toggle
@@ -2595,7 +2590,7 @@ export default function NewCapexRequestPage() {
             <div className="flex items-center justify-between">
               <span className="text-sm text-gray-600">Approvers Selected</span>
               <span className="text-sm font-semibold text-primary-600">
-                {Object.values(selectedApprovers).filter(Boolean).length} of {approvalRoles.length}
+                {approvalRoles.filter(r => selectedApprovers[r.key]).length} of {approvalRoles.length}
               </span>
             </div>
           </div>
