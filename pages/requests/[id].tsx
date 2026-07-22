@@ -3014,8 +3014,8 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                         {/* Edit Draft button - navigates to the form page */}
                         {canPublish && (
                             <Button
-                                variant="outline"
-                                className="gap-2 bg-white text-text-secondary border-gray-200 hover:bg-gray-50 hover:text-text-primary"
+                                variant="secondary"
+                                className="gap-2 border border-primary-200 bg-primary-50 text-primary-700 hover:bg-primary-100"
                                 onClick={() => {
                                     // Map request type to route (underscores to hyphens)
                                     const requestType = request.metadata?.type || request.metadata?.requestType || 'capex';
