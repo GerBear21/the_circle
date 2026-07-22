@@ -175,7 +175,7 @@ export const authOptions: NextAuthOptions = {
     // Idle timeout: the cookie's exp is this far in the future and is rolled
     // forward whenever the client refreshes the session on user activity (see
     // SessionActivityGuard). Once it lapses, getServerSession/getToken return
-    // null and every protected API responds 401. The absolute (30 min) ceiling
+    // null and every protected API responds 401. The absolute (2 hour) ceiling
     // is enforced separately in middleware via the `loginAt` claim.
     maxAge: IDLE_TIMEOUT_SECONDS, // 15 minutes of inactivity
     updateAge: 60, // re-issue the rolling token at most once per minute
@@ -258,7 +258,7 @@ export const authOptions: NextAuthOptions = {
       try {
         // Stamp the absolute-timeout anchor on every fresh sign-in (account is
         // only present at sign-in). Refreshes carry it forward untouched, so the
-        // 30-minute absolute ceiling is measured from the original login.
+        // 2-hour absolute ceiling is measured from the original login.
         if (account) {
           (token as any).loginAt = Date.now();
         }
@@ -434,7 +434,7 @@ export const authOptions: NextAuthOptions = {
         }
       }
       // Surface the login time so the client guard can enforce the absolute
-      // (30 min) timeout and show the matching UX.
+      // (2 hour) timeout and show the matching UX.
       if (typeof (token as any).loginAt === "number") {
         (session as any).loginAt = (token as any).loginAt;
       }

@@ -169,7 +169,28 @@
       "Bash(echo \"TSC: $?\")",
       "Bash(NEXTAUTH_SECRET=test-secret-123 node -e ' *)",
       "Bash(pkill -f \"http.server 8199\")",
-      "Bash(python -c \"import yaml,sys; d=yaml.safe_load\\(open\\('.github/workflows/ci-cd.yml'\\)\\); print\\('jobs:', list\\(d['jobs'].keys\\(\\)\\)\\); print\\('YAML OK'\\)\")"
+      "Bash(python -c \"import yaml,sys; d=yaml.safe_load\\(open\\('.github/workflows/ci-cd.yml'\\)\\); print\\('jobs:', list\\(d['jobs'].keys\\(\\)\\)\\); print\\('YAML OK'\\)\")",
+      "Bash(seq 1 140)",
+      "Bash(grep -q EXIT: __TRACKED_VAR__/tsc2.txt)",
+      "Bash(break)",
+      "Bash(sleep 2)",
+      "Bash(cat __TRACKED_VAR__/tsc2.txt)",
+      "Bash(python -c \"import sys; print\\(sys.version\\)\")",
+      "Bash(python -c \"import fitz; print\\('pymupdf ok'\\)\")",
+      "Bash(python -c \"import pdfplumber; print\\('pdfplumber ok'\\)\")",
+      "Bash(python -m pip install --quiet pymupdf)",
+      "Bash(python -c \"import fitz; print\\('pymupdf ready', fitz.__doc__[:40]\\)\")",
+      "Bash(python -m pip install pymupdf)",
+      "Bash(seq 1 150)",
+      "Bash(grep -q EXIT: __TRACKED_VAR__/tsc5.txt)",
+      "Bash(cat __TRACKED_VAR__/tsc5.txt)",
+      "Bash(node -e \"try{require.resolve\\('esbuild'\\);console.log\\('esbuild OK'\\)}catch\\(e\\){console.log\\('no esbuild'\\)} try{require.resolve\\('pdf-lib'\\);console.log\\('pdf-lib OK'\\)}catch\\(e\\){console.log\\('no pdf-lib'\\)}\")",
+      "Bash(cp -r node_modules __TRACKED_VAR__/capextest/node_modules)",
+      "Bash(node __TRACKED_VAR__/capextest/run.js)",
+      "Bash(rm -rf __TRACKED_VAR__/capextest/node_modules)",
+      "Bash(NODE_PATH=C:/Users/Geraldine.Ndoro/the_circle/node_modules node __TRACKED_VAR__/capextest/run.js)",
+      "Bash(cp \"C:\\\\Users\\\\GERALD~1.NDO\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Geraldine-Ndoro-the-circle\\\\0a725310-b567-42a2-8c93-054ca617a0ba\\\\scratchpad\\\\capextest\\\\run.js\" /tmp/capextest/run.js)",
+      "Bash(NODE_PATH=\"C:/Users/Geraldine.Ndoro/the_circle/node_modules\" node run.js)"
     ]
   }
 }
