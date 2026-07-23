@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage, PDFImage } from 'pdf-lib';
+import { formatDateTime } from './formatDate';
 
 /**
  * Server-side generator for the official RTG "Capital Expenditure Form" PDF.
@@ -286,6 +287,9 @@ export async function buildCapexPdf(
   for (const a of data.approvedByApprovers) sigRow(a.label, a.name);
 
   // ── Footer on every form page (red Version / page no. / Issue Date) ──
+  // System-generation stamp: a truthful record of when this document was
+  // produced from The Circle. Sits just below the standard form footer.
+  const generatedNote = `Generated from The Circle on ${formatDateTime(new Date())}`;
   pages.forEach((p, idx) => {
     const fs = 10;
     p.drawText('Version 5', { x: marginX, y: 38, size: fs, font: bold, color: red });
@@ -293,6 +297,14 @@ export async function buildCapexPdf(
     p.drawText(num, { x: PAGE_W / 2 - font.widthOfTextAtSize(num, fs) / 2, y: 38, size: fs, font, color: black });
     const issue = 'Issue Date:01 May 2026';
     p.drawText(issue, { x: PAGE_W - marginX - bold.widthOfTextAtSize(issue, fs), y: 38, size: fs, font: bold, color: red });
+    const gs = 7.5;
+    p.drawText(generatedNote, {
+      x: PAGE_W / 2 - font.widthOfTextAtSize(generatedNote, gs) / 2,
+      y: 24,
+      size: gs,
+      font,
+      color: grey,
+    });
   });
 
   // ── Append the actual uploaded quotation files ──

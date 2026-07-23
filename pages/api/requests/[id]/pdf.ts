@@ -614,7 +614,7 @@ function generatePdfHtml(request: any, capexApproval: CapexApprovalData | null =
   ` : ''}
 
   <div class="footer">
-    Generated on ${formatDateTime(new Date())} • The Circle Approval System
+    Generated from The Circle on ${formatDateTime(new Date())}
   </div>
 </body>
 </html>

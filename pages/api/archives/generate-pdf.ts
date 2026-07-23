@@ -1273,8 +1273,8 @@ async function generatePdfBuffer(
         { width: pageWidth, align: 'center' }
       );
 
-      doc.fontSize(7).fillColor('#d1d5db').text(
-        `Document ID: ${request.id}  |  Archived: ${new Date().toISOString()}`,
+      doc.fontSize(7).fillColor('#9ca3af').text(
+        `Generated from The Circle on ${formatDateTime(new Date().toISOString())}  |  Document ID: ${request.id}`,
         50,
         yPos + 70,
         { width: pageWidth, align: 'center' }
