@@ -7,6 +7,7 @@ import * as path from 'path';
 import { formatDateTime } from '../../../../lib/formatDate';
 import { CAPEX_APPROVAL_SECTIONS } from '../../../../lib/capexApproval';
 import { buildCapexPdf, CapexPdfData, CapexAttachment } from '../../../../lib/capexPdf';
+import { getUserRBACProfile, hasPermission, PERMISSIONS } from '../../../../lib/rbac';
 
 const CAPEX_PAYBACK_LABELS: Record<string, string> = {
   '<6m': 'Less than 6 months',
@@ -124,9 +125,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     );
     const canApproverView = userStep && userStep.status !== 'waiting';
     
-    if (!isCreator && !isWatcher && !canApproverView) {
+    // Super admins / requests.view_all holders can download ANY request's PDF.
+    const rbacForView = (!isCreator && !isWatcher && !canApproverView)
+      ? await getUserRBACProfile(userId)
+      : null;
+    const canViewAll = !!rbacForView && (rbacForView.is_super_admin || hasPermission(rbacForView, PERMISSIONS.REQUESTS_VIEW_ALL));
+
+    if (!isCreator && !isWatcher && !canApproverView && !canViewAll) {
       if (userStep && userStep.status === 'waiting') {
-        return res.status(403).json({ 
+        return res.status(403).json({
           error: 'This request is not yet ready for your review.',
           code: 'APPROVAL_NOT_YOUR_TURN'
         });
@@ -194,7 +201,7 @@ async function buildCapexPdfForRequest(request: any, requestId: string): Promise
 
   // Quotations (supplier + amount), preferred supplier + reason.
   const quotes: any[] = Array.isArray(md.quotations) ? md.quotations : [];
-  const quotations = quotes.slice(0, 3).map((q) => ({
+  const quotations = quotes.map((q) => ({
     supplier: q.supplierName || '',
     amount: q.amount || '',
   }));

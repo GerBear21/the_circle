@@ -6,6 +6,12 @@ import {
     buildTravelAuthDocumentHeader,
     travelAuthInputFromRequest,
 } from '../../lib/previews/travelAuthPreview';
+import {
+    buildCapexPreviewSections,
+    capexPreviewTitle,
+    capexPreviewDocumentHeader,
+} from '../../lib/previews/capexPreview';
+import { CAPEX_APPROVAL_ROLES } from '../../lib/capexApproval';
 
 /**
  * ApprovedRequestPreview
@@ -688,41 +694,66 @@ function buildCompSections(request: any, metadata: any): PreviewSection[] {
     return sections;
 }
 
+const CAPEX_PAYBACK_LABELS: Record<string, string> = {
+    '<6m': 'Less than 6 months',
+    '6-12m': '6 to 12 months',
+    '1-2y': '1 to 2 years',
+    '2-3y': '2 to 3 years',
+    '>3y': 'More than 3 years',
+};
+
+// Renders the exact CAPEX document (shared with the form page + the printable
+// PDF) from a saved request's metadata and its resolved approver steps.
 function buildCapexSections(request: any, metadata: any): PreviewSection[] {
     const data = metadata.capex || metadata;
-    return [
-        {
-            title: 'Requestor Information',
-            fields: [
-                { label: 'Requester', value: data.requester || request.creator?.display_name || '—' },
-                { label: 'Department', value: data.department || '—' },
-                { label: 'Business Unit', value: data.unit || '—' },
-                { label: 'Budget Type', value: data.budgetType || '—' },
-                { label: 'Priority', value: data.priority || '—' },
-            ],
-        },
-        {
-            title: 'Project Details',
-            fields: [
-                { label: 'Project Name', value: data.projectName || '—' },
-                { label: 'Description', value: data.description || '—', fullWidth: true },
-                { label: 'Business Justification', value: data.justification || '—', fullWidth: true },
-                { label: 'Start Date', value: formatDate(data.startDate) },
-                { label: 'End Date', value: formatDate(data.endDate) },
-            ],
-        },
-        {
-            title: 'Financial Analysis',
-            fields: [
-                { label: 'Project Cost', value: money(data.amount, data.currency || 'USD') },
-                { label: 'Currency', value: data.currency || 'USD' },
-                { label: 'Payback Period', value: data.paybackPeriod || '—' },
-                { label: 'NPV', value: data.npv || '—' },
-                { label: 'IRR', value: data.irr || '—' },
-                { label: 'Funding Source', value: data.fundingSource || '—' },
-            ],
-        },
-    ];
+
+    // Approver name per role: resolve each approverRoles[roleKey] id against the
+    // request_steps' embedded approver display names.
+    const roleMap: Record<string, any> = data.approverRoles || metadata.approverRoles || {};
+    const nameById = new Map<string, string>();
+    for (const step of (Array.isArray(request?.request_steps) ? request.request_steps : []) as any[]) {
+        const approver = Array.isArray(step.approver) ? step.approver[0] : step.approver;
+        if (step.approver_user_id && approver?.display_name) {
+            nameById.set(step.approver_user_id, approver.display_name);
+        }
+    }
+    const approverNameByRole: Record<string, string> = {};
+    for (const role of CAPEX_APPROVAL_ROLES) {
+        const uid = roleMap[role.key];
+        approverNameByRole[role.key] = uid ? nameById.get(uid) || '' : '';
+    }
+
+    const quotes: any[] = Array.isArray(data.quotations) ? data.quotations : [];
+    const preferred = quotes.find((q) => q.isSelectedSupplier);
+
+    const parseNum = (s: any) => parseFloat(String(s ?? '').replace(/[^0-9.-]/g, '')) || 0;
+    const fmt = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const isBudgeted = data.budgetType === 'budget';
+    const budgetTypeMap: Record<string, string> = { budget: 'BUDGETED', 'non-budget': 'NON-BUDGETED', emergency: 'EMERGENCY' };
+
+    return buildCapexPreviewSections({
+        unit: data.unit || '',
+        department: data.department || '',
+        projectName: data.projectName || request?.title || '',
+        budgetTypeDisplay: budgetTypeMap[data.budgetType] || (data.budgetType ? String(data.budgetType).toUpperCase() : ''),
+        currency: data.currency || 'USD',
+        budgetAmount: data.budgetAmount || '',
+        amountSpent: data.amountSpent || '',
+        balance: isBudgeted ? fmt(parseNum(data.budgetAmount) - parseNum(data.amountSpent)) : '',
+        projectCost: data.amount || '',
+        balanceAfter: isBudgeted ? data.budgetBalance || '' : '',
+        justification: data.justification || '',
+        payback: data.paybackPeriod ? CAPEX_PAYBACK_LABELS[data.paybackPeriod] || data.paybackPeriod : '',
+        npv: data.npv || '',
+        irr: data.irr || '',
+        evaluation: data.evaluation || '',
+        quotations: quotes.map((q) => ({ supplier: q.supplierName || '', amount: q.amount || '' })),
+        preferredSupplier: preferred?.supplierName || '',
+        reason: preferred?.selectionReason || data.quotationJustification || '',
+        fundingSource: data.fundingSource || '',
+        requestedBy: data.requester || request?.creator?.display_name || data.department || '',
+        approverNameByRole,
+    });
 }
 
 function buildGenericSections(request: any, metadata: any): PreviewSection[] {
@@ -807,10 +838,13 @@ function buildPreviewForRequest(request: any) {
     // an approver needs — so we skip the generic "Approval Signatures"
     // appendix in that case (it would duplicate the same information).
     const isTravelAuth = type === 'travel_authorization' || type === 'international_travel_authorization';
+    const isCapex = type === 'capex';
 
     const documentHeader = isTravelAuth
         ? buildTravelAuthDocumentHeader(type === 'international_travel_authorization')
-        : buildDocumentHeader(metadata);
+        : isCapex
+            ? capexPreviewDocumentHeader
+            : buildDocumentHeader(metadata);
 
     let typeSections: PreviewSection[] = [];
     switch (type) {
@@ -833,19 +867,24 @@ function buildPreviewForRequest(request: any) {
             typeSections = buildGenericSections(request, metadata);
     }
 
-    const sections: PreviewSection[] = isTravelAuth
+    // Travel auth and CAPEX embed their own signature block, so don't append the
+    // generic "Approval Signatures" table (it would duplicate the sign-offs).
+    const sections: PreviewSection[] = isTravelAuth || isCapex
         ? typeSections
         : [...typeSections, buildApprovalSignaturesSection(request)];
 
     // Subtitle adapts to status — for in-progress requests we don't claim
-    // "Fully Approved", we just stamp the submission date.
+    // "Fully Approved", we just stamp the submission date. The CAPEX form is a
+    // faithful reproduction of the paper document, so it carries no subtitle.
     const isApproved = request?.status === 'approved';
-    const subtitle = isApproved
-        ? `${ref} — Fully Approved on ${formatDateTime(request?.updated_at || request?.created_at)}`
-        : `${ref} — Submitted ${formatDateTime(request?.created_at)}`;
+    const subtitle = isCapex
+        ? undefined
+        : isApproved
+            ? `${ref} — Fully Approved on ${formatDateTime(request?.updated_at || request?.created_at)}`
+            : `${ref} — Submitted ${formatDateTime(request?.created_at)}`;
 
     return {
-        title: titleByType[type] || request?.title || 'Request',
+        title: isCapex ? capexPreviewTitle : (titleByType[type] || request?.title || 'Request'),
         subtitle,
         sections,
         documentHeader,
@@ -870,7 +909,7 @@ export function ApprovedRequestPreviewInline({ request, className }: InlineProps
                 <button
                     type="button"
                     onClick={() => printPreviewDocument(printRef.current, title)}
-                    className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-[#5E4426] bg-[#F3EADC] border border-[#C9B896] rounded-lg hover:bg-[#E9DCC3] transition"
+                    className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200 transition"
                 >
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />

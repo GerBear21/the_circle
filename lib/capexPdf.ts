@@ -227,8 +227,9 @@ export async function buildCapexPdf(
   });
   spacer(6);
 
-  // ── Quotations ──
-  for (let i = 0; i < 3; i++) {
+  // ── Quotations (at least the standard 3 slots; more if uploaded) ──
+  const quoteSlots = Math.max(3, data.quotations.length);
+  for (let i = 0; i < quoteSlots; i++) {
     const q = data.quotations[i];
     ensure(size * 2 + gapY + 4);
     let cx = marginX;
