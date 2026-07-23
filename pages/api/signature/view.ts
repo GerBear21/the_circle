@@ -99,7 +99,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // HEAD: existence check only, no body (used by client signature probes).
   if (isHead) {
     const exists = await signatureExists(objectPath);
-    res.setHeader('Cache-Control', 'private, max-age=300');
+    // Never cache a negative result: a user who uploads a signature right after
+    // a "not found" probe must not keep seeing the stale 404 for 5 minutes.
+    res.setHeader('Cache-Control', exists ? 'private, max-age=300' : 'no-store');
     return res.status(exists ? 200 : 404).end();
   }
 

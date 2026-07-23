@@ -19,6 +19,8 @@ import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import SignatureSelector, { type SignatureSelection } from '../../components/approvals/SignatureSelector';
 import ApprovedRequestPreview, { ApprovedRequestPreviewInline } from '../../components/requests/ApprovedRequestPreview';
 import { getApprovalRisk, type ApprovalRisk, type AuthenticationMethod } from '@/lib/approvalRisk';
+import { getErrorMessage } from '@/lib/getErrorMessage';
+import { isNetworkError } from '@/lib/networkError';
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
 import criticalAnimation from '../../lotties/red critical.json';
@@ -1311,6 +1313,12 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     const [request, setRequest] = useState<RequestDetail | null>(initialRequest);
     const [loading, setLoading] = useState(!initialRequest);
     const [error, setError] = useState<string | null>(initialError);
+    // Distinguishes a connectivity failure from a genuine "not found / no
+    // access" so the error screen can tell the user it's their connection (and
+    // offer a retry) rather than implying the request doesn't exist.
+    const [errorIsNetwork, setErrorIsNetwork] = useState(false);
+    // Bumped by the "Try again" button to re-run the fetch effect.
+    const [retryTick, setRetryTick] = useState(0);
     const [activeTab, setActiveTab] = useState<'preview' | 'details' | 'timeline' | 'documents'>('preview');
     const [publishing, setPublishing] = useState(false);
     const [savingDraft, setSavingDraft] = useState(false);
@@ -1813,8 +1821,18 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || `Failed to ${pendingApprovalAction} request`);
+                let actionError = `Failed to ${pendingApprovalAction} request`;
+                try {
+                    const errorData = await response.json();
+                    actionError = errorData.error || actionError;
+                } catch {
+                    // Gateway/proxy returned non-JSON (5xx) — the request likely
+                    // didn't reach the app. Tell the user it's a connection issue.
+                    if (response.status >= 500) {
+                        actionError = "Couldn't reach the server to record your decision. Please check your connection and try again.";
+                    }
+                }
+                throw new Error(actionError);
             }
 
             // Refresh the request data
@@ -1830,7 +1848,7 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
             setPendingApprovalAction(null);
             setSignatureSelection({ type: 'saved' });
         } catch (err: any) {
-            setReviewError(err.message || `Failed to ${pendingApprovalAction} request`);
+            setReviewError(getErrorMessage(err, `Failed to ${pendingApprovalAction} request`));
             setShowApprovalConfirm(false);
         } finally {
             setReviewProcessing(false);
@@ -2198,23 +2216,39 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                 const response = await fetch(`/api/requests/${id}`);
 
                 if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Failed to fetch request');
+                    let errorMessage = 'Failed to fetch request';
+                    try {
+                        const errorData = await response.json();
+                        errorMessage = errorData.error || errorMessage;
+                    } catch {
+                        // A non-JSON body (e.g. a 502/504 HTML gateway page) means
+                        // the server/gateway is unreachable — treat as a connection
+                        // problem rather than a missing request.
+                        if (response.status >= 500) {
+                            setErrorIsNetwork(true);
+                            setError("Can't reach the server right now. Please try again in a moment.");
+                            return;
+                        }
+                    }
+                    throw new Error(errorMessage);
                 }
 
                 const data = await response.json();
                 setRequest(data.request);
                 setError(null);
+                setErrorIsNetwork(false);
             } catch (err: any) {
                 console.error('Error fetching request:', err);
-                setError(err.message || 'Failed to load request details. Please try again.');
+                const network = isNetworkError(err);
+                setErrorIsNetwork(network);
+                setError(getErrorMessage(err, 'Failed to load request details. Please try again.'));
             } finally {
                 setLoading(false);
             }
         }
 
         fetchRequestDetails();
-    }, [id, status, initialRequest]);
+    }, [id, status, initialRequest, retryTick]);
 
     useEffect(() => {
         if (request) {
@@ -2598,6 +2632,36 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     }
 
     if (error || !request) {
+        // A connectivity failure is NOT a missing request — say so plainly and
+        // let the user retry without navigating away and losing their place.
+        if (errorIsNetwork) {
+            return (
+                <AppLayout title="Connection problem">
+                    <div className="p-6 max-w-4xl mx-auto">
+                        <Card className="text-center py-16 px-8">
+                            <div className="w-20 h-20 bg-warning-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                                <svg className="w-10 h-10 text-warning-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.364 5.636a9 9 0 010 12.728m-12.728 0a9 9 0 010-12.728m9.9 2.829a5 5 0 010 7.07m-7.072 0a5 5 0 010-7.07M12 15a1 1 0 100-2 1 1 0 000 2z" />
+                                </svg>
+                            </div>
+                            <h3 className="text-2xl font-bold text-text-primary mb-2">Connection problem</h3>
+                            <p className="text-text-secondary max-w-md mx-auto mb-8">
+                                {error || "We couldn't reach the server. The system is working — please check your internet connection and try again."}
+                            </p>
+                            <div className="flex items-center justify-center gap-3">
+                                <Button variant="primary" onClick={() => setRetryTick((t) => t + 1)}>
+                                    Try again
+                                </Button>
+                                <Button variant="secondary" onClick={() => router.push('/requests/my-requests')}>
+                                    Back to My Requests
+                                </Button>
+                            </div>
+                        </Card>
+                    </div>
+                </AppLayout>
+            );
+        }
+
         return (
             <AppLayout title="Error">
                 <div className="p-6 max-w-4xl mx-auto">
@@ -3927,6 +3991,23 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                     <div className="text-xs text-primary-600 mt-1">{request.creator.email}</div>
                                 </div>
                             </div>
+                            {(() => {
+                                const dept = request.metadata?.department;
+                                const bu = request.metadata?.unit || request.metadata?.businessUnit || request.metadata?.business_unit_name;
+                                if (!dept && !bu) return null;
+                                return (
+                                    <div className="mt-4 grid grid-cols-2 gap-3">
+                                        <div>
+                                            <div className="text-xs text-gray-500 uppercase tracking-wide font-medium">Business Unit</div>
+                                            <div className="text-sm font-medium text-gray-900 mt-0.5">{bu || '—'}</div>
+                                        </div>
+                                        <div>
+                                            <div className="text-xs text-gray-500 uppercase tracking-wide font-medium">Department</div>
+                                            <div className="text-sm font-medium text-gray-900 mt-0.5">{dept || '—'}</div>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
                             {request.metadata?.onBehalfOf?.name && (
                                 <div className="mt-4 rounded-lg bg-primary-50 border border-primary-200 px-3 py-2 text-sm text-primary-800">
                                     Filed on behalf of <strong>{request.metadata.onBehalfOf.name}</strong>
@@ -4147,9 +4228,15 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                         </div>
                                     </div>
                                     <div>
+                                        <div className="text-xs text-gray-500 uppercase tracking-wide font-medium">Business Unit</div>
+                                        <div className="text-sm font-medium text-gray-900 mt-0.5">
+                                            {request.metadata?.unit || request.metadata?.businessUnit || request.metadata?.business_unit_name || 'N/A'}
+                                        </div>
+                                    </div>
+                                    <div>
                                         <div className="text-xs text-gray-500 uppercase tracking-wide font-medium">Department</div>
                                         <div className="text-sm font-medium text-gray-900 mt-0.5">
-                                            {request.creator?.job_title || 'N/A'}
+                                            {request.metadata?.department || 'N/A'}
                                         </div>
                                     </div>
                                 </div>

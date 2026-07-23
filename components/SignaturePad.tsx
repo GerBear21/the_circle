@@ -24,6 +24,10 @@ interface SignaturePadProps {
     onSave?: (url: string) => void;
 }
 
+/** Append a unique query param so a re-saved signature isn't served from cache. */
+const withCacheBust = (url: string) =>
+    `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
+
 export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) {
     const [activeTab, setActiveTab] = useState<'draw' | 'upload' | 'mobile'>('draw');
     const [currentSignature, setCurrentSignature] = useState<string | null>(initialUrl || null);
@@ -83,8 +87,9 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
                             const claimData = await claimRes.json();
                             console.log('[SignaturePad] Signature claimed:', claimData);
                             if (claimData.url) {
-                                setCurrentSignature(claimData.url);
-                                if (onSave) onSave(claimData.url);
+                                const fresh = withCacheBust(claimData.url);
+                                setCurrentSignature(fresh);
+                                if (onSave) onSave(fresh);
                                 setStatusMessage('Signature saved successfully.');
                             } else {
                                 setStatusMessage('Signature saved.');
@@ -127,12 +132,16 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
                 body: JSON.stringify({ image: dataURL }),
             });
             const data = await res.json();
-            if (data.url) {
-                if (!opts?.keepCanvas) setCurrentSignature(data.url);
-                if (onSave) onSave(data.url);
+            if (res.ok && data.url) {
+                // The proxy URL is identical before and after a change, so append
+                // a cache-buster — otherwise the browser keeps showing the old
+                // (cached) signature and the update looks like it didn't save.
+                const fresh = withCacheBust(data.url);
+                if (!opts?.keepCanvas) setCurrentSignature(fresh);
+                if (onSave) onSave(fresh);
                 setStatusMessage('Signature saved automatically.');
             } else {
-                setStatusMessage('Failed to save signature.');
+                setStatusMessage(data?.message || data?.error || 'Failed to save signature.');
             }
         } catch (err) {
             console.error('Save error', err);
@@ -160,7 +169,12 @@ export default function SignaturePad({ initialUrl, onSave }: SignaturePadProps) 
         const reader = new FileReader();
         reader.onload = async (event) => {
             const base64 = event.target?.result as string;
-            if (base64) await persistSignature(base64);
+            if (base64) {
+                await persistSignature(base64);
+                // Reveal the saved-image preview (only the Draw tab renders it),
+                // so the user sees their uploaded signature took effect.
+                setActiveTab('draw');
+            }
         };
         reader.readAsDataURL(file);
     };

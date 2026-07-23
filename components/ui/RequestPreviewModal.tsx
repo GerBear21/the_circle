@@ -1,6 +1,7 @@
 import { Fragment, ReactNode, forwardRef, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useSuppressToastsWhileOpen } from './ToastProvider';
+import { formatDateTime } from '../../lib/formatDate';
 
 export interface PreviewField {
     label: string;
@@ -143,6 +144,24 @@ export const RequestPreviewDocument = forwardRef<HTMLDivElement, RequestPreviewD
                         ) : null}
                     </div>
                 ))}
+
+                {/* System-generation stamp — a truthful record of when this
+                    document was produced from The Circle. Uses the `footer`
+                    class so the shared print stylesheet targets it too; the
+                    print helper therefore does NOT append its own footer. */}
+                <div
+                    className="footer"
+                    style={{
+                        marginTop: 24,
+                        fontSize: 9,
+                        color: '#999',
+                        borderTop: '1px solid #eee',
+                        paddingTop: 6,
+                        textAlign: 'center',
+                    }}
+                >
+                    Generated from The Circle on {formatDateTime(new Date())}
+                </div>
             </div>
         );
     }
@@ -201,7 +220,6 @@ export function printPreviewDocument(node: HTMLElement | null, title: string) {
                 table.approval-row { table-layout: fixed !important; width: 100% !important; min-width: 0 !important; }
             }
         </style></head><body>${html}
-        <div class="footer">Generated ${new Date().toLocaleString()}</div>
         <script>window.onload = () => { setTimeout(() => window.print(), 250); };</script>
         </body></html>`);
     w.document.close();

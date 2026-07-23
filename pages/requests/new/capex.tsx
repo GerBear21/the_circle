@@ -11,6 +11,7 @@ import { useToast } from '../../../components/ui/ToastProvider';
 import { OnBehalfOfField, type OnBehalfOf } from '../../../components/requests/OnBehalfOfField';
 import ApproverSectionLoader from '../../../components/requests/ApproverSectionLoader';
 import { CAPEX_APPROVAL_ROLES, CAPEX_APPROVAL_SECTIONS } from '../../../lib/capexApproval';
+import { buildCapexPreviewSections } from '../../../lib/previews/capexPreview';
 
 interface DocumentMetadata {
   file: File;
@@ -173,7 +174,8 @@ export default function NewCapexRequestPage() {
         isSelectedSupplier: false,
         selectionReason: '',
       }));
-      setQuotationDocuments(prev => [...prev, ...newDocs].slice(0, 3));
+      // The standard is 3 quotations, but more are allowed (no hard cap).
+      setQuotationDocuments(prev => [...prev, ...newDocs]);
     }
   };
 
@@ -468,8 +470,12 @@ export default function NewCapexRequestPage() {
       // Fallback to session name if user profile not yet loaded/available
       setFormData(prev => ({ ...prev, requester: session.user.name || '' }));
     }
+    // businessUnitName / departmentName resolve asynchronously from the HRIMS
+    // profile — they MUST be in the deps, otherwise a name that arrives after
+    // this effect last ran never lands in formData and the request saves with a
+    // blank unit/department (shows as N/A on the details tab).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, session, isEditMode]);
+  }, [user, session, isEditMode, businessUnitName, departmentName]);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -623,88 +629,34 @@ export default function NewCapexRequestPage() {
     ];
     const preferred = allQuotes.find(q => q.selected);
     const preferredReason = preferred?.reason || quotationJustification || '';
-    const approverName = (key: string) => users.find(u => u.id === selectedApprovers[key])?.display_name || '';
-
-    // Plain black-and-white document styles (matches the RTG CAPEX template).
-    const line: React.CSSProperties = { marginBottom: 10, fontSize: 12, color: '#111', lineHeight: 1.5 };
-    const cap: React.CSSProperties = { textTransform: 'uppercase' };
-    const bold: React.CSSProperties = { fontWeight: 700 };
-    const noteStyle: React.CSSProperties = { fontSize: 12, color: '#111', marginBottom: 10 };
-    const indent: React.CSSProperties = { paddingLeft: 40 };
-    const sigRowStyle: React.CSSProperties = { display: 'flex', alignItems: 'flex-end', gap: 10, marginBottom: 16, fontSize: 12, color: '#111' };
-    const sigLine: React.CSSProperties = { flex: 1, borderBottom: '1px solid #111', minWidth: 110, textAlign: 'center', fontSize: 11, paddingBottom: 2 };
-    const dateLine: React.CSSProperties = { width: 100, borderBottom: '1px solid #111', paddingBottom: 2 };
-
-    const sigRow = (label: string, key: string) => (
-      <div style={sigRowStyle} key={key}>
-        <div style={{ width: 250, ...cap }}>{label}</div>
-        <div style={sigLine}>{approverName(key) || ' '}</div>
-        <div>DATE</div>
-        <div style={dateLine}>&nbsp;</div>
-      </div>
-    );
-
-    const documentSection: PreviewSection = {
-      content: (
-        <div style={{ fontFamily: 'Arial, Helvetica, sans-serif', color: '#111' }}>
-          <div style={line}>
-            <span style={cap}>Unit: </span><span style={bold}>{unitLabel || '—'}</span>
-            <span style={{ ...cap, marginLeft: 40 }}>Department: </span><span style={bold}>{departmentLabel || '—'}</span>
-          </div>
-          <div style={line}><span style={cap}>Description of Project: </span><span style={bold}>{formData.projectName || '—'}</span></div>
-          <div style={line}><span style={cap}>Budget/Non-Budget/ Emergency: </span><span style={bold}>{budgetTypeDisplay || '—'}</span></div>
-          <div style={line}><span style={cap}>Budget Amount: </span>{money(formData.budgetAmount)}</div>
-          <div style={line}><span style={cap}>Amount Spent to Date: </span>{money(formData.amountSpent)}</div>
-          <div style={line}><span style={cap}>Balance: </span>{money(balanceBefore)}</div>
-          <div style={line}><span style={cap}>Project Cost: </span><span style={bold}>{money(formData.amount)}</span></div>
-          <div style={line}><span style={cap}>Balance After This Purchase: </span>{money(isBudgetedCapex ? budgetBalanceDisplay : '')}</div>
-          <div style={line}><span style={cap}>Justification of Project: </span><span style={bold}>{formData.justification || '—'}</span></div>
-          <div style={noteStyle}>(Please delete inapplicable and attach Cash Flow forecast).</div>
-          <div style={line}><span style={cap}>Evaluation (for profit improvement):</span></div>
-          <div style={{ ...line, ...indent }}>Payback (Years)&nbsp;&nbsp;&nbsp;{paybackLabel || '_______________________'}</div>
-          <div style={noteStyle}>(Please attach workings)</div>
-          <div style={{ ...line, ...indent }}>NPV&nbsp;&nbsp;&nbsp;{formData.npv || '_______________________'}</div>
-          <div style={{ ...line, ...indent }}>IRR&nbsp;&nbsp;&nbsp;{formData.irr || '_______________________'}</div>
-          <div style={{ ...line, ...indent }}>
-            Incremented EBITDA {formData.evaluation ? <span style={bold}>{formData.evaluation}</span> : 'YR1_____ YR2_____ YR3_____'}
-          </div>
-
-          {[0, 1, 2].map(i => {
-            const q = allQuotes[i];
-            return (
-              <div style={{ marginBottom: 10 }} key={`q${i}`}>
-                <div style={{ fontSize: 12 }}>
-                  <span style={cap}>Quotation {i + 1}: </span>
-                  <span style={bold}>{q && q.amount ? `$ ${q.amount}` : ''}</span>
-                  <span style={{ ...bold, marginLeft: 30 }}>{q?.supplier || ''}</span>
-                </div>
-                <div style={{ fontSize: 11, paddingLeft: 40, color: '#333' }}>NAME OF SUPPLIER</div>
-              </div>
-            );
-          })}
-          <div style={line}><span style={cap}>Preferred Quotation </span><span style={bold}>{preferred?.supplier || '—'}</span></div>
-          <div style={line}><span style={cap}>Reason: </span><span style={bold}>{preferredReason || '—'}</span></div>
-          <div style={line}><span style={cap}>Project Funded From: </span>{formData.fundingSource || '—'}</div>
-          <div style={line}><span style={cap}>Project Requested By: </span>{requestorName || departmentLabel || '—'}</div>
-
-          <div style={{ height: 10 }} />
-          {CAPEX_APPROVAL_SECTIONS[0].roles.map(r => sigRow(r.label, r.key))}
-
-          <div style={{ ...line, ...cap, marginTop: 6, ...bold }}>Project Approved By:</div>
-          <div style={{ height: 6 }} />
-          {CAPEX_APPROVAL_SECTIONS[1].roles.map(r => sigRow(r.label, r.key))}
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 30, paddingTop: 8, borderTop: '1px solid #ddd', color: '#c00', fontWeight: 700, fontSize: 12 }}>
-            <span>Version 5</span>
-            <span>Issue Date: 01 May 2026</span>
-          </div>
-        </div>
+    // Shared renderer (lib/previews/capexPreview) keeps this preview, the
+    // detail-page preview and the printed PDF in lockstep.
+    return buildCapexPreviewSections({
+      unit: unitLabel,
+      department: departmentLabel,
+      projectName: formData.projectName,
+      budgetTypeDisplay,
+      currency: curr,
+      budgetAmount: formData.budgetAmount,
+      amountSpent: formData.amountSpent,
+      balance: balanceBefore,
+      projectCost: formData.amount,
+      balanceAfter: isBudgetedCapex ? budgetBalanceDisplay : '',
+      justification: formData.justification,
+      payback: paybackLabel,
+      npv: formData.npv,
+      irr: formData.irr,
+      evaluation: formData.evaluation,
+      quotations: allQuotes.map(q => ({ supplier: q.supplier, amount: q.amount })),
+      preferredSupplier: preferred?.supplier || '',
+      reason: preferredReason,
+      fundingSource: formData.fundingSource,
+      requestedBy: requestorName || departmentLabel,
+      approverNameByRole: Object.fromEntries(
+        approvalRoles.map(r => [r.key, users.find(u => u.id === selectedApprovers[r.key])?.display_name || ''])
       ),
-    };
-
-    return [documentSection];
+    });
   };
-
   // Collect every missing/invalid required field for a full submission, in the
   // order they appear on the form. Each entry carries the `field` anchor (for
   // inline errors + scroll) and a human-readable `message`.
@@ -1258,7 +1210,9 @@ export default function NewCapexRequestPage() {
   const getFilteredUsersForRole = (roleKey: string) => {
     const searchTerm = approverSearch[roleKey] || '';
     const alreadySelectedIds = Object.values(selectedApprovers).filter(id => id);
-    return users.filter(u => {
+    // The requester can never approve their own request — hide themselves from the picker.
+    const currentUserId = (session?.user as any)?.id;
+    return users.filter(u => u.id !== currentUserId).filter(u => {
       const matchesSearch = searchTerm
         ? (u.display_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
            u.email?.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -1816,13 +1770,13 @@ export default function NewCapexRequestPage() {
             Quotations
             {!isEditMode && <span className="ml-2 px-2 py-0.5 text-xs font-medium bg-danger-100 text-danger-700 rounded-full">Required</span>}
             <span className="ml-auto text-sm font-normal text-gray-500">
-              ({existingQuotations.length + quotationDocuments.length}{!isEditMode ? '/3' : ' uploaded'})
+              ({existingQuotations.length + quotationDocuments.length} uploaded{!isEditMode ? ' · 3 recommended' : ''})
             </span>
           </h3>
           <p className="text-sm text-gray-600 mb-4">
             {isEditMode
               ? 'You can upload additional quotations if needed.'
-              : 'Please upload 3 quotations from different suppliers. Each quotation should include supplier details.'}
+              : 'The standard is 3 quotations from different suppliers, but you may upload more. Each quotation should include supplier details.'}
           </p>
           {(fieldErrors.quotations || fieldErrors.quotationReason) && (
             <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-600">
@@ -1874,15 +1828,11 @@ export default function NewCapexRequestPage() {
             multiple
             accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
             onChange={handleQuotationUpload}
-            disabled={quotationDocuments.length >= 3}
           />
 
           <label
             htmlFor="quotation-upload"
-            className={`block border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer group ${quotationDocuments.length >= 3
-              ? 'border-gray-200 bg-gray-50 cursor-not-allowed'
-              : 'border-danger-200 hover:border-danger-300 hover:bg-danger-50/20'
-              }`}
+            className="block border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer group border-danger-200 hover:border-danger-300 hover:bg-danger-50/20"
           >
             <div className="w-10 h-10 bg-danger-50 rounded-full flex items-center justify-center mx-auto mb-2 group-hover:bg-white group-hover:shadow-sm">
               <svg className="w-5 h-5 text-danger-400 group-hover:text-danger-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1890,7 +1840,7 @@ export default function NewCapexRequestPage() {
               </svg>
             </div>
             <p className="text-sm text-gray-700 font-medium">
-              {quotationDocuments.length >= 3 ? 'Maximum quotations uploaded' : 'Click to upload quotations'}
+              Click to upload quotations
             </p>
             <p className="text-xs text-gray-400 mt-1">PDF, Excel, Word, or Images up to 10MB</p>
           </label>

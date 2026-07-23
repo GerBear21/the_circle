@@ -584,7 +584,9 @@ export default function ExternalCompBookingPage() {
     const getFilteredUsersForRole = (roleKey: string) => {
         const searchTerm = approverSearch[roleKey] || '';
         const alreadySelectedIds = Object.values(selectedApprovers).filter(id => id);
-        return users.filter(u => {
+        // The requester can never approve their own request — hide themselves from the picker.
+        const currentUserId = (session?.user as any)?.id;
+        return users.filter(u => u.id !== currentUserId).filter(u => {
             const matchesSearch = searchTerm
                 ? (u.display_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                    u.email?.toLowerCase().includes(searchTerm.toLowerCase()))

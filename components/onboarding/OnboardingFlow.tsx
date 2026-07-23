@@ -221,13 +221,11 @@ export default function OnboardingFlow({ user, needsProfileSetup, hasSignature, 
           setSavingProfile(false);
           return;
         }
-        if (!reportsTo) {
-          setProfileError('Please select who you report to.');
-          setSavingProfile(false);
-          return;
-        }
         // AD-only user: save the Circle profile and queue the reporting line
-        // for HR to add to the HRIMS organogram.
+        // for HR to add to the HRIMS organogram. The manager is RECOMMENDED but
+        // optional: a new joiner's manager may not be in The Circle yet (the
+        // picker only finds people who have signed in), and blocking on it used
+        // to prevent the whole profile — including the department — from saving.
         const res = await fetch('/api/onboarding/reporting-line', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -235,7 +233,7 @@ export default function OnboardingFlow({ user, needsProfileSetup, hasSignature, 
             business_unit_id: selectedBuId,
             department_id: selectedDeptId,
             job_title: jobTitle.trim(),
-            reports_to_user_id: reportsTo.id,
+            reports_to_user_id: reportsTo?.id ?? null,
           }),
         });
         if (!res.ok) throw new Error();
@@ -712,8 +710,11 @@ function ManagerPicker({
   return (
     <div>
       <label className="block text-sm font-medium text-text-primary mb-1.5">
-        Who do you report to? <span className="text-danger">*</span>
+        Who do you report to? <span className="text-text-muted font-normal">(optional)</span>
       </label>
+      <p className="text-xs text-text-muted mb-1.5">
+        If you can’t find your manager yet (they may not have signed in), you can leave this and set it later.
+      </p>
       {selected ? (
         <div className="flex items-center gap-3 bg-primary-50 border border-primary-200 p-3 rounded-lg">
           <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">

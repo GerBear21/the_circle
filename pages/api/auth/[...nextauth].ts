@@ -36,6 +36,11 @@ const providers: NextAuthOptions["providers"] = [
     clientId: process.env.AZURE_CLIENT_ID || "",
     clientSecret: process.env.AZURE_CLIENT_SECRET || "",
     tenantId: process.env.AZURE_TENANT || "common",
+    // next-auth's underlying openid-client defaults to a 3.5s timeout on the
+    // server-to-Microsoft calls (OIDC discovery, token exchange, JWKS). On
+    // slower networks / VPNs that isn't enough and the callback fails with
+    // "outgoing request timed out after 3500ms". Give it real headroom.
+    httpOptions: { timeout: 20000 },
     authorization: {
       params: {
         scope: MS_SCOPE,
