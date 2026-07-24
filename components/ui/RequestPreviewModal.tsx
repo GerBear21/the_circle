@@ -14,6 +14,9 @@ export interface PreviewSection {
     fields?: PreviewField[];
     /** When provided, rendered in place of `fields` — use for tables, multi-column layouts, etc. */
     content?: ReactNode;
+    /** Start this section on a new printed page (and show a divider on screen).
+     *  Used e.g. to render a combined comp + travel document as two pages. */
+    pageBreakBefore?: boolean;
 }
 
 export interface DocumentHeader {
@@ -118,7 +121,28 @@ export const RequestPreviewDocument = forwardRef<HTMLDivElement, RequestPreviewD
                 )}
 
                 {sections.map((section, i) => (
-                    <div key={i}>
+                    <div
+                        key={i}
+                        className={section.pageBreakBefore ? 'preview-page-break' : undefined}
+                        style={section.pageBreakBefore ? { breakBefore: 'page', pageBreakBefore: 'always' } : undefined}
+                    >
+                        {section.pageBreakBefore && i > 0 && (
+                            <div
+                                className="preview-page-divider"
+                                style={{
+                                    borderTop: '2px dashed #cbd5e1',
+                                    margin: '32px 0 20px',
+                                    paddingTop: 8,
+                                    textAlign: 'center',
+                                    fontSize: 10,
+                                    letterSpacing: '0.12em',
+                                    textTransform: 'uppercase',
+                                    color: '#94a3b8',
+                                }}
+                            >
+                                Page 2
+                            </div>
+                        )}
                         {section.title && (
                             <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-900 border-b border-gray-300 pb-1.5 mt-5 mb-2">
                                 {section.title}
@@ -214,9 +238,13 @@ export function printPreviewDocument(node: HTMLElement | null, title: string) {
             table.approval-row .sig-line { height: 22px !important; }
             /* Neutralise the on-screen horizontal scroll wrapper so it cannot clip. */
             table.approval-row { display: table; }
+            .preview-page-break { break-before: page; page-break-before: always; }
             @media print {
                 @page { margin: 14mm; }
                 body { padding: 0; }
+                /* The on-screen "Page 2" divider is redundant once a real page
+                   break exists — hide it in the printed/PDF output. */
+                .preview-page-divider { display: none !important; }
                 table.approval-row { table-layout: fixed !important; width: 100% !important; min-width: 0 !important; }
             }
         </style></head><body>${html}

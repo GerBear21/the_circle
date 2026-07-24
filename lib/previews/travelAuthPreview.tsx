@@ -483,7 +483,7 @@ export function travelAuthInputFromRequest(request: any): TravelAuthPreviewInput
         employee: {
             name: creator.display_name,
             department: metadata.department || creator.department?.name,
-            businessUnit: metadata.businessUnit || metadata.business_unit_name,
+            businessUnit: metadata.businessUnit || metadata.business_unit_name || creator.business_unit?.name,
         },
         requestTimestamp: request?.created_at
             ? new Date(request.created_at).toLocaleString('en-GB', {

@@ -195,7 +195,18 @@
       "Bash(cat __TRACKED_VAR__/tsc6.txt)",
       "mcp__861faebf-71a3-42b9-aade-8f0f23fed2e0__list_projects",
       "Bash(grep -q EXIT: __TRACKED_VAR__/tsc7.txt)",
-      "Bash(cat __TRACKED_VAR__/tsc7.txt)"
+      "Bash(cat __TRACKED_VAR__/tsc7.txt)",
+      "Bash(git -C /c/Users/Geraldine.Ndoro/the_circle diff --stat)",
+      "Bash(ls -la /c/Users/Geraldine.Ndoro/Downloads/ | grep -i comp)",
+      "Read(//c/Users/Geraldine.Ndoro/AppData/Local/Temp/claude/C--Users-Geraldine-Ndoro-the-circle/8b9c439a-f5b8-4703-a1b6-4a081dcd8336/scratchpad/comp_unpacked/**)",
+      "Bash(sed -e 's/<w:p [^>]*>/\\\\n[P]/g' -e 's/<w:p>/\\\\n[P]/g' -e 's/<w:tab\\\\/>/[TAB]/g' -e 's/<w:tr [^>]*>/\\\\n[ROW]/g' -e 's/<w:tc>/[CELL]/g' -e 's/<[^>]*>//g' word/document.xml)",
+      "Bash(grep -v '^\\\\s*$')",
+      "Bash(perl -i -pe \"s/\\\\Q: ' '}<\\\\/div>\\\\E/: '\\\\\\\\\\\\\\\\u00A0'}<\\\\/div>/ if \\\\$. == 112\" lib/previews/capexPreview.tsx)",
+      "Bash(npx next *)",
+      "Bash(node -e \"const c=require\\('crypto'\\);const s=c.randomBytes\\(16\\);const k=c.scryptSync\\('ClaudeTest#2026',s,32,{N:16384,r:8,p:1}\\);console.log\\('scrypt\\\\$16384\\\\$8\\\\$1\\\\$'+s.toString\\('base64'\\)+'\\\\$'+k.toString\\('base64'\\)\\)\")",
+      "Bash(cd /c/Users/GERALD~1.NDO/AppData/Local/Temp/claude/C--Users-Geraldine-Ndoro-the-circle/8b9c439a-f5b8-4703-a1b6-4a081dcd8336/scratchpad && sed -n '531,695p' orig_preview.tsx)",
+      "Bash(ls -la \"/c/Users/Geraldine.Ndoro/AppData/Local/Temp/claude/C--Users-Geraldine-Ndoro-the-circle/8b9c439a-f5b8-4703-a1b6-4a081dcd8336/scratchpad/newcomp.tsx\" 2>&1 | head)",
+      "Bash(grep -n \"RESUBMIT_FORM_ROUTES\" \"pages/requests/[id].tsx\" | head; echo \"---map---\"; sed -n '/RESUBMIT_FORM_ROUTES = {/,/};/p' \"pages/requests/[id].tsx\" | head -30)"
     ]
   }
 }

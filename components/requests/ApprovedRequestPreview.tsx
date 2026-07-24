@@ -221,7 +221,7 @@ function buildTravelAuthSections(request: any, metadata: any): PreviewSection[] 
                         </tr>
                         <tr>
                             <td style={labelCellStyle}>Business Unit</td>
-                            <td style={cellStyle}>{metadata.businessUnit || metadata.business_unit_name || '—'}</td>
+                            <td style={cellStyle}>{metadata.businessUnit || metadata.business_unit_name || creator.business_unit?.name || '—'}</td>
                             <td style={labelCellStyle}>Submitted</td>
                             <td style={cellStyle}>{formatDateTime(request.created_at)}</td>
                         </tr>
@@ -408,7 +408,7 @@ function buildPettyCashSections(request: any, metadata: any): PreviewSection[] {
                 { label: 'Submitted by', value: creator.display_name || '—' },
                 { label: 'Email', value: creator.email || '—' },
                 { label: 'Department', value: metadata.department || creator.department?.name || '—' },
-                { label: 'Business Unit', value: metadata.businessUnit || metadata.business_unit_name || '—' },
+                { label: 'Business Unit', value: metadata.businessUnit || metadata.business_unit_name || creator.business_unit?.name || '—' },
                 { label: 'Submitted', value: formatDateTime(request?.created_at) },
             ],
         },
@@ -530,15 +530,51 @@ const COMP_ACCOMMODATION_LABELS: Record<string, string> = {
 
 function buildCompSections(request: any, metadata: any): PreviewSection[] {
     const creator = request?.creator || {};
-    const units: any[] = Array.isArray(metadata.selectedBusinessUnits) ? metadata.selectedBusinessUnits : [];
     const travel = metadata.travelDocument;
     const hasTravel = metadata.processTravelDocument && travel;
 
+    // Normalise units: the multi-unit picker stores selectedBusinessUnits[];
+    // external hotel bookings store a single flat hotelUnit + room fields. The
+    // projection keeps the original table populated for both shapes.
+    const units: any[] = (() => {
+        if (Array.isArray(metadata.selectedBusinessUnits) && metadata.selectedBusinessUnits.length > 0) {
+            return metadata.selectedBusinessUnits;
+        }
+        if (metadata.hotelUnit || metadata.numberOfRooms || metadata.numberOfNights || metadata.arrivalDate) {
+            return [{
+                name: metadata.hotelUnit || 'Hotel',
+                accommodationType: metadata.accommodationType,
+                voucherValidityPeriod: metadata.voucherValidityPeriod
+                    || (metadata.arrivalDate && metadata.departureDate ? `${metadata.arrivalDate} → ${metadata.departureDate}` : ''),
+                numberOfPeople: metadata.numberOfPeople,
+                numberOfRooms: metadata.numberOfNights || metadata.numberOfRooms,
+                roomType: metadata.roomType,
+                numberOfMeals: metadata.numberOfMeals,
+                mealPeopleCount: metadata.mealPeopleCount,
+                specialArrangements: metadata.specialArrangements,
+            }];
+        }
+        return [];
+    })();
+
     const isMealOnly = (t?: string) => ['meals_all', 'rainbow_delights', 'breakfast_only', 'lunch_only', 'dinner_only'].includes(t || '');
 
+    // A comp requester is usually the guest themselves — fall back to the
+    // requestor's name when no explicit guest was entered.
     const guestDisplay = metadata.guestNames
         || [metadata.guestTitle, metadata.guestFirstName].filter(Boolean).join(' ')
+        || creator.display_name
         || '—';
+
+    // Hotel bookings store stay dates + nights; vouchers store a validity
+    // period + people + room type. Render the columns the data actually
+    // carries so populated fields don't show as '—'.
+    const hasStayDates = units.some((u: any) => u.arrivalDate || u.departureDate);
+
+    // A comp requester is usually the guest themselves — only surface the
+    // "Requestor" (Submitted by) block when the request was filed on behalf of
+    // someone else, so it doesn't duplicate the guest information.
+    const onBehalf = metadata.onBehalfOf && (metadata.onBehalfOf.userId || metadata.onBehalfOf.name);
 
     const sections: PreviewSection[] = [
         {
@@ -559,15 +595,17 @@ function buildCompSections(request: any, metadata: any): PreviewSection[] {
                     : []),
             ],
         },
-        {
-            title: 'Requestor',
-            fields: [
-                { label: 'Submitted by', value: creator.display_name || '—' },
-                { label: 'Email', value: creator.email || '—' },
-                ...(creator.job_title ? [{ label: 'Job Title', value: creator.job_title }] : []),
-                { label: 'Submitted', value: formatDateTime(request?.created_at) },
-            ],
-        },
+        ...(onBehalf
+            ? [{
+                title: 'Requestor',
+                fields: [
+                    { label: 'Submitted by', value: creator.display_name || '—' },
+                    { label: 'Email', value: creator.email || '—' },
+                    ...(creator.job_title ? [{ label: 'Job Title', value: creator.job_title }] : []),
+                    { label: 'Submitted', value: formatDateTime(request?.created_at) },
+                ],
+            }]
+            : []),
         ...(metadata.reason
             ? [{
                 title: 'Reason for Complimentary',
@@ -578,8 +616,37 @@ function buildCompSections(request: any, metadata: any): PreviewSection[] {
 
     if (units.length > 0) {
         sections.push({
-            title: 'Business Units',
-            content: (
+            title: hasStayDates ? 'Hotel Bookings' : 'Business Units',
+            content: hasStayDates ? (
+                <table style={docGridStyle}>
+                    <thead>
+                        <tr>
+                            <th style={headCellStyle}>Hotel Unit</th>
+                            <th style={headCellStyle}>Type</th>
+                            <th style={headCellStyle}>Arrival</th>
+                            <th style={headCellStyle}>Departure</th>
+                            <th style={{ ...headCellStyle, textAlign: 'right' }}>Nights</th>
+                            <th style={{ ...headCellStyle, textAlign: 'right' }}>Rooms</th>
+                            <th style={headCellStyle}>Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {units.map((unit: any, i: number) => (
+                            <tr key={unit.id || i}>
+                                <td style={cellStyle}>{unit.name || '—'}</td>
+                                <td style={cellStyle}>
+                                    {COMP_ACCOMMODATION_LABELS[unit.accommodationType] || unit.accommodationType || '—'}
+                                </td>
+                                <td style={cellStyle}>{unit.arrivalDate ? formatDate(unit.arrivalDate) : '—'}</td>
+                                <td style={cellStyle}>{unit.departureDate ? formatDate(unit.departureDate) : '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{unit.numberOfNights || '—'}</td>
+                                <td style={{ ...cellStyle, textAlign: 'right' }}>{unit.numberOfRooms || '—'}</td>
+                                <td style={cellStyle}>{unit.specialArrangements || '—'}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            ) : (
                 <table style={docGridStyle}>
                     <thead>
                         <tr>
@@ -587,7 +654,7 @@ function buildCompSections(request: any, metadata: any): PreviewSection[] {
                             <th style={headCellStyle}>Voucher Type</th>
                             <th style={headCellStyle}>Validity</th>
                             <th style={{ ...headCellStyle, textAlign: 'right' }}>People</th>
-                            <th style={{ ...headCellStyle, textAlign: 'right' }}>Nights</th>
+                            <th style={{ ...headCellStyle, textAlign: 'right' }}>Rooms</th>
                             <th style={headCellStyle}>Room Type</th>
                             <th style={headCellStyle}>Notes</th>
                         </tr>
@@ -619,8 +686,11 @@ function buildCompSections(request: any, metadata: any): PreviewSection[] {
 
     if (hasTravel) {
         const itinerary: any[] = Array.isArray(travel.itinerary) ? travel.itinerary : [];
+        // The travel authorisation is a distinct document — start it on a fresh
+        // page so the combined comp + travel preview / PDF reads as two pages.
         sections.push({
             title: 'Local Travel Authorization',
+            pageBreakBefore: true,
             fields: [
                 { label: 'Date of Intended Travel', value: formatDate(travel.dateOfIntendedTravel) },
                 { label: 'Travel Mode', value: travel.travelMode || '—' },
@@ -710,8 +780,9 @@ function buildCapexSections(request: any, metadata: any): PreviewSection[] {
     // Approver name per role: resolve each approverRoles[roleKey] id against the
     // request_steps' embedded approver display names.
     const roleMap: Record<string, any> = data.approverRoles || metadata.approverRoles || {};
+    const steps: any[] = Array.isArray(request?.request_steps) ? request.request_steps : [];
     const nameById = new Map<string, string>();
-    for (const step of (Array.isArray(request?.request_steps) ? request.request_steps : []) as any[]) {
+    for (const step of steps) {
         const approver = Array.isArray(step.approver) ? step.approver[0] : step.approver;
         if (step.approver_user_id && approver?.display_name) {
             nameById.set(step.approver_user_id, approver.display_name);
@@ -723,6 +794,25 @@ function buildCapexSections(request: any, metadata: any): PreviewSection[] {
         approverNameByRole[role.key] = uid ? nameById.get(uid) || '' : '';
     }
 
+    // Recorded signature per role: the signature IMAGE of each approver who has
+    // actually approved goes on that role's signature line (names are only a
+    // caption under the line — never printed on it).
+    const approverSignatureByRole: Record<string, { url: string | null; signedAt?: string | null }> = {};
+    for (const role of CAPEX_APPROVAL_ROLES) {
+        const uid = roleMap[role.key];
+        const step =
+            steps.find((s) => s.approver_role === role.key) ||
+            (uid ? steps.find((s) => s.approver_user_id === uid) : null);
+        if (!step) continue;
+        const approval = Array.isArray(step.approvals) ? step.approvals[0] : null;
+        if (!approval?.signed_at || approval.decision !== 'approved') continue;
+        const approverId = approval?.approver?.id || approval?.approver_id || step.approver_user_id;
+        approverSignatureByRole[role.key] = {
+            url: signatureUrlForApproval(approval, approverId),
+            signedAt: approval.signed_at,
+        };
+    }
+
     const quotes: any[] = Array.isArray(data.quotations) ? data.quotations : [];
     const preferred = quotes.find((q) => q.isSelectedSupplier);
 
@@ -732,8 +822,8 @@ function buildCapexSections(request: any, metadata: any): PreviewSection[] {
     const budgetTypeMap: Record<string, string> = { budget: 'BUDGETED', 'non-budget': 'NON-BUDGETED', emergency: 'EMERGENCY' };
 
     return buildCapexPreviewSections({
-        unit: data.unit || '',
-        department: data.department || '',
+        unit: data.unit || request?.creator?.business_unit?.name || '',
+        department: data.department || request?.creator?.department?.name || '',
         projectName: data.projectName || request?.title || '',
         budgetTypeDisplay: budgetTypeMap[data.budgetType] || (data.budgetType ? String(data.budgetType).toUpperCase() : ''),
         currency: data.currency || 'USD',
@@ -753,6 +843,7 @@ function buildCapexSections(request: any, metadata: any): PreviewSection[] {
         fundingSource: data.fundingSource || '',
         requestedBy: data.requester || request?.creator?.display_name || data.department || '',
         approverNameByRole,
+        approverSignatureByRole,
     });
 }
 
@@ -816,8 +907,9 @@ function buildDocumentHeader(metadata: any): DocumentHeader {
     }
 }
 
-// Shared section/header builder — used by both the modal and the inline tab.
-function buildPreviewForRequest(request: any) {
+// Shared section/header builder — used by the modal, the inline tab, and the
+// client-side "download as PDF" print flow on the detail pages.
+export function buildPreviewForRequest(request: any) {
     const metadata = request?.metadata || {};
     const type = metadata.type || metadata.requestType || '';
     const ref = metadata.referenceCode || `REQ-${String(request?.id || '').slice(0, 8).toUpperCase()}`;

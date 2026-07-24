@@ -236,11 +236,14 @@ export default function OnboardingFlow({ user, needsProfileSetup, hasSignature, 
             reports_to_user_id: reportsTo?.id ?? null,
           }),
         });
-        if (!res.ok) throw new Error();
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d?.error);
+        }
       }
       go(step + 1);
-    } catch {
-      setProfileError('We couldn’t save your details. Please try again.');
+    } catch (err: any) {
+      setProfileError(err?.message || 'We couldn’t save your details. Please try again.');
     } finally {
       setSavingProfile(false);
     }
@@ -279,7 +282,20 @@ export default function OnboardingFlow({ user, needsProfileSetup, hasSignature, 
     }
   };
 
-  const manualComplete = !!selectedBuId && !!selectedDeptId && !!jobTitle.trim() && !!reportsTo;
+  // The person at the top of the org (Group Chief Executive) reports to the
+  // board, who are not Circle users — so we don't ask them "who do you report
+  // to?". Detected from the job title they enter.
+  const isTopRole = /\b(group chief executive|chief executive officer|\bceo\b|group ceo|managing director)\b/i.test(jobTitle);
+  useEffect(() => {
+    if (isTopRole && reportsTo) setReportsTo(null);
+  }, [isTopRole, reportsTo]);
+
+  // NOTE: the manager (reportsTo) is deliberately NOT required here — it's
+  // optional in the UI and the API. Requiring it used to leave users whose
+  // manager hadn't signed in yet stuck with a disabled Continue button, so
+  // they abandoned onboarding and their department/business unit were never
+  // saved (department_id/business_unit_id stayed NULL in app_users).
+  const manualComplete = !!selectedBuId && !!selectedDeptId && !!jobTitle.trim();
   const hrimsReady = !hrimsLoading && (hrimsFound || manualComplete || !needsProfileSetup);
 
   // ---- per-step content ----------------------------------------------------
@@ -386,6 +402,7 @@ export default function OnboardingFlow({ user, needsProfileSetup, hasSignature, 
             />
           </div>
 
+          {!isTopRole && (
           <ManagerPicker
             selected={reportsTo}
             onSelect={(u) => { setReportsTo(u); setManagerSearch(''); setManagerResults([]); setManagerOpen(false); }}
@@ -397,6 +414,7 @@ export default function OnboardingFlow({ user, needsProfileSetup, hasSignature, 
             open={managerOpen}
             onOpen={() => setManagerOpen(true)}
           />
+          )}
         </div>
       )}
     </div>,
