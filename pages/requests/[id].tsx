@@ -66,13 +66,17 @@ interface RequestDetail {
     current_step: number;
     total_steps: number;
     metadata?: Record<string, any>;
+    creator_id?: string;
     creator: {
         id: string;
         display_name: string;
         email: string;
         profile_picture_url?: string;
         department_id?: string | null;
+        business_unit_id?: string | null;
         job_title?: string | null;
+        department?: { id: string; name: string } | null;
+        business_unit?: { id: string; name: string } | null;
     };
     current_approver?: {
         id: string;
@@ -1384,7 +1388,14 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
     const [unsubmitting, setUnsubmitting] = useState(false);
 
     const currentUserId = (session?.user as any)?.id;
-    const isCreator = request?.creator?.id === currentUserId;
+    // Use the authoritative creator_id (always present) with the embedded
+    // creator object only as a fallback. Relying solely on the embed meant the
+    // creator's action buttons (Unsubmit & Edit, Cancel, Delete) silently
+    // vanished whenever the join wasn't shaped as expected — the action bar is
+    // meant to be universal across every request type, CAPEX included.
+    const creatorId = request?.creator_id
+        || (Array.isArray(request?.creator) ? request?.creator[0]?.id : request?.creator?.id);
+    const isCreator = !!currentUserId && creatorId === currentUserId;
     const isDraft = request?.status === 'draft';
     const canPublish = isCreator && isDraft;
     const canDelete = isCreator && request?.status !== 'approved';
@@ -3992,8 +4003,8 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                 </div>
                             </div>
                             {(() => {
-                                const dept = request.metadata?.department;
-                                const bu = request.metadata?.unit || request.metadata?.businessUnit || request.metadata?.business_unit_name;
+                                const dept = request.metadata?.department || (request.creator as any)?.department?.name;
+                                const bu = request.metadata?.unit || request.metadata?.businessUnit || request.metadata?.business_unit_name || (request.creator as any)?.business_unit?.name;
                                 if (!dept && !bu) return null;
                                 return (
                                     <div className="mt-4 grid grid-cols-2 gap-3">
@@ -4230,13 +4241,13 @@ export default function RequestDetailsPage({ initialRequest, initialError }: Req
                                     <div>
                                         <div className="text-xs text-gray-500 uppercase tracking-wide font-medium">Business Unit</div>
                                         <div className="text-sm font-medium text-gray-900 mt-0.5">
-                                            {request.metadata?.unit || request.metadata?.businessUnit || request.metadata?.business_unit_name || 'N/A'}
+                                            {request.metadata?.unit || request.metadata?.businessUnit || request.metadata?.business_unit_name || (request.creator as any)?.business_unit?.name || 'N/A'}
                                         </div>
                                     </div>
                                     <div>
                                         <div className="text-xs text-gray-500 uppercase tracking-wide font-medium">Department</div>
                                         <div className="text-sm font-medium text-gray-900 mt-0.5">
-                                            {request.metadata?.department || 'N/A'}
+                                            {request.metadata?.department || (request.creator as any)?.department?.name || 'N/A'}
                                         </div>
                                     </div>
                                 </div>

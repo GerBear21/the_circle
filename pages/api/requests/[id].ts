@@ -9,6 +9,7 @@ import { assistantCanActOn } from '@/lib/assistantAssignments';
 import { isPermanentWatcherOf } from '@/lib/permanentWatchers';
 import { getUserRBACProfile, hasPermission, PERMISSIONS } from '@/lib/rbac';
 import { audit } from '@/lib/auditLog';
+import { fetchHrimsDepartmentById, fetchHrimsBusinessUnitById } from '@/lib/hrimsClient';
 
 const UpdateRequestSchema = z.object({
   title: z.string().min(1).max(500).optional(),
@@ -62,6 +63,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             email,
             profile_picture_url,
             department_id,
+            business_unit_id,
             job_title
           ),
           request_steps (
@@ -208,7 +210,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const actualStatus = computeActualStatus(request.status, request.request_steps);
 
-      return res.status(200).json({ 
+      // Resolve the creator's department / business unit NAMES. The IDs on
+      // app_users reference the HRIMS database (a separate Supabase project),
+      // so they can't be joined in the query above — without this, previews
+      // fall back to '—' for department and business unit.
+      const creator: any = request.creator;
+      if (creator && (creator.department_id || creator.business_unit_id)) {
+        try {
+          const [dept, bu] = await Promise.all([
+            creator.department_id ? fetchHrimsDepartmentById(creator.department_id) : Promise.resolve(null),
+            creator.business_unit_id ? fetchHrimsBusinessUnitById(creator.business_unit_id) : Promise.resolve(null),
+          ]);
+          if (dept) creator.department = { id: dept.id, name: dept.name };
+          if (bu) creator.business_unit = { id: bu.id, name: bu.name };
+        } catch {
+          // HRIMS unavailable — previews keep their metadata-based fallbacks.
+        }
+      }
+
+      return res.status(200).json({
         request: {
           ...request,
           status: actualStatus,

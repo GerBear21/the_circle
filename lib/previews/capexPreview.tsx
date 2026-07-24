@@ -15,6 +15,13 @@ export interface CapexPreviewQuote {
   amount: string;
 }
 
+export interface CapexRoleSignature {
+  /** Image src for the recorded signature (proxy URL or data URL). */
+  url: string | null;
+  /** ISO timestamp of when the approval was signed. */
+  signedAt?: string | null;
+}
+
 export interface CapexPreviewInput {
   unit: string;
   department: string;
@@ -38,6 +45,14 @@ export interface CapexPreviewInput {
   requestedBy: string;
   /** roleKey -> approver display name (blank if unassigned). */
   approverNameByRole: Record<string, string>;
+  /**
+   * roleKey -> recorded approval signature. When present for a role, the
+   * signature IMAGE is rendered on the signature line (with the approver's
+   * name as a small caption underneath) and the signed date fills the DATE
+   * line. Absent (e.g. pre-submission form preview, or a step not yet
+   * approved) the line stays blank with the assignee's name captioned below.
+   */
+  approverSignatureByRole?: Record<string, CapexRoleSignature>;
 }
 
 export const capexPreviewTitle = 'Capital Expenditure Form';
@@ -54,18 +69,50 @@ export function buildCapexPreviewSections(input: CapexPreviewInput): PreviewSect
   const bold: React.CSSProperties = { fontWeight: 700 };
   const noteStyle: React.CSSProperties = { fontSize: 12, color: '#111', marginBottom: 10 };
   const indent: React.CSSProperties = { paddingLeft: 40 };
-  const sigRowStyle: React.CSSProperties = { display: 'flex', alignItems: 'flex-end', gap: 10, marginBottom: 16, fontSize: 12, color: '#111' };
-  const sigLine: React.CSSProperties = { flex: 1, borderBottom: '1px solid #111', minWidth: 110, textAlign: 'center', fontSize: 11, paddingBottom: 2 };
-  const dateLine: React.CSSProperties = { width: 100, borderBottom: '1px solid #111', paddingBottom: 2 };
+  const sigRowStyle: React.CSSProperties = { display: 'flex', alignItems: 'flex-end', gap: 10, marginBottom: 24, fontSize: 12, color: '#111' };
+  const dateLine: React.CSSProperties = { width: 100, borderBottom: '1px solid #111', paddingBottom: 2, textAlign: 'center', fontSize: 11 };
 
-  const sigRow = (label: string, key: string) => (
-    <div style={sigRowStyle} key={key}>
-      <div style={{ width: 250, ...cap }}>{label}</div>
-      <div style={sigLine}>{approverName(key) || ' '}</div>
-      <div>DATE</div>
-      <div style={dateLine}>&nbsp;</div>
-    </div>
-  );
+  const fmtSignedDate = (iso?: string | null) => {
+    if (!iso) return '';
+    try {
+      return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    } catch {
+      return '';
+    }
+  };
+
+  // Signature line: the approval's signature IMAGE sits on the line once the
+  // role has signed; the assignee's name is a small caption BELOW the line
+  // (never on it — the line itself is reserved for the signature).
+  const sigRow = (label: string, key: string) => {
+    const sig = input.approverSignatureByRole?.[key];
+    const name = approverName(key);
+    return (
+      <div style={sigRowStyle} key={key}>
+        <div style={{ width: 250, ...cap }}>{label}</div>
+        <div style={{ flex: 1, minWidth: 160 }}>
+          <div style={{ borderBottom: '1px solid #111', minHeight: 72, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', paddingBottom: 2 }}>
+            {sig?.url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={sig.url}
+                alt={`${name || label} signature`}
+                style={{ maxHeight: 68, maxWidth: 260, display: 'block' }}
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+              />
+            ) : (
+              <span>&nbsp;</span>
+            )}
+          </div>
+          {name ? (
+            <div style={{ fontSize: 10, color: '#555', marginTop: 2, textAlign: 'center' }}>{name}</div>
+          ) : null}
+        </div>
+        <div>DATE</div>
+        <div style={dateLine}>{sig?.signedAt ? fmtSignedDate(sig.signedAt) : ' '}</div>
+      </div>
+    );
+  };
 
   const quoteSlots = Math.max(3, input.quotations.length);
 
